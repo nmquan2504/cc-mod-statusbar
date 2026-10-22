@@ -1,0 +1,14 @@
+{
+  "name": "cc-mod-statusbar",
+  "description": "The cc-mod-statusbar mod for Claude Code, installed from its own repository.",
+  "owner": {
+    "name": "Quan Nguyen"
+  },
+  "plugins": [
+    {
+      "name": "cc-mod-statusbar",
+      "source": "./",
+      "description": "A clickable status bar above the prompt: add context, slash commands, model, usage gauges, permission mode and the guardrails in force."
+    }
+  ]
+}
