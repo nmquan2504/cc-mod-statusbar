@@ -623,6 +623,24 @@ $('unpair').onclick = async () => {
 }
 
 const text = $('text')
+// The on-screen keyboard: Chrome on Android resizes the page for it (interactive-widget in the
+// viewport meta); Safari on iOS does not, so the reply box is lifted by what the keyboard covers.
+const vv = window.visualViewport
+function fitKeyboard() {
+  const covered = vv ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0
+  document.documentElement.style.setProperty('--kb', `${covered}px`)
+}
+if (vv) {
+  vv.addEventListener('resize', fitKeyboard)
+  vv.addEventListener('scroll', fitKeyboard)
+}
+// the keyboard takes a moment to come up: then the box is measured again and brought into view
+text.addEventListener('focus', () => setTimeout(() => {
+  fitKeyboard()
+  text.scrollIntoView({ block: 'nearest' })
+}, 300))
+text.addEventListener('blur', () => setTimeout(fitKeyboard, 150))
+
 // grows with what is typed, up to 160px; only then does it scroll
 function fitText() {
   text.style.height = '42px'

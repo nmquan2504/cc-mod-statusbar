@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#1a1a18">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -15,6 +15,8 @@
     --claude: #d97757; --me: #b4532a; --me-text: #ffffff; --ok: #6fbf73; --bad: #e5675e; --warn: #e0b04a; --link: #7aa7e6;
     --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
     --top: calc(48px + env(safe-area-inset-top));
+    /* how much of the bottom the on-screen keyboard covers, where the browser does not resize for it */
+    --kb: 0px;
   }
   @media (prefers-color-scheme: light) {
     :root { --bg: #f7f6f1; --panel: #ffffff; --line: #e3e1d7; --text: #23231f; --dim: #6c6b63; --ok: #2e8b3a; --bad: #c4372d; --warn: #a87a10; --link: #2d63b8; }
@@ -42,7 +44,7 @@
   @keyframes pulse { 50% { opacity: .35; } }
 
   /* the conversation */
-  main { padding: calc(var(--top) + 12px) 12px calc(76px + env(safe-area-inset-bottom)); }
+  main { padding: calc(var(--top) + 12px) 12px calc(76px + env(safe-area-inset-bottom) + var(--kb)); }
   .b { max-width: 88%; margin: 0 0 10px; padding: 8px 12px; border-radius: 18px; overflow-wrap: anywhere; }
   .b.me { margin-left: auto; background: var(--me); color: var(--me-text); border-bottom-right-radius: 6px; white-space: pre-wrap; width: fit-content; }
   .b.me a { color: var(--me-text); }
@@ -89,11 +91,11 @@
   .md th, .md td { border: 1px solid var(--line); padding: 3px 8px; text-align: left; vertical-align: top; }
 
   /* the composer */
-  footer { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; display: flex; gap: 8px; align-items: flex-end; background: var(--bg); border-top: 1px solid var(--line); padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); }
+  footer { position: fixed; left: 0; right: 0; bottom: var(--kb); z-index: 10; display: flex; gap: 8px; align-items: flex-end; background: var(--bg); border-top: 1px solid var(--line); padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); }
   textarea { flex: 1; resize: none; height: 42px; max-height: 160px; overflow-y: hidden; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 21px; padding: 10px 14px; font-family: inherit; font-size: 15px; line-height: 20px; }
   .send { flex: none; width: 42px; height: 42px; border-radius: 50%; border: 0; background: var(--claude); color: #fff; display: inline-flex; align-items: center; justify-content: center; }
   .send:disabled { opacity: .5; }
-  .jump { position: fixed; right: 14px; bottom: calc(70px + env(safe-area-inset-bottom)); z-index: 11; width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); display: inline-flex; align-items: center; justify-content: center; }
+  .jump { position: fixed; right: 14px; bottom: calc(70px + env(safe-area-inset-bottom) + var(--kb)); z-index: 11; width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); display: inline-flex; align-items: center; justify-content: center; }
 
   /* the drawer, the session sheet, the files page */
   .scrim { position: fixed; inset: 0; z-index: 20; background: rgba(0, 0, 0, .45); }
