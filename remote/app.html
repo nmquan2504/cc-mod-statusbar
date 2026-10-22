@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1a1a18">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Claude remote</title>
+<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<style>
+  :root {
+    --bg: #1a1a18; --panel: #24241f; --line: #34342d; --text: #ecebe4; --dim: #9b9a90;
+    --claude: #d97757; --ok: #6fbf73; --bad: #e5675e; --warn: #e0b04a; --link: #7aa7e6;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f7f6f1; --panel: #ffffff; --line: #e3e1d7; --text: #23231f; --dim: #6c6b63; --ok: #2e8b3a; --bad: #c4372d; --warn: #a87a10; --link: #2d63b8; }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  body { padding: env(safe-area-inset-top) 0 calc(96px + env(safe-area-inset-bottom)); }
+  header { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); padding: 10px 16px 0; }
+  .row { display: flex; align-items: center; gap: 8px; }
+  .between { justify-content: space-between; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--dim); flex: none; }
+  .dot.busy { background: var(--claude); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .status { font-weight: 600; }
+  .meta { color: var(--dim); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 8px; }
+  .chip { font: 12px var(--mono); padding: 2px 7px; border-radius: 99px; border: 1px solid var(--line); color: var(--dim); }
+  .chip.warn { color: var(--warn); border-color: var(--warn); }
+  .chip.bad { color: var(--bad); border-color: var(--bad); }
+  nav { display: flex; gap: 4px; }
+  nav button { flex: 1; background: none; border: 0; border-bottom: 2px solid transparent; color: var(--dim); padding: 8px 0; font: inherit; font-weight: 600; }
+  nav button.on { color: var(--text); border-color: var(--claude); }
+  button.small { background: none; border: 1px solid var(--line); color: var(--text); border-radius: 8px; padding: 4px 10px; font: 13px inherit; }
+  main { padding: 12px 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-bottom: 12px; }
+  .card h3 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); }
+  .tool { font: 13px var(--mono); padding: 3px 0; border-top: 1px dashed var(--line); overflow-wrap: anywhere; }
+  .tool:first-of-type { border-top: 0; }
+  .now { color: var(--claude); }
+  .task { padding: 2px 0; }
+  .task.done { color: var(--dim); text-decoration: line-through; }
+  .msg { margin-bottom: 12px; }
+  .msg .who { font-size: 12px; font-weight: 700; color: var(--dim); margin-bottom: 2px; }
+  .msg.user .who { color: var(--link); }
+  .msg.assistant .who { color: var(--claude); }
+  .msg .body { white-space: pre-wrap; overflow-wrap: anywhere; }
+  pre { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; overflow-x: auto; font: 12px/1.4 var(--mono); white-space: pre; margin: 6px 0; }
+  code { font: 13px var(--mono); background: var(--bg); padding: 0 3px; border-radius: 4px; }
+  .file { display: flex; justify-content: space-between; gap: 8px; padding: 10px 0; border-top: 1px solid var(--line); font: 13px var(--mono); }
+  .file:first-of-type { border-top: 0; }
+  .file .path { overflow-wrap: anywhere; color: var(--link); }
+  .add { color: var(--ok); } .del { color: var(--bad); } .hunk { color: var(--link); } .ctx { color: var(--dim); }
+  .diff { font: 12px/1.45 var(--mono); white-space: pre; overflow-x: auto; }
+  .diff div { min-height: 1.45em; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+  .grid img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); }
+  .empty { color: var(--dim); text-align: center; padding: 32px 0; }
+  .overlay { position: fixed; inset: 0; z-index: 20; background: var(--bg); overflow: auto; padding: calc(12px + env(safe-area-inset-top)) 16px 24px; }
+  .overlay img { max-width: 100%; }
+  footer { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; background: var(--bg); border-top: 1px solid var(--line); padding: 8px 16px calc(8px + env(safe-area-inset-bottom)); }
+  footer .hint { font-size: 12px; color: var(--dim); margin-bottom: 4px; }
+  textarea { flex: 1; resize: none; min-height: 44px; max-height: 160px; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 10px; font: inherit; }
+  .send { background: var(--claude); color: #fff; border: 0; border-radius: 10px; padding: 0 16px; height: 44px; font: inherit; font-weight: 700; }
+  .send:disabled { opacity: .5; }
+  .toast { position: fixed; left: 16px; right: 16px; top: calc(12px + env(safe-area-inset-top)); z-index: 30; background: var(--panel); border: 1px solid var(--claude); border-radius: 10px; padding: 10px 12px; }
+  .code { font: 700 40px var(--mono); letter-spacing: .2em; color: var(--claude); margin-top: 12px; }
+  .pick { font: 13px inherit; padding: 4px 10px; border-radius: 99px; border: 1px solid var(--line); background: none; color: var(--text); display: inline-flex; align-items: center; gap: 6px; }
+  .pick.on { border-color: var(--claude); background: var(--panel); }
+  .pick .dot { width: 8px; height: 8px; }
+  .gate { max-width: 420px; margin: 20vh auto 0; padding: 0 16px; text-align: center; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div id="gate" class="gate" hidden>
+  <h2>Claude remote</h2>
+  <p id="gate-text">Scan the QR code in the terminal (⇄ on the status bar).</p>
+  <div id="gate-code" class="code" hidden></div>
+</div>
+<div id="app" hidden>
+  <header>
+    <div class="row between">
+      <div class="row"><span id="dot" class="dot"></span><span id="status" class="status">idle</span></div>
+      <button id="notify" class="small" hidden>Notify me</button>
+    </div>
+    <div id="sessions" class="chips"></div>
+    <div id="where" class="meta"></div>
+    <div id="chips" class="chips"></div>
+    <nav>
+      <button data-tab="activity" class="on">Activity</button>
+      <button data-tab="files">Files</button>
+      <button data-tab="images">Images</button>
+    </nav>
+  </header>
+  <main>
+    <section id="tab-activity"></section>
+    <section id="tab-files" hidden></section>
+    <section id="tab-images" hidden></section>
+  </main>
+  <footer>
+    <div id="hint" class="hint" hidden></div>
+    <div class="row">
+      <textarea id="text" rows="1" placeholder="Reply to Claude"></textarea>
+      <button id="send" class="send">Send</button>
+    </div>
+  </footer>
+</div>
+<div id="overlay" class="overlay" hidden></div>
+<script src="/app.js"></script>
+</body>
+</html>

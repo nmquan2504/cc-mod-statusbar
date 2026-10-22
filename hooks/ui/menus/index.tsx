@@ -11,6 +11,7 @@ import { drawImagesMenu } from './images'
 import { drawMcpMenu } from './mcp'
 import { drawModeMenu } from './mode'
 import { drawModelMenu } from './model'
+import { drawRemoteMenu } from './remote'
 import { drawSettingsMenu } from './settings'
 import { drawTasksMenu } from './tasks'
 import { drawUsageMenu } from './usage'
@@ -38,6 +39,7 @@ export async function drawMenu($: any, els: any, kind: MenuKind, isTerminal: boo
       case 'mcp': return drawMcpMenu($, els, isTerminal, entry)
       case 'tasks': return drawTasksMenu($, els, isTerminal, entry)
       case 'guard': return drawGuardMenu($, els, isTerminal, entry)
+      case 'remote': return drawRemoteMenu($, els, isTerminal, entry)
       default: return undefined
     }
   })()

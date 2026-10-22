@@ -6,6 +6,7 @@ import { readGuard } from '../features/guard'
 import { readImages } from '../features/images'
 import { readMcp } from '../features/mcp'
 import { probeMode } from '../features/mode'
+import { tickRemote } from '../features/remote'
 import { refreshBar } from '../features/status'
 import { UPDATE_EVERY, checkModUpdate } from '../features/update'
 import { cache, vaultSessionStart } from '../features/vault'
@@ -62,6 +63,8 @@ export function registerSession(on: On) {
       if (ticks % 15 === 0) void runAutomation($).catch(() => undefined)
       // the mod's own repository: new commits upstream, a minute in and then every hour
       if (ticks % UPDATE_EVERY === 60) void checkModUpdate($).catch(() => undefined)
+      // Self remote: this session's snapshot to the hub, and what the phone sent back
+      if (cfg.selfRemote && ticks % 2 === 0) void tickRemote($).catch(() => undefined)
       if (rt.isHot) $.ui.invalidate('ui.render') // the blink past 90%
       void read($, menu).then(async open => {
         if (open === 'tasks') await readWork($)

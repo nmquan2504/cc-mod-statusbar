@@ -2,10 +2,11 @@ import { atom, read, update } from 'claude-code'
 import { summarizeTurn } from '../features/assist'
 import { planContinue } from '../features/automation'
 import { readGuard } from '../features/guard'
+import { notifyRemote, readRemoteMessages } from '../features/remote'
 import { refreshBar } from '../features/status'
 import { keepUsage } from '../features/usage'
 
-import { clockOf } from '../lib/format'
+import { clockOf, oneLine } from '../lib/format'
 import { CONTINUE_TEXT, MAX_TRIES, clockNow, vnClock } from '../lib/schedule'
 import { cfg } from '../state/config'
 import { rt } from '../state/runtime'
@@ -52,8 +53,15 @@ export function registerTurn(on: On) {
     rt.turnPrompt = String((e as any).text ?? '')
     await update($, edited, () => [])
     rt.turnCostAt = (await $.session.usage().catch(() => undefined))?.cost?.usd ?? null
+    if (cfg.selfRemote) void readRemoteMessages($).catch(() => undefined)
     return next(e)
   }).catch(($, e, next) => next(e)) // a status bar never holds up the session
+
+  // Claude waits for the person (a permission prompt, an idle prompt): the phone hears of it
+  on('classic.Notification', async ($, e: any, next) => {
+    if (cfg.selfRemote) void notifyRemote($, `Claude needs you · /${(await read($, bar)).folder}`, oneLine(String(e.message ?? ''), 200)).catch(() => undefined)
+    return next(e)
+  }).catch(($, e, next) => next(e))
 
   // StopFailure names the API error a turn died on; a turn.complete with reason 'error' follows
   on('classic.StopFailure', async ($, e: any, next) => {
@@ -92,6 +100,13 @@ export function registerTurn(on: On) {
       const spent = rt.turnCostAt !== null && cost != null ? ` · $${(cost - rt.turnCostAt).toFixed(2)}` : ''
       // a quick answer needs no toast; a long one may have run while you looked away
       if (cfg.turnToast && took >= cfg.turnToastSeconds * 1000) $.ui.toast(`statusbar: done in ${clockOf(took)}${spent}`)
+      // the phone hears of every main-loop turn's end, with the start of Claude's answer
+      if (cfg.selfRemote && !e.agentId) {
+        const folder = (await read($, bar)).folder
+        void readRemoteMessages($)
+          .then(() => notifyRemote($, `Done · /${folder} · ${clockOf(took)}`, oneLine(String(e.answer ?? ''), 200) || 'Claude finished.'))
+          .catch(() => undefined)
+      }
       // behind the turn's end, never holding it up
       if (cfg.turnSummary && took >= cfg.summarySeconds * 1000)
         void summarizeTurn($, took, rt.turnCostAt !== null && cost != null ? cost - rt.turnCostAt : null).catch(() => undefined)

@@ -17,6 +17,7 @@ export const TITLES: Record<MenuKind, string> = {
   effort: '◔ Effort',
   settings: '⊞ Settings',
   images: '▣ Pasted images',
+  remote: '⇄ Self remote',
 }
 
 // What /effort takes, lowest first, with what each buys.

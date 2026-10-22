@@ -27,7 +27,7 @@ export type GuardInfo = {
 }
 
 // Which menu is open above the bar.
-export type MenuKind = 'add' | 'files' | 'web' | 'commands' | 'model' | 'mode' | 'guard' | 'tasks' | 'usage' | 'mcp' | 'git' | 'settings' | 'effort' | 'images'
+export type MenuKind = 'add' | 'files' | 'web' | 'commands' | 'model' | 'mode' | 'guard' | 'tasks' | 'usage' | 'mcp' | 'git' | 'settings' | 'effort' | 'images' | 'remote'
 
 export type CommandRow = { name: string; description: string; group: string }
 export type FileRow = { name: string; isDir: boolean }

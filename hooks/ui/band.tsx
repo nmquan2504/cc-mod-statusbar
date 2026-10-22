@@ -3,6 +3,7 @@ import { atom, read } from 'claude-code'
 import type { MenuKind } from '../../types'
 import { ARENA_GAP, ARENA_MIN, arena, arenaRuns, endRound, resetArena } from '../features/arena'
 import { closeMenu, openMenu } from '../features/menu'
+import { remote } from '../features/remote'
 import { pullModUpdate } from '../features/update'
 import { TITLES, effortColor, effortIcon, modeStyle, modelStyle } from '../lib/catalog'
 import { clockOf, level, meter, oneLine, pct, shortModel } from '../lib/format'
@@ -133,6 +134,10 @@ export async function drawBand($: any, e: any, next: any) {
   const brokenLabel = broken ? ` ✘ ${taskName(broken.command)} ` : ''
   // ↑ mod: the mod's own repository has new commits upstream; a press asks, then pulls them
   const updateLabel = rt.modBehind ? ' ↑ mod ' : ''
+  // ⇄: Self remote, with the setting on; ⇄ 2 while two phones watch, ⇄ ? while one asks to pair
+  const rs = remote.status
+  const remoteLabel = !cfg.selfRemote ? '' : rs?.pending.length ? ' ⇄ ? ' : rs?.phones ? ` ⇄ ${rs.phones} ` : ' ⇄ '
+  const remoteColor = rs?.pending.length ? 'warning' : rs?.url ? 'success' : 'subtle'
   const imageCount = (await read($, images)).length
   const imagesLabel = cfg.barImages && imageCount ? ` ▣ ${imageCount} ` : ''
   // The items in the order Settings set: those before the arena make the left group, the rest the
@@ -171,7 +176,7 @@ export async function drawBand($: any, e: any, next: any) {
     const cellsOf = (keys: string[]) => keys.map(k => width[k] ?? 0).filter(Boolean).reduce((n, w) => n + 1 + w, 0)
     const left = 3 + 1 + 3 + cellsOf(order.slice(0, split))
     const rightCells = (brokenLabel ? 1 + brokenLabel.length : 0) + (continueLabel ? 1 + continueLabel.length : 0)
-      + (updateLabel ? 1 + updateLabel.length : 0) + cellsOf(order.slice(split + 1))
+      + (updateLabel ? 1 + updateLabel.length : 0) + (remoteLabel ? 1 + remoteLabel.length : 0) + cellsOf(order.slice(split + 1))
     const right = Math.max(0, rightCells - 1)
     return { folderText, branchText, marksText, modelLabel, modeLabel, effortLabel, showGauge, left, right }
   }
@@ -361,6 +366,11 @@ export async function drawBand($: any, e: any, next: any) {
           {updateLabel ? (
             <Button key="update" plain hover={{ scope: 'qsb-update', bold: true }} onPress={() => pullModUpdate($)}>
               <Text backgroundColor="suggestion" color="inverseText" bold>{updateLabel}</Text>
+            </Button>
+          ) : null}
+          {remoteLabel ? (
+            <Button key="remote" plain hover={{ scope: 'qsb-remote', bold: true }} onPress={() => openMenu($, 'remote')}>
+              {pill('remote', remoteLabel, remoteColor)}
             </Button>
           ) : null}
           {order.slice(split + 1).map(itemOf)}
