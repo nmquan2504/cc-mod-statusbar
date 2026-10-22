@@ -61,7 +61,7 @@ export const remote = {
   addedDirs: [] as string[],
   memoryAt: 0,
   // the slash commands and skills, for the phone's list, read on joining and every five minutes
-  commands: [] as { name: string; description: string; group: string; isBuiltin: boolean; isMacOnly: boolean; needsArgs: boolean }[],
+  commands: [] as { name: string; description: string; group: string; isBuiltin: boolean; isComputerOnly: boolean; needsArgs: boolean }[],
   // the commands the phone sent, each with what it printed or why it did not run, newest last
   cmdLog: [] as { at: number; command: string; text: string; isError: boolean }[],
   commandsAt: 0,
@@ -343,14 +343,14 @@ async function readMemory($: any) {
 
 // The built-in commands the phone may run: those that print text or hand the model a prompt, and
 // those that take a value (with one; bare, they open a picker). Every other built-in opens a
-// panel on the Mac, which nothing can close from the phone, so it runs only there.
+// panel in the terminal on the computer, which nothing can close from the phone, so it runs only there.
 const PHONE_BUILTINS = new Set(['cost', 'compact', 'clear', 'init', 'review', 'security-review', 'pr-comments', 'plan', 'fast'])
 const PHONE_WITH_VALUE = new Set(['model', 'effort', 'output-style', 'add-dir'])
 // true when the phone may run it; else why not
 export function phoneMayRun(name: string, args: string, isBuiltin: boolean): true | string {
   if (!isBuiltin || PHONE_BUILTINS.has(name)) return true
-  if (PHONE_WITH_VALUE.has(name)) return args ? true : `/${name} with no value opens a picker on the Mac; give it one, as /${name} <value>`
-  return `/${name} opens a panel on the Mac, and the phone cannot close it; run it at the Mac`
+  if (PHONE_WITH_VALUE.has(name)) return args ? true : `/${name} with no value opens a picker on the computer; give it one, as /${name} <value>`
+  return `/${name} opens a panel on the computer, and the phone cannot close it; run it at the computer`
 }
 
 // The commands the phone lists, as the ⁄ menu has them: the ones typed most first, then by group.
@@ -360,7 +360,7 @@ async function readCommands($: any) {
   const list: any[] = await $.command.list().catch(() => [])
   const rows = list.map(c => {
     const name = String(c.name), isBuiltin = c.source === 'builtin'
-    return { name, description: oneLine(String(c.description ?? ''), 120), group: groupOf(c), isBuiltin, isMacOnly: isBuiltin && !PHONE_BUILTINS.has(name) && !PHONE_WITH_VALUE.has(name), needsArgs: isBuiltin && PHONE_WITH_VALUE.has(name) }
+    return { name, description: oneLine(String(c.description ?? ''), 120), group: groupOf(c), isBuiltin, isComputerOnly: isBuiltin && !PHONE_BUILTINS.has(name) && !PHONE_WITH_VALUE.has(name), needsArgs: isBuiltin && PHONE_WITH_VALUE.has(name) }
   })
     .sort((a, b) => a.group.localeCompare(b.group) || a.name.localeCompare(b.name))
   const counts = ((await $.store.get(USE_KEY).catch(() => undefined)) ?? {}) as Record<string, { n: number; last: number }>

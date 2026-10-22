@@ -303,12 +303,12 @@ test('the QR code shows on the first opening after Start; once the menu shut, q 
   expect(await textOf(band)).toContain('█▀')
 })
 
-test('from the phone a built-in runs only when it prints text or takes a value; a panel stays on the Mac', () => {
+test('from the phone a built-in runs only when it prints text or takes a value; a panel stays on the computer', () => {
   expect(phoneMayRun('humanizer', '', false)).toBe(true) // a skill hands the model a prompt
   expect(phoneMayRun('cost', '', true)).toBe(true)
   expect(phoneMayRun('model', 'opus', true)).toBe(true)
-  expect(phoneMayRun('model', '', true)).toContain('opens a picker on the Mac')
-  expect(phoneMayRun('usage', '', true)).toContain('opens a panel on the Mac')
+  expect(phoneMayRun('model', '', true)).toContain('opens a picker on the computer')
+  expect(phoneMayRun('usage', '', true)).toContain('opens a panel on the computer')
   expect(phoneMayRun('config', '', true)).toContain('the phone cannot close it')
-  expect(phoneMayRun('exit', '', true)).toContain('run it at the Mac')
+  expect(phoneMayRun('exit', '', true)).toContain('run it at the computer')
 })

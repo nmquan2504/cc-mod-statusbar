@@ -861,7 +861,7 @@ text.addEventListener('input', fitText)
 $('send').onclick = async () => {
   const value = text.value.trim()
   if (!value || !snap) return
-  // /usage shows here, from what the session reports; nothing opens on the Mac
+  // /usage shows here, from what the session reports; nothing opens on the computer
   if (/^\/usage\b/.test(value)) {
     text.value = ''
     fitText()
@@ -1011,18 +1011,18 @@ function renderCommands() {
     const card = root.appendChild(el('div', 'card'))
     card.append(el('h3', '', group.replace(/^\d+ · /, '')))
     for (const c of list.filter(x => x.group === group)) {
-      const b = card.appendChild(el('button', `cmd${c.isMacOnly ? ' maconly' : ''}`))
+      const b = card.appendChild(el('button', `cmd${c.isComputerOnly ? ' computeronly' : ''}`))
       const head = b.appendChild(el('div', 'n', `/${c.name}`))
-      if (c.isMacOnly) head.append(el('span', 'tag', 'Mac only'))
+      if (c.isComputerOnly) head.append(el('span', 'tag', 'Computer only'))
       if (c.needsArgs) head.append(el('span', 'tag', 'give a value'))
       b.append(el('div', 'd', c.description))
       b.onclick = () => {
-        // a panel would open on the Mac, where nothing from here can close it; /usage shows here
+        // a panel would open on the computer, where nothing from here can close it; /usage shows here
         if (c.name === 'usage') {
           $('cmds').hidden = true
           return openUsage()
         }
-        if (c.isMacOnly) return toast({ title: `/${c.name} is Mac only`, body: 'It opens a panel on the Mac, which the phone cannot close.' })
+        if (c.isComputerOnly) return toast({ title: `/${c.name} is computer only`, body: 'It opens a panel on the computer, which the phone cannot close.' })
         text.value = `/${c.name} ${text.value.replace(/^\/\S+\s*/, '')}`
         fitText()
         $('cmds').hidden = true
