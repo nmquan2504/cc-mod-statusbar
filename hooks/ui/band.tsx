@@ -14,7 +14,7 @@ import { barOrder, cfg } from '../state/config'
 import type { CfgKey } from '../state/config'
 import { rt } from '../state/runtime'
 import { drawMenu } from './menus/index'
-import { chipsNow, sendChip } from '../features/chips'
+import { chipsNow, dismissChips, sendChip } from '../features/chips'
 
 // The atoms this file reads or writes (each file declares its own: the engine reads an atom only
 // where a const of the same file made it; the same plugin and key are the same value).
@@ -342,6 +342,9 @@ export async function drawBand($: any, e: any, next: any) {
               <Text color="suggestion">{`‹ ${oneLine(c, 40)} ›`}</Text>
             </Button>
           ))}
+          <Button key="chips-dismiss" plain role="dismiss" hover={{ scope: 'qsb-chip', bold: true }} onPress={() => dismissChips($)}>
+            <Text dimColor>{' ✕ '}</Text>
+          </Button>
         </Box>
       ) : null}
       <Box flexDirection="row" justifyContent="space-between">

@@ -2047,4 +2047,11 @@ test('the band shows the chips once a turn ends; a press sends the chip, a /comm
   await t.turn.complete({ text: 'ok', reason: 'answer', answer: 'Next: say "Merge pr".' })
   await band.press({ key: 'chip:0' })
   expect(submitted).toEqual(['Merge pr'])
+  // ✕ takes the row away, sending nothing, until the next answer brings its own
+  await t.turn.start({ text: 'go', turnId: 't3', kind: 'engine' })
+  await t.turn.complete({ text: 'ok', reason: 'answer', answer: 'Next: say "Xóa nhánh".' })
+  await band.press({ key: 'chips-dismiss' })
+  expect(await band.find({ key: 'chip:0' })).toBeUndefined()
+  expect(await band.find({ key: 'chips-dismiss' })).toBeUndefined()
+  expect(submitted).toEqual(['Merge pr'])
 })
