@@ -177,6 +177,28 @@ function inline(text, into) {
   if (at < text.length) into.append(document.createTextNode(text.slice(at)))
   return into
 }
+// your words in a bubble: each [Image #n] pasted with them a link that opens the picture here
+function prompted(text, into) {
+  let at = 0
+  for (const m of text.matchAll(/\[Image #(\d+)\]/g)) {
+    const img = (snap.images || []).find(i => String(i.n) === m[1])
+    if (!img) continue
+    if (m.index > at) inline(text.slice(at, m.index), into)
+    const a = into.appendChild(el('a', 'imglink', m[0]))
+    a.href = '#'
+    a.onclick = ev => {
+      ev.preventDefault()
+      const body = openViewer(`Image #${img.n}`)
+      void imageUrl('image', { n: img.n }, `${snap.id}:${img.n}`).then(url => {
+        if (url) body.appendChild(el('img')).src = url
+        else body.append(el('div', 'none', 'This image is no longer on the computer.'))
+      })
+    }
+    at = m.index + m[0].length
+  }
+  if (at < text.length) inline(text.slice(at), into)
+  return into
+}
 function table(rows) {
   const wrap = el('div', 'tablewrap')
   const t = wrap.appendChild(el('table'))
@@ -317,7 +339,7 @@ function renderChat() {
     // a command sent from here: its bubble, and what it printed or why it did not run
     if (t.k === 'cmd') {
       tools = null
-      root.append(inline(t.command, el('div', 'b me')))
+      root.append(prompted(t.command, el('div', 'b me')))
       root.append(el('pre', `cmdout${t.isError ? ' bad' : ''}`, t.text))
       continue
     }
@@ -332,7 +354,7 @@ function renderChat() {
       continue
     }
     tools = null
-    if (t.k === 'user') root.append(inline(t.text, el('div', 'b me')))
+    if (t.k === 'user') root.append(prompted(t.text, el('div', 'b me')))
     else root.appendChild(el('div', 'b claude')).append(markdown(t.text))
   }
   // Claude Code's guess at your next prompt, under its last answer: a press puts it in the box
@@ -851,10 +873,13 @@ $('unpair').onclick = async () => {
 const text = $('text')
 // The on-screen keyboard: Chrome on Android resizes the page for it (interactive-widget in the
 // viewport meta); Safari on iOS does not, so the reply box is lifted by what the keyboard covers.
+// Only while the box has focus, and only a keyboard's height: a fast scroll moves the browser's
+// address bar, and for a moment the two heights disagree by that much with no keyboard up.
 const vv = window.visualViewport
+const KEYBOARD_MIN = 120
 function fitKeyboard() {
-  const covered = vv ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0
-  document.documentElement.style.setProperty('--kb', `${covered}px`)
+  const gap = vv && document.activeElement === text ? Math.round(window.innerHeight - vv.height - vv.offsetTop) : 0
+  document.documentElement.style.setProperty('--kb', `${gap >= KEYBOARD_MIN ? gap : 0}px`)
 }
 if (vv) {
   vv.addEventListener('resize', fitKeyboard)
