@@ -277,9 +277,12 @@ function renderChat() {
     if (t.k === 'user') root.append(inline(t.text, el('div', 'b me')))
     else root.appendChild(el('div', 'b claude')).append(markdown(t.text))
   }
+  // sent as the prompt, not in the transcript yet: drawn as the bubble it will be
+  for (const text of snap.sending || []) root.append(inline(text, el('div', 'b me')))
+  // waiting for a turn to end, dimmed; with none running it goes in at the next tick, a bubble as any
   for (const text of snap.queued || []) {
-    const b = root.appendChild(inline(text, el('div', 'b me queued')))
-    b.append(el('span', 'note', 'waits for this turn to end'))
+    const b = root.appendChild(inline(text, el('div', snap.busy ? 'b me queued' : 'b me')))
+    if (snap.busy) b.append(el('span', 'note', 'waits for this turn to end'))
   }
   if (snap.ask) {
     // the question, as a bubble that opens its page again

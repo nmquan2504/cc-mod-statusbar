@@ -358,7 +358,12 @@ const ctl = createServer(async (req, res) => {
     const texts = s ? s.inbox.splice(0) : []
     const answer = s?.answer
     if (s) delete s.answer
-    if (texts.length) bump()
+    // the texts stay on the phone as sent until the session's next snapshot says where they are
+    if (texts.length) {
+      s.snapshot = { ...s.snapshot, sending: [...(s.snapshot.sending ?? []), ...texts] }
+      s.text = ''
+      bump()
+    }
     return send(res, 200, { texts, answer })
   }
   if (route === 'POST /bye') {

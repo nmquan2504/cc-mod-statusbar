@@ -43,6 +43,8 @@ export const remote = {
   hasTerminal: undefined as boolean | undefined,
   // texts the phone sent while Claude was working, sent one at a time between turns
   queue: [] as string[],
+  // texts sent as the prompt that the transcript does not show yet: the phone keeps their bubbles
+  sending: [] as { text: string; at: number }[],
   // the conversation as the phone shows it, as the terminal draws it: read at a turn's start and
   // end, and every tick while a phone watches a turn run
   transcript: [] as TranscriptItem[],
@@ -214,6 +216,9 @@ export async function readRemoteMessages($: any) {
   const list: any[] = await $.session.messages().catch(() => [])
   remote.transcript = transcriptOf(list, await $.session.cwd().catch(() => ''))
   remote.lastAt = Date.now()
+  // a sent text the transcript now shows, or one two minutes old, leaves the sending list
+  const shown = new Set(remote.transcript.filter(t => t.k === 'user').map(t => (t as { text: string }).text.trim()))
+  remote.sending = remote.sending.filter(s => !shown.has(s.text.trim()) && Date.now() - s.at < 120_000)
 }
 
 async function snapshotOf($: any) {
@@ -239,6 +244,7 @@ async function snapshotOf($: any) {
     usage: { five: b.five, week: b.week, ctx: u?.ctxPercent ?? null, cost: u?.costUsd ?? null },
     transcript: remote.transcript,
     queued: remote.queue,
+    sending: remote.sending.map(s => s.text),
     lastAt: remote.lastAt,
     // the question Claude waits on, for the phone to answer
     ask: ask.pending && !ask.pending.result ? { id: ask.pending.id, questions: ask.pending.questions } : null,
@@ -299,7 +305,10 @@ export async function tickRemote($: any) {
   if (remote.queue.length && !rt.isBusy) {
     const text = remote.queue.shift()!
     const isSent = await $.prompt.submit({ text, asUser: true }).then(() => true, () => false)
-    if (isSent) $.ui.toast(`statusbar: remote: sent from the phone: ${oneLine(text, 60)}`)
+    if (isSent) {
+      remote.sending = [...remote.sending, { text, at: Date.now() }]
+      $.ui.toast(`statusbar: remote: sent from the phone: ${oneLine(text, 60)}`)
+    }
     else remote.queue.unshift(text)
   }
 }
