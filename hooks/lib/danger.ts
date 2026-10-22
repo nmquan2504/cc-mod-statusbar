@@ -1,4 +1,3 @@
-import { read } from 'claude-code'
 
 
 // What makes a Bash command dangerous: each part of it (split at ; & | and newlines, the pipe kept
@@ -39,7 +38,7 @@ export function dangerOf(command: string): string | null {
     const git = words.indexOf('git')
     if (git >= 0) {
       const rest = words.slice(git + 1)
-      if (rest[0] === 'push' && rest.some(w => w === '--force' || w === '-f' || /^\+/.test(w) || (/^-[a-zA-Z]+$/.test(w) && w.includes('f')))) return 'git push --force'
+      if (rest[0] === 'push' && rest.some(w => w === '--force' || w === '-f' || w.startsWith('+') || (/^-[a-zA-Z]+$/.test(w) && w.includes('f')))) return 'git push --force'
       if (rest[0] === 'reset' && rest.includes('--hard')) return 'git reset --hard'
       if (rest[0] === 'clean' && rest.some(w => /^-[a-zA-Z]*f/.test(w) || w === '--force')) return 'git clean -f'
       if (rest[0] === 'branch' && rest.includes('-D')) return 'git branch -D'

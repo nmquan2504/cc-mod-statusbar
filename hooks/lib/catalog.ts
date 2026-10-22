@@ -1,6 +1,6 @@
 import type { MenuKind } from '../../types'
 
-import { level, shortModel } from './format'
+import { shortModel } from './format'
 
 export const TITLES: Record<MenuKind, string> = {
   add: '+ Quick actions',

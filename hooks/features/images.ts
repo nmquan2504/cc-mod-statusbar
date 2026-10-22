@@ -1,6 +1,5 @@
 import { atom, update } from 'claude-code'
 import type { ImageRow } from '../../types'
-import { parent } from '../lib/format'
 
 // The atoms this file reads or writes (each file declares its own: the engine reads an atom only
 // where a const of the same file made it; the same plugin and key are the same value).

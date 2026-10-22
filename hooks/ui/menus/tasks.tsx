@@ -22,7 +22,7 @@ const edited = atom({ plugin: 'cc-mod-statusbar', key: 'edited' } as const, [])
 const lastTurn = atom({ plugin: 'cc-mod-statusbar', key: 'lastTurn' } as const, null)
 
 // The tasks menu.
-export async function drawTasksMenu($: any, els: any, isTerminal: boolean, entry: Entry) {
+export async function drawTasksMenu($: any, els: any, _isTerminal: boolean, _entry: Entry) {
   const { Box, Button, Text } = els
   const list = await read($, tasks)
   const files = await read($, edited)

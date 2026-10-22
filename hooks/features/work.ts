@@ -129,6 +129,7 @@ export async function scanBackground($: any) {
 
 // The http(s) addresses a log printed (a dev server's Local and Network lines), four at most.
 export function urlsOf(lines: string[]) {
+  // eslint-disable-next-line no-control-regex -- strips ANSI color codes from the log
   const found = lines.flatMap(line => [...line.replace(/\x1b\[[0-9;]*m/g, '').matchAll(/https?:\/\/[^\s'"<>)\]]+/g)].map(m => m[0].replace(/[.,;:]+$/, '')))
   return [...new Set(found)].slice(-4)
 }

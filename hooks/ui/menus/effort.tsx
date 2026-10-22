@@ -11,7 +11,7 @@ const bar = atom({ plugin: 'cc-mod-statusbar', key: 'bar' } as const, {
 })
 
 // The effort menu.
-export async function drawEffortMenu($: any, els: any, isTerminal: boolean, entry: Entry) {
+export async function drawEffortMenu($: any, els: any, _isTerminal: boolean, _entry: Entry) {
   const { Box, Button, Text } = els
   const now = (await read($, bar)).effort
   return (

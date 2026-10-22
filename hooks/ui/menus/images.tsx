@@ -13,7 +13,7 @@ import type { Entry } from './entry'
 const images = atom({ plugin: 'cc-mod-statusbar', key: 'images' } as const, [])
 
 // The images menu.
-export async function drawImagesMenu($: any, els: any, isTerminal: boolean, entry: Entry) {
+export async function drawImagesMenu($: any, els: any, _isTerminal: boolean, _entry: Entry) {
   const { Box, Button, Text } = els
   const list = await read($, images)
   const size = (n: number) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`)

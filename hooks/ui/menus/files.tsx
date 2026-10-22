@@ -11,7 +11,7 @@ const dir = atom({ plugin: 'cc-mod-statusbar', key: 'dir' } as const, '')
 const files = atom({ plugin: 'cc-mod-statusbar', key: 'files' } as const, [])
 
 // The files menu.
-export async function drawFilesMenu($: any, els: any, isTerminal: boolean, entry: Entry) {
+export async function drawFilesMenu($: any, els: any, _isTerminal: boolean, _entry: Entry) {
   const { Box, Button, Text } = els
   const here = await read($, dir)
   const list = await read($, files)

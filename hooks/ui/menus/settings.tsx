@@ -1,13 +1,12 @@
 import { outputStyles } from '../../features/assist'
 
-import { mix } from '../../lib/graphics'
 import { BAR_ITEMS, BAR_PRESETS, DEFAULTS, HISTORY_KEY, SETTINGS, SETTINGS_KEY, applyBarPreset, barOrder, barPresetNow, cfg, importSettings, moveBarItem, restorePreviousSettings, saveSettings, settingsText } from '../../state/config'
 import { hhmm } from '../../lib/format'
 import type { CfgKey, SettingsSnapshot } from '../../state/config'
 import type { Entry } from './entry'
 
 // The settings menu.
-export async function drawSettingsMenu($: any, els: any, isTerminal: boolean, entry: Entry) {
+export async function drawSettingsMenu($: any, els: any, _isTerminal: boolean, _entry: Entry) {
   const { Box, Button, Text } = els
   const history = ((await $.store.get(HISTORY_KEY).catch(() => undefined)) ?? []) as SettingsSnapshot[]
   const styles = await outputStyles($)

@@ -26,7 +26,7 @@ const egress = atom({ plugin: 'cc-mod-statusbar', key: 'egress' } as const, [])
 const audit = atom({ plugin: 'cc-mod-statusbar', key: 'audit' } as const, [])
 
 // The guard menu.
-export async function drawGuardMenu($: any, els: any, isTerminal: boolean, entry: Entry) {
+export async function drawGuardMenu($: any, els: any, _isTerminal: boolean, _entry: Entry) {
   const { Box, Button, Text } = els
   const g = await read($, guard)
   const saved = await read($, vault)

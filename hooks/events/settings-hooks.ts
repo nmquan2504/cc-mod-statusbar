@@ -1,4 +1,3 @@
-import { read } from 'claude-code'
 import { readGuard } from '../features/guard'
 import { keepMode } from '../features/mode'
 

@@ -1,5 +1,4 @@
 import { atom, read, update } from 'claude-code'
-import { dialog } from './vault'
 import { MODES } from '../lib/catalog'
 import { rt } from '../state/runtime'
 

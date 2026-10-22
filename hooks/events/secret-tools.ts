@@ -1,6 +1,5 @@
-import { read } from 'claude-code'
 import { logAudit } from '../features/audit'
-import { acquire, cache, dialog, kcLoad, listSecrets, meta, normName, scrub } from '../features/vault'
+import { acquire, cache, kcLoad, listSecrets, meta, normName, scrub } from '../features/vault'
 import type { Binding } from '../features/vault'
 import { rt } from '../state/runtime'
 

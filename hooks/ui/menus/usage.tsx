@@ -17,7 +17,7 @@ const usage = atom({ plugin: 'cc-mod-statusbar', key: 'usage' } as const, null)
 const ctxBreakdown = atom({ plugin: 'cc-mod-statusbar', key: 'ctxBreakdown' } as const, null)
 
 // The usage menu.
-export async function drawUsageMenu($: any, els: any, isTerminal: boolean, entry: Entry) {
+export async function drawUsageMenu($: any, els: any, isTerminal: boolean, _entry: Entry) {
   const { Box, Button, Text } = els
   const u = await read($, usage)
   const ctx = await read($, ctxBreakdown)

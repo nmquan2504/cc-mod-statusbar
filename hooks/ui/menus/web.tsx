@@ -3,8 +3,8 @@ import { insertText } from '../../features/menu'
 import type { Entry } from './entry'
 
 // The web menu.
-export async function drawWebMenu($: any, els: any, isTerminal: boolean, entry: Entry) {
-  const { Box, Button, Text } = els
+export async function drawWebMenu($: any, els: any, _isTerminal: boolean, _entry: Entry) {
+  const { Box, Text } = els
   if (!('Input' in els)) return <Text dimColor>This surface has no text field.</Text>
   const { Input } = els
   return (

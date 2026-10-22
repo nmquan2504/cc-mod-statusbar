@@ -14,7 +14,7 @@ const collapsed = atom({ plugin: 'cc-mod-statusbar', key: 'collapsed' } as const
 const filter = atom({ plugin: 'cc-mod-statusbar', key: 'filter' } as const, '')
 
 // The commands menu.
-export async function drawCommandsMenu($: any, els: any, isTerminal: boolean, entry: Entry) {
+export async function drawCommandsMenu($: any, els: any, _isTerminal: boolean, _entry: Entry) {
   const { Box, Button, Text } = els
   const all = await read($, commands)
   const q = (await read($, filter)).trim().toLowerCase()

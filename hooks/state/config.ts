@@ -1,6 +1,4 @@
-import { arena } from '../features/arena'
 
-import { gauge, mix } from '../lib/graphics'
 
 // What the person set in the bar's Settings menu (+ then s), kept across sessions in this mod's store.
 export const cfg = {

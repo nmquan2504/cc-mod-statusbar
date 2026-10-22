@@ -13,7 +13,7 @@ const bar = atom({ plugin: 'cc-mod-statusbar', key: 'bar' } as const, {
 })
 
 // The model menu.
-export async function drawModelMenu($: any, els: any, isTerminal: boolean, entry: Entry) {
+export async function drawModelMenu($: any, els: any, _isTerminal: boolean, _entry: Entry) {
   const { Box, Button, Text } = els
   const now = (await read($, bar)).model
   const pick = async (alias: string) => {

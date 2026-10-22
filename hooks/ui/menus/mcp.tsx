@@ -15,7 +15,7 @@ const mcpCheck = atom({ plugin: 'cc-mod-statusbar', key: 'mcpCheck' } as const, 
 const mcpCalls = atom({ plugin: 'cc-mod-statusbar', key: 'mcpCalls' } as const, [])
 
 // The mcp menu.
-export async function drawMcpMenu($: any, els: any, isTerminal: boolean, entry: Entry) {
+export async function drawMcpMenu($: any, els: any, _isTerminal: boolean, _entry: Entry) {
   const { Box, Button, Text } = els
   const live = await read($, mcpServers)
   const check = await read($, mcpCheck)

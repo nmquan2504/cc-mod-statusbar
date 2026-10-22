@@ -1,4 +1,4 @@
-import { level, pct } from './format'
+import { pct } from './format'
 
 // ---- graphics: Raster cells, truecolor, for the terminal ---------------------
 // A cell is [codePoint, foreground, background]; 0x01000000 is the terminal's own color.

@@ -2,9 +2,6 @@
 // the engine's task notification; the first error line its log showed; whether you looked at it.
 export type BgTask = { id: string; command: string; at: number; status?: string; summary?: string; errorLine?: string; errorCount?: number; isScannedDone?: boolean; isSeen?: boolean; urls?: string[]; busyPort?: number }
 
-import { read } from 'claude-code'
-import { probeMode } from '../features/mode'
-import { ARM_MS } from '../features/permissions'
 
 
 export const ME = 'cc-mod-statusbar'

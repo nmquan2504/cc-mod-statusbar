@@ -14,7 +14,7 @@ const bar = atom({ plugin: 'cc-mod-statusbar', key: 'bar' } as const, {
 const changes = atom({ plugin: 'cc-mod-statusbar', key: 'changes' } as const, [])
 
 // The git menu.
-export async function drawGitMenu($: any, els: any, isTerminal: boolean, entry: Entry) {
+export async function drawGitMenu($: any, els: any, _isTerminal: boolean, _entry: Entry) {
   const { Box, Button, Text } = els
   const b = await read($, bar)
   const list = await read($, changes)

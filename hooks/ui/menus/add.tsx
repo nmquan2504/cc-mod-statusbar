@@ -1,6 +1,6 @@
 import { rewritePrompt } from '../../features/assist'
 import { closeMenu, insertText, openMenu } from '../../features/menu'
-import { acquire, dialog } from '../../features/vault'
+import { acquire } from '../../features/vault'
 import { mention, oneLine } from '../../lib/format'
 import { cfg } from '../../state/config'
 import { rt } from '../../state/runtime'
@@ -9,7 +9,7 @@ import type { Entry } from './entry'
 
 // The add menu.
 export async function drawAddMenu($: any, els: any, isTerminal: boolean, entry: Entry) {
-  const { Box, Button, Text } = els
+  const { Box, Text } = els
   // three groups: what goes into the prompt as context, what rewrites the prompt, the bar itself
   const heading = (key: string, title: string, note: string, isFirst = false) => (
     <Text key={key}>

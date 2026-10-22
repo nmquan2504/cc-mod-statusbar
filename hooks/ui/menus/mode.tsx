@@ -12,7 +12,7 @@ const bar = atom({ plugin: 'cc-mod-statusbar', key: 'bar' } as const, {
 })
 
 // The mode menu.
-export async function drawModeMenu($: any, els: any, isTerminal: boolean, entry: Entry) {
+export async function drawModeMenu($: any, els: any, _isTerminal: boolean, _entry: Entry) {
   const { Box, Button, Text } = els
   const now = rt.probedMode ?? rt.hintMode ?? (await read($, bar)).mode
   return (
