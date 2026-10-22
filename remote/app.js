@@ -670,6 +670,7 @@ async function showFile(path) {
 
 function openViewer(title) {
   $('viewer-title').textContent = title
+  $('viewer').dataset.page = ''
   const body = $('viewer-body')
   body.replaceChildren()
   $('viewer').hidden = false
@@ -820,6 +821,7 @@ function render() {
   // a new question opens its page; one answered elsewhere closes it
   if (snap.ask && snap.ask.id !== askHiddenId && $('ask').hidden) openAsk(false)
   else if (snap.ask && !$('ask').hidden && askDraft.id !== snap.ask.id) renderAsk()
+  renderPage()
   if (!snap.ask && !$('ask').hidden) {
     $('ask').hidden = true
     toast({ title: 'Answered', body: 'The question was answered on the Mac.' })
@@ -910,12 +912,19 @@ text.addEventListener('blur', () => setTimeout(fitKeyboard, 150))
 
 // grows with what is typed, up to 160px; only then does it scroll
 function fitText() {
-  text.style.height = '42px'
-  const h = Math.max(42, text.scrollHeight + 2)
+  text.style.height = '24px'
+  const h = Math.max(24, text.scrollHeight)
   text.style.height = `${Math.min(h, 160)}px`
   text.style.overflowY = h > 160 ? 'auto' : 'hidden'
 }
+// the reply area's height, for what sits above it (the chat's end, the jump button, the menus)
+const footer = document.querySelector('footer')
+const fitFoot = () => document.documentElement.style.setProperty('--foot', `${footer.offsetHeight}px`)
+if ('ResizeObserver' in window) new ResizeObserver(fitFoot).observe(footer)
+fitFoot()
 text.addEventListener('input', fitText)
+// a tap anywhere in the frame but its buttons puts the keyboard in the box
+document.querySelector('.composer').addEventListener('click', e => { if (!e.target.closest('button')) text.focus() })
 $('send').onclick = async () => {
   const value = text.value.trim()
   if (!value || !snap) return
@@ -930,6 +939,12 @@ $('send').onclick = async () => {
     text.value = ''
     fitText()
     return openUsage()
+  }
+  const asPage = /^\/(\w+)$/.exec(value)
+  if (asPage && PAGES.has(asPage[1])) {
+    text.value = ''
+    fitText()
+    return openPage(asPage[1])
   }
   $('send').disabled = true
   const r = await api('reply', { text: value })
@@ -1072,25 +1087,68 @@ function renderCommands() {
       if (c.isComputerOnly) head.append(el('span', 'tag', 'Computer only'))
       if (c.needsArgs) head.append(el('span', 'tag', 'give a value'))
       b.append(el('div', 'd', c.description))
-      b.onclick = () => {
-        // a panel would open on the computer, where nothing from here can close it; /usage shows here
-        if (c.name === 'secret') {
-          $('cmds').hidden = true
-          return openSecretSheet()
-        }
-        if (c.name === 'usage' || c.name === 'cost') {
-          $('cmds').hidden = true
-          return openUsage()
-        }
-        if (c.isComputerOnly) return toast({ title: `/${c.name} is computer only`, body: 'It opens a panel on the computer, which the phone cannot close.' })
-        text.value = `/${c.name} ${text.value.replace(/^\/\S+\s*/, '')}`
-        fitText()
-        $('cmds').hidden = true
-        text.focus()
-      }
+      b.onclick = () => pickCommand(c)
     }
   }
 }
+// a command picked, from the list or as you type: a panel would open on the computer, where
+// nothing from here can close it, so /usage, /secret and the pages show here; the rest go in the box
+function pickCommand(c) {
+  closeSlash()
+  if (c.name === 'secret') {
+    $('cmds').hidden = true
+    return openSecretSheet()
+  }
+  if (c.name === 'usage' || c.name === 'cost') {
+    $('cmds').hidden = true
+    return openUsage()
+  }
+  if (c.isPage) {
+    $('cmds').hidden = true
+    text.value = text.value.replace(/^\/\S*\s*/, '')
+    fitText()
+    return openPage(c.name)
+  }
+  if (c.isComputerOnly) return toast({ title: `/${c.name} is computer only`, body: 'It opens a panel on the computer, which the phone cannot close.' })
+  text.value = `/${c.name} ${text.value.replace(/^\/\S*\s*/, '')}`
+  fitText()
+  $('cmds').hidden = true
+  text.focus()
+}
+
+// ---- / as you type: the commands whose name starts with what follows it, then those holding it ----
+const SLASH_MAX = 8
+function closeSlash() {
+  $('slash').hidden = true
+}
+function updateSlash() {
+  const m = /^\/([\w:.-]*)$/.exec(text.value)
+  const all = snap?.commands || []
+  if (!m || !all.length || document.activeElement !== text) return closeSlash()
+  const typed = m[1].toLowerCase()
+  const seen = new Set()
+  const starts = all.filter(c => c.name.toLowerCase().startsWith(typed))
+  const holds = all.filter(c => !c.name.toLowerCase().startsWith(typed) && `${c.name} ${c.description}`.toLowerCase().includes(typed))
+  const list = [...starts, ...holds].filter(c => !seen.has(c.name) && seen.add(c.name)).slice(0, SLASH_MAX)
+  const box = $('slash')
+  box.replaceChildren()
+  if (!list.length) return closeSlash()
+  for (const c of list) {
+    const b = box.appendChild(el('button', `item${c.isComputerOnly ? ' computeronly' : ''}`))
+    const t = b.appendChild(el('div', 't'))
+    t.append(el('span', 'n', `/${c.name}`))
+    if (c.isComputerOnly) t.append(el('span', 'tag', 'Computer only'))
+    if (c.description) b.append(el('div', 'd', c.description))
+    // the box keeps the keyboard: a press does not take the focus first
+    b.onpointerdown = e => e.preventDefault()
+    b.onclick = () => pickCommand(c)
+  }
+  box.hidden = false
+}
+text.addEventListener('input', updateSlash)
+text.addEventListener('focus', updateSlash)
+// shut once the box has lost the keyboard, unless it has it back by then
+text.addEventListener('blur', () => setTimeout(() => document.activeElement !== text && closeSlash(), 150))
 function openCommands() {
   $('cmd-search').value = ''
   renderCommands()
@@ -1131,6 +1189,124 @@ function openUsage() {
   ctx.append(el('h3', '', 'This session'))
   ctx.append(meterRow('Context', u.ctx, u.tokens ? `${Math.round(u.tokens / 1000)}k of ${Math.round((u.window || 0) / 1000)}k tokens` : ''))
   if (typeof u.cost === 'number') ctx.append(el('div', 'meta pad', `Cost so far $${u.cost.toFixed(2)}${u.startedAt ? `, over ${clock(Date.now() - u.startedAt)}` : ''}`))
+}
+
+// ---- a panel's command as a page: the session builds it as data, one renderer draws them all ----
+// /model, /effort, /config, /permissions, /context and /mcp open a panel in the terminal, which the
+// phone could not see or close. The session sends each page as sections of rows; a press goes back
+// as { key, value } and the session sends the page again, built after it.
+const PAGES = new Set(['model', 'effort', 'config', 'permissions', 'context', 'mcp'])
+const pageAsk = { name: '', at: 0, pending: '' }
+function openPage(name) {
+  if (!snap) return
+  pageAsk.name = name
+  pageAsk.at = Date.now()
+  pageAsk.pending = ''
+  openViewer(`/${name} · ${titleOf(snap)}`).append(el('div', 'none', 'Asking the session…'))
+  $('viewer').dataset.page = name
+  renderPage()
+  void api('page', { cmd: name }).then(r => { if (r.s !== 200) toast({ title: 'Not opened', body: r.b?.error || 'The session did not answer.' }) })
+}
+async function pageAct(key, value) {
+  pageAsk.pending = key
+  pageAsk.at = Date.now()
+  renderPage()
+  const r = await api('page', { cmd: pageAsk.name, key, value })
+  if (r.s !== 200) {
+    pageAsk.pending = ''
+    renderPage()
+    toast({ title: 'Not sent', body: r.b?.error || 'The session did not answer. Try again.' })
+  }
+}
+// the page as the session last built it, once built after the last ask; drawn again on each update
+function renderPage() {
+  const name = $('viewer').dataset.page
+  if ($('viewer').hidden || !name || !snap) return
+  const page = (snap.pages || []).find(p => p.name === name)
+  if (!page || page.at < pageAsk.at - 1000) {
+    if (!pageAsk.pending) return
+  } else pageAsk.pending = ''
+  if (!page) return
+  const body = $('viewer-body')
+  const top = $('viewer').scrollTop
+  // a box being typed in is not drawn over
+  if (body.contains(document.activeElement) && document.activeElement.matches('input, textarea')) return
+  body.replaceChildren()
+  if (page.note) body.append(el('div', 'meta pad', page.note))
+  if (page.error) body.append(el('div', 'perr', page.error))
+  for (const sec of page.sections) {
+    const card = body.appendChild(el('div', 'card'))
+    if (sec.title) card.append(el('h3', '', sec.title))
+    for (const row of sec.rows) card.append(pageRow(row))
+  }
+  $('viewer').scrollTop = top
+}
+function pageRow(row) {
+  const isBusy = pageAsk.pending === row.key
+  const wrap = el('div', `prow${row.tone ? ` tone-${row.tone}` : ''}${isBusy ? ' busy' : ''}${row.isLocked ? ' locked' : ''}`)
+  const head = wrap.appendChild(el('div', 'ph'))
+  const text = head.appendChild(el('div', 'pt'))
+  text.append(el('div', 'pl', row.label))
+  if (row.detail) text.append(el('div', 'pd', row.detail))
+  const right = head.appendChild(el('div', 'pr'))
+  if (row.isLocked) {
+    right.append(el('span', 'pv', row.kind === 'toggle' ? (row.isOn ? 'on' : 'off') : row.value || ''), icon('lock'))
+    return wrap
+  }
+  if (row.kind === 'info') right.append(el('span', 'pv', row.value || ''))
+  if (row.kind === 'pick') {
+    wrap.classList.add('tap')
+    right.append(el('span', `mk${row.isOn ? ' on' : ''}`))
+    if (!row.isOn) wrap.onclick = () => pageAct(row.key)
+  }
+  if (row.kind === 'toggle') {
+    const sw = right.appendChild(el('button', `switch${row.isOn ? ' on' : ''}`))
+    sw.setAttribute('aria-pressed', String(Boolean(row.isOn)))
+    sw.onclick = () => pageAct(row.key, !row.isOn)
+  }
+  if (row.kind === 'choice') {
+    const sel = right.appendChild(el('select', 'psel'))
+    for (const o of row.options || []) {
+      const opt = sel.appendChild(el('option', '', o))
+      opt.value = o
+      if (o === row.value) opt.selected = true
+    }
+    sel.onchange = () => pageAct(row.key, sel.value)
+  }
+  if (row.kind === 'text' || row.kind === 'number') {
+    const line = wrap.appendChild(el('div', 'pin'))
+    const input = line.appendChild(el('input'))
+    input.type = row.kind === 'number' ? 'number' : 'text'
+    input.value = row.value || ''
+    const save = line.appendChild(el('button', 'pbtn', 'Save'))
+    save.onclick = () => pageAct(row.key, row.kind === 'number' ? Number(input.value) : input.value)
+  }
+  if (row.kind === 'action') {
+    const b = right.appendChild(el('button', 'pbtn', isBusy ? 'Working…' : 'Run'))
+    b.onclick = () => pageAct(row.key)
+  }
+  if (row.kind === 'remove') {
+    const b = right.appendChild(el('button', 'pbtn danger', 'Remove'))
+    b.onclick = () => {
+      if (b.dataset.armed) return pageAct(row.key)
+      b.dataset.armed = '1'
+      b.textContent = 'Tap again'
+      setTimeout(() => { delete b.dataset.armed; b.textContent = 'Remove' }, 4000)
+    }
+  }
+  if (row.kind === 'add') {
+    const line = wrap.appendChild(el('div', 'pin'))
+    const sel = line.appendChild(el('select', 'psel'))
+    for (const o of row.options || []) sel.appendChild(el('option', '', o)).value = o
+    const input = line.appendChild(el('input'))
+    input.placeholder = 'Tool(pattern)'
+    input.autocapitalize = 'off'
+    const add = line.appendChild(el('button', 'pbtn', 'Add'))
+    add.onclick = () => input.value.trim() && pageAct(row.key, `${sel.value}\n${input.value.trim()}`)
+    head.remove()
+    wrap.prepend(el('div', 'pd', `For example ${row.label}`))
+  }
+  return wrap
 }
 
 // ---- push -----------------------------------------------------------------------------------

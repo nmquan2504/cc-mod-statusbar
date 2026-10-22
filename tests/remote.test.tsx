@@ -365,9 +365,11 @@ test('from the phone a built-in runs only when it prints text or takes a value; 
   expect(phoneMayRun('compact', '', true)).toBe(true)
   expect(phoneMayRun('code-review', '', true)).toBe(true) // a bundled skill
   expect(phoneMayRun('model', 'opus', true)).toBe(true)
-  expect(phoneMayRun('model', '', true)).toContain('opens a picker on the computer')
+  // a panel the phone draws as a page of its own opens there, not on the computer
+  expect(phoneMayRun('model', '', true)).toContain('opens as a page on the phone')
+  expect(phoneMayRun('config', '', true)).toContain('opens as a page on the phone')
+  expect(phoneMayRun('config', 'verbose=true', true)).toContain('the phone cannot close it')
   expect(phoneMayRun('usage', '', true)).toContain('opens a panel on the computer')
-  expect(phoneMayRun('config', '', true)).toContain('the phone cannot close it')
   expect(phoneMayRun('exit', '', true)).toContain('run it at the computer')
 })
 
@@ -449,4 +451,71 @@ test('a prompt typed while Claude worked shows after the tool call it came in on
     { role: 'assistant', text: 'Done.', toolUses: [] },
   ], '/w', [], [...mids, { after: 'gone', text: 'compacted away', at: 2 }])
   expect(items.map(i => (i.k === 'tool' ? `tool:${i.id}` : `${i.k}:${(i as any).text}`))).toEqual(['user:fix it', 'tool:a', 'tool:b', 'user:[Image #4] the bubble is gone', 'text:Done.'])
+})
+
+test('a panel\'s command as a page on the phone: built on ask, a press carried out, the page sent again', async ($, on) => {
+  let inbox: unknown[] = []
+  const snapshots: any[] = []
+  engine(on, {
+    hub: (path, body) => {
+      if (path === '/session') snapshots.push(JSON.parse(body))
+      if (path === '/inbox') {
+        const pages = inbox
+        inbox = []
+        return { texts: [], pages }
+      }
+      return STATUS
+    },
+  })
+  const ran: string[] = []
+  const set: unknown[] = []
+  const written: Record<string, string> = {}
+  on('session.surfaces', () => ({ value: ['terminal'] }))
+  on('command.run', (_: unknown, e: any) => (ran.push(`${e.command} ${e.args}`), { text: '' }))
+  on('config.list', () => ({ value: [
+    { key: 'verbose', label: 'Verbose output', kind: 'boolean', value: false, provider: { plugin: 'engine' }, isLocked: false },
+    { key: 'theme', label: 'Theme', kind: 'choice', value: 'dark', options: ['dark', 'light'], provider: { plugin: 'engine' }, isLocked: true },
+  ] as never }))
+  on('config.set', (_: unknown, e: any) => (set.push(e), { value: e.value }))
+  on('fs.exists', () => ({ value: false }))
+  on('fs.write', (_: unknown, e: any) => ((written[e.path] = e.text), { value: undefined }))
+  on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
+  on('ui.status', () => ({ value: undefined }))
+  on('agent.list', () => ({ value: [] }))
+  on('tool.register', (_: unknown, e: { name: string }) => ({ value: { tool: e.name } }))
+  on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
+  const clock = mock.clock(on)
+  await ($ as any).session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+  const band = await $.ui.mount({ plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await switchOn(band)
+  await clock.advance(2000)
+  const pageOf = (name: string) => [...snapshots].reverse().find(s => s.pages?.some((p: any) => p.name === name))?.pages.find((p: any) => p.name === name)
+  // /model: the models to pick from; a pick runs /model
+  inbox = [{ cmd: 'model' }]
+  await clock.advance(2000)
+  expect(pageOf('model').sections[0].rows.map((r: any) => r.label)).toEqual(['Opus 5.5', 'Sonnet 5.5', 'Haiku 5.5', 'Fable 5.1'])
+  inbox = [{ cmd: 'model', key: 'm:sonnet' }]
+  await clock.advance(2000)
+  expect(ran).toContain('model sonnet')
+  // /config: a toggle set as the menu sets it; a locked row refused
+  inbox = [{ cmd: 'config' }]
+  await clock.advance(2000)
+  const rows = pageOf('config').sections[0].rows
+  expect(rows[0]).toMatchObject({ key: 'c:verbose', kind: 'toggle', isOn: false })
+  expect(rows[1]).toMatchObject({ key: 'c:theme', kind: 'choice', isLocked: true, options: ['dark', 'light'] })
+  inbox = [{ cmd: 'config', key: 'c:verbose', value: true }, { cmd: 'config', key: 'c:theme', value: 'light' }]
+  await clock.advance(2000)
+  expect(set).toEqual([expect.objectContaining({ key: 'verbose', value: true })])
+  expect(pageOf('config').error).toBe('Your organization sets this one.')
+  // /permissions: a rule added goes to .claude/settings.local.json; a malformed one is refused
+  inbox = [{ cmd: 'permissions', key: 'add', value: 'allow\nBash(npm test:*)' }]
+  await clock.advance(2000)
+  expect(JSON.parse(written['/work/shop/.claude/settings.local.json']!).permissions.allow).toEqual(['Bash(npm test:*)'])
+  inbox = [{ cmd: 'permissions', key: 'add', value: 'allow\nrm -rf /' }]
+  await clock.advance(2000)
+  expect(pageOf('permissions').error).toContain('Tool(pattern)')
+  // a name that is no page is left alone
+  inbox = [{ cmd: 'exit' }]
+  await clock.advance(2000)
+  expect(pageOf('exit')).toBeUndefined()
 })

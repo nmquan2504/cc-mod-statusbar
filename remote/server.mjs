@@ -31,6 +31,8 @@ const POLL_WAIT = 25_000
 // a phone's request is small; a session's snapshot carries its transcript
 const MAX_BODY = 64 * 1024
 const MAX_SNAPSHOT = 4 * 1024 * 1024
+// the slash commands the phone draws as pages of their own (the mod's pages.ts)
+const PAGES = new Set(['model', 'effort', 'config', 'permissions', 'context', 'mcp'])
 const MAX_DEVICES = 5
 const MAX_PAIR_FAILS = 10
 // the pairing code a phone shows and a terminal matches: letters and digits, none that look alike
@@ -310,6 +312,21 @@ async function answerOp(dev, id, op, a, res) {
       s.secrets = [...(s.secrets ?? []), { value, name: pick('name'), host: pick('host'), header: pick('header') }].slice(-5)
       return [200, { ok: true }]
     }
+    // a page the phone opened (a panel's command, drawn on the phone), or a press on one: held for
+    // the session, which builds the page and sends it in its next snapshot
+    case 'page': {
+      const s = sessions.get(session)
+      const cmd = String(a.cmd ?? '')
+      if (!s) return [400, { error: 'That session is gone.' }]
+      if (!PAGES.has(cmd)) return [400, { error: 'Not a page.' }]
+      const ask = { cmd }
+      if (typeof a.key === 'string') {
+        ask.key = a.key.slice(0, 400)
+        ask.value = typeof a.value === 'boolean' || typeof a.value === 'number' ? a.value : typeof a.value === 'string' ? a.value.slice(0, 2000) : undefined
+      }
+      s.pages = [...(s.pages ?? []), ask].slice(-10)
+      return [200, { ok: true }]
+    }
     case 'diff': {
       const diff = await diffOf(session, String(a.path ?? ''))
       return diff === undefined ? [404, { error: 'Not a file of this session.' }] : [200, { diff }]
@@ -483,9 +500,11 @@ const ctl = createServer(async (req, res) => {
     const texts = s ? s.inbox.splice(0) : []
     const answer = s?.answer
     const secrets = s?.secrets ?? []
+    const pages = s?.pages ?? []
     if (s) {
       delete s.answer
       delete s.secrets
+      delete s.pages
     }
     // the texts stay on the phone as sent until the session's next snapshot says where they are
     if (texts.length) {
@@ -493,7 +512,7 @@ const ctl = createServer(async (req, res) => {
       s.text = ''
       bump()
     }
-    return send(res, 200, { texts, answer, secrets })
+    return send(res, 200, { texts, answer, secrets, pages })
   }
   if (route === 'POST /bye') {
     if (sessions.delete(id)) bump()

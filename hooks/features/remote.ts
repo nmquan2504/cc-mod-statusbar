@@ -1,6 +1,8 @@
 import { atom, read } from 'claude-code'
 import { oneLine, shortModel } from '../lib/format'
 import { ask, settleAsk } from './ask'
+import { buildPage, isPage, pageAction } from './pages'
+import type { Page, PageName } from './pages'
 import { waitingPrompts } from './prompts'
 import { TOP_GROUP, USE_KEY, groupOf } from './commands'
 import { forgetSecret, listSecrets, saveTyped } from './vault'
@@ -62,7 +64,9 @@ export const remote = {
   addedDirs: [] as string[],
   memoryAt: 0,
   // the slash commands and skills, for the phone's list, read on joining and every five minutes
-  commands: [] as { name: string; description: string; group: string; isBuiltin: boolean; isComputerOnly: boolean; needsArgs: boolean; isOwn: boolean }[],
+  commands: [] as { name: string; description: string; group: string; isBuiltin: boolean; isComputerOnly: boolean; needsArgs: boolean; isPage: boolean; isOwn: boolean }[],
+  // the pages the phone opened (a panel's command drawn on the phone), built again on each ask
+  pages: {} as Partial<Record<PageName, Page>>,
   // the commands the phone sent, each with what it printed or why it did not run, newest last
   // `anchor`: how many messages the session held when it ran, which places it in the transcript
   cmdLog: [] as { at: number; anchor: number; command: string; text: string; isError: boolean }[],
@@ -494,6 +498,7 @@ const PHONE_WITH_VALUE = new Set(['model', 'effort', 'output-style', 'add-dir'])
 // true when the phone may run it; else why not
 export function phoneMayRun(name: string, args: string, isBuiltin: boolean): true | string {
   if (!isBuiltin || PHONE_BUILTINS.has(name)) return true
+  if (isPage(name) && !args) return `/${name} opens as a page on the phone: pick it from the + menu's Slash commands`
   if (PHONE_WITH_VALUE.has(name)) return args ? true : `/${name} with no value opens a picker on the computer; give it one, as /${name} <value>`
   return `/${name} opens a panel on the computer, and the phone cannot close it; run it at the computer`
 }
@@ -521,7 +526,9 @@ async function readCommands($: any) {
   const list: any[] = await $.command.list().catch(() => [])
   const rows = list.map(c => {
     const name = String(c.name), isBuiltin = c.source === 'builtin'
-    return { name, description: oneLine(String(c.description ?? ''), 120), group: groupOf(c), isBuiltin, isComputerOnly: isBuiltin && !PHONE_BUILTINS.has(name) && !PHONE_WITH_VALUE.has(name), needsArgs: isBuiltin && PHONE_WITH_VALUE.has(name), isOwn: c.plugin === ME }
+    // a panel the phone draws as a page of its own (pages.ts) is neither computer only nor in need of a value
+    const isPhonePage = isBuiltin && isPage(name)
+    return { name, description: oneLine(String(c.description ?? ''), 120), group: groupOf(c), isBuiltin, isComputerOnly: isBuiltin && !isPhonePage && !PHONE_BUILTINS.has(name) && !PHONE_WITH_VALUE.has(name), needsArgs: isBuiltin && !isPhonePage && PHONE_WITH_VALUE.has(name), isPage: isPhonePage, isOwn: c.plugin === ME }
   })
     .sort((a, b) => a.group.localeCompare(b.group) || a.name.localeCompare(b.name))
   const counts = ((await $.store.get(USE_KEY).catch(() => undefined)) ?? {}) as Record<string, { n: number; last: number }>
@@ -582,6 +589,8 @@ async function snapshotOf($: any) {
     ask: ask.pending && !ask.pending.result ? { id: ask.pending.id, questions: ask.pending.questions } : null,
     // the permission prompts waiting for the person, shown on the phone; answered at the computer
     permissions: waitingPrompts(Date.now()),
+    // the pages the phone opened in the last ten minutes
+    pages: Object.values(remote.pages).filter(p => Date.now() - p!.at < 600_000),
   }
 }
 
@@ -637,6 +646,20 @@ export async function tickRemote($: any) {
     else if (Object.keys(answers).length) settleAsk(a.id, { answers }, 'phone')
     $.ui.invalidate('ui.render')
   }
+  // a page the phone opened, or a press on one: carried out, the page built again, and the
+  // snapshot sent at once rather than at the next tick
+  const asked = Array.isArray(inbox?.pages) ? inbox.pages : []
+  for (const a of asked) {
+    const name = String(a?.cmd ?? '')
+    if (!isPage(name)) continue
+    const rebuild = async () => {
+      remote.pages = { ...remote.pages, [name]: await buildPage($, name) }
+      await hub($, 'POST', `/session?id=${encodeURIComponent(id)}`, await snapshotOf($))
+    }
+    const error = typeof a.key === 'string' ? await pageAction($, name, a.key, a.value, p => void p.then(rebuild, rebuild)).catch((e: unknown) => `It did not go through: ${String(e).slice(0, 200)}`) : ''
+    remote.pages = { ...remote.pages, [name]: await buildPage($, name, error || undefined) }
+  }
+  if (asked.length) await hub($, 'POST', `/session?id=${encodeURIComponent(id)}`, await snapshotOf($))
   // secrets typed on the phone go to the keychain; the phone hears the NAME and host, never the value
   for (const given of Array.isArray(inbox?.secrets) ? inbox.secrets : []) {
     const r: any = await saveTyped($, given).catch(() => ({ error: 'the keychain refused it' }))
