@@ -18,6 +18,7 @@ export const TITLES: Record<MenuKind, string> = {
   settings: '⊞ Settings',
   images: '▣ Pasted images',
   remote: '⇄ Self remote',
+  ask: '? Claude asks',
 }
 
 // What /effort takes, lowest first, with what each buys.

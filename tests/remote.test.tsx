@@ -1,4 +1,5 @@
 import { expect, test } from 'claude-code/testing'
+import { transcriptOf } from '../hooks/features/remote'
 import { qrMatrix, qrRows } from '../hooks/lib/qr'
 
 // Self remote: the ⇄ chip and its menu. The hooks registered here stand for the engine; the hub
@@ -32,9 +33,11 @@ function engine(on: any, opts: { argvs?: string[][]; hub?: (path: string, body: 
   on('session.id', () => ({ value: 'sess-1' }))
   on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200000, percent: 4 }, rateLimits: [] } }))
   on('settings.read', () => ({ value: { permissions: { deny: ['Read(./.env)'] }, hooks: { PreToolUse: [] } } }))
-  on('process.run', (_: unknown, e: { argv: string[] }) => {
+  on('process.run', async (_: unknown, e: { argv: string[] }) => {
     opts.argvs?.push(e.argv)
-    return { value: e.argv[0] === 'id' ? ran('501\n') : e.argv[0] === '/bin/sh' ? ran() : { ...ran(), exitCode: 1 } }
+    // a question's hook sleeps in process.run while it waits: a short real wait, as the shell's
+    if (e.argv[0] === 'sleep') await new Promise(r => setTimeout(r, 5))
+    return { value: e.argv[0] === 'id' ? ran('501\n') : e.argv[0] === '/bin/sh' || e.argv[0] === 'sleep' ? ran() : { ...ran(), exitCode: 1 } }
   })
   on('http.fetch', (_: unknown, e: any) => {
     const answer = e.init?.socketPath === '/tmp/qsb-remote-501/hub.sock' ? opts.hub?.(new URL(e.url).pathname, e.init?.body ?? '') : undefined
@@ -121,4 +124,99 @@ test('with the hub up: the QR code, a phone asking to pair with its code, Allow 
   await band.press({ key: 'allow:p1' })
   expect(asked).toContain('/allow {"id":"p1"}')
   expect((await band.find({ key: 'remote' }))?.text).toBe(' ⇄ 1 ')
+})
+
+test('the transcript reads as the terminal: prompts without reminders, text, tool calls with output', () => {
+  const items = transcriptOf([
+    { role: 'user', text: 'fix the test<system-reminder>not for the phone</system-reminder>', toolUses: [] },
+    { role: 'user', text: '<command-name>/model</command-name>\n<command-args>opus</command-args>', toolUses: [] },
+    {
+      role: 'assistant',
+      text: 'Reading it first.',
+      toolUses: [
+        { tool_use_id: 'a', tool: 'Read', input: { file_path: '/work/shop/src/qr.ts' }, text: 'one\ntwo\nthree' },
+        { tool_use_id: 'b', tool: 'Edit', input: { file_path: '/work/shop/src/qr.ts', old_string: 'x = 1', new_string: 'x = 2' }, text: 'updated' },
+        { tool_use_id: 'c', tool: 'Bash', input: { command: 'npm test' }, text: 'Error: 1 failed', isError: true },
+        { tool_use_id: 'd', tool: 'mcp__github__get_pr', input: { number: 3 } },
+      ],
+    },
+    { role: 'user', text: '', toolUses: [] },
+  ], '/work/shop')
+  expect(items).toEqual([
+    { k: 'user', text: 'fix the test' },
+    { k: 'user', text: '/model opus' },
+    { k: 'text', text: 'Reading it first.' },
+    { k: 'tool', id: 'a', name: 'Read', arg: 'src/qr.ts', path: '/work/shop/src/qr.ts', out: 'Read 3 lines', isError: undefined },
+    { k: 'tool', id: 'b', name: 'Update', arg: 'src/qr.ts', path: '/work/shop/src/qr.ts', out: 'updated', isError: undefined, old: 'x = 1', new: 'x = 2' },
+    { k: 'tool', id: 'c', name: 'Bash', arg: 'npm test', out: 'Error: 1 failed', isError: true },
+    { k: 'tool', id: 'd', name: 'github - get_pr (MCP)', arg: '', out: undefined, isError: undefined },
+  ])
+})
+
+// ---- Claude's AskUserQuestion, asked in the band ---------------------------------------------
+declare function setTimeout(callback: (...args: never[]) => void, ms: number): unknown
+const QUESTIONS = [
+  { question: 'Which database?', header: 'DB', multiSelect: false, options: [{ label: 'Postgres', description: 'relational', preview: 'CREATE TABLE users (...)' }, { label: 'SQLite', description: 'one file' }] },
+  { question: 'Which checks?', header: 'Checks', multiSelect: true, options: [{ label: 'lint', description: '' }, { label: 'types', description: '' }, { label: 'tests', description: '' }] },
+]
+function asking(on: any, surface = 'terminal') {
+  engine(on)
+  on('session.surfaces', () => ({ value: [surface] }))
+  // beneath the mod: the engine's own dialog, which answers only when the band does not
+  on('tool.call', { tool: 'AskUserQuestion' }, () => ({ result: { answers: { native: 'dialog' } }, text: 'the engine asked' }))
+}
+const settle = () => new Promise(r => setTimeout(r, 30))
+
+test('a question opens in the band, every one at once; picks and Other go back as the dialog words them', async ($, on) => {
+  asking(on)
+  const band = await $.ui.mount({ plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  const call = ($ as any).tool.call({ tool: 'AskUserQuestion', questions: QUESTIONS })
+  await settle()
+  const drawn = await textOf(band)
+  for (const seen of ['Which database?', 'Which checks?', 'Postgres', 'one file', 'pick an option to see its preview', 'Submit 0/2']) expect(drawn).toContain(seen)
+  await band.press({ key: 'ask:0:0' })
+  expect(await textOf(band)).toContain('CREATE TABLE users') // the picked option's preview
+  await band.press({ key: 'ask:1:0' })
+  await band.press({ key: 'ask:1:2' })
+  await (band as any).input({ key: 'ask-other:1', text: 'docs' })
+  await band.press({ key: 'ask-submit' })
+  const r = await call
+  expect(r.result.answers).toEqual({ 'Which database?': 'Postgres', 'Which checks?': 'lint, tests, docs' })
+  expect(r.text).toBe('Your questions have been answered: "Which database?"="Postgres", "Which checks?"="lint, tests, docs". You can now continue with these answers in mind.')
+  await settle()
+  expect(await textOf(band)).not.toContain('Which database?') // the menu shut with the answer
+})
+
+test('Dismiss refuses the call with a reason; shut, the menu leaves a chip that opens it again', async ($, on) => {
+  asking(on)
+  const band = await $.ui.mount({ plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  const call = ($ as any).tool.call({ tool: 'AskUserQuestion', questions: QUESTIONS.slice(0, 1) })
+  await settle()
+  await band.press({ key: 'close-menu' })
+  expect((await band.find({ key: 'ask-chip' }))?.text).toBe(' ? Claude asks ')
+  await band.press({ key: 'ask-chip' })
+  await band.press({ key: 'ask-dismiss' })
+  const r = await call
+  expect(r.deny).toContain('dismissed the question')
+})
+
+test('where no band draws (VS Code), the engine\'s own dialog asks', async ($, on) => {
+  asking(on, 'vscode')
+  const r = await ($ as any).tool.call({ tool: 'AskUserQuestion', questions: QUESTIONS.slice(0, 1) })
+  expect(r.text).toBe('the engine asked')
+})
+
+test('a question Claude asked reads as Ask, each question with the answer it got', () => {
+  const items = transcriptOf([{
+    role: 'assistant', text: '', toolUses: [
+      { tool_use_id: 'q1', tool: 'AskUserQuestion', input: { questions: [{ question: 'Which color?' }, { question: 'Which size?' }] }, text: 'Your questions have been answered: "Which color?"="Orange". You can now continue with these answers in mind.' },
+      { tool_use_id: 'q2', tool: 'AskUserQuestion', input: { questions: [{ question: 'Ship it?' }] }, result: { answers: { 'Ship it?': 'Yes' } }, text: 'answered' },
+      { tool_use_id: 'q3', tool: 'AskUserQuestion', input: { questions: [{ question: 'Now?' }] } },
+    ],
+  }], '/work')
+  expect(items.map(i => (i.k === 'tool' ? [i.name, i.arg, i.qa] : i))).toEqual([
+    ['Ask', 'Which color?', [{ q: 'Which color?', a: 'Orange' }, { q: 'Which size?', a: '' }]],
+    ['Ask', 'Ship it?', [{ q: 'Ship it?', a: 'Yes' }]],
+    ['Ask', 'Now?', [{ q: 'Now?', a: '' }]],
+  ])
 })

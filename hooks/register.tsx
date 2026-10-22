@@ -1,4 +1,5 @@
 import type { Register } from 'claude-code'
+import { registerAsk } from './events/ask'
 import { registerCommands } from './events/commands'
 import { registerPermissionCounts } from './events/permissions'
 import { registerPrompt } from './events/prompt'
@@ -29,6 +30,7 @@ export const register: Register = on => {
   registerCommands(on)
   registerSecretTools(on)
   registerTools(on)
+  registerAsk(on)
   registerPrompt(on)
   registerTurn(on)
   registerSettingsHooks(on)

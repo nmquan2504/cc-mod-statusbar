@@ -1,5 +1,6 @@
 import { atom, read } from 'claude-code'
 import { oneLine, shortModel } from '../lib/format'
+import { ask, settleAsk } from './ask'
 import { cfg } from '../state/config'
 import { rt } from '../state/runtime'
 
@@ -38,10 +39,13 @@ export const remote = {
   // this session stays off the phone's list
   isHidden: false,
   isJoined: false,
+  // whether a terminal draws this session, read once
+  hasTerminal: undefined as boolean | undefined,
   // texts the phone sent while Claude was working, sent one at a time between turns
   queue: [] as string[],
-  // the conversation as the phone shows it, read at a turn's start and end
-  messages: [] as { role: string; text: string }[],
+  // the conversation as the phone shows it, as the terminal draws it: read at a turn's start and
+  // end, and every tick while a phone watches a turn run
+  transcript: [] as TranscriptItem[],
   // the pairing requests a toast already announced
   announced: [] as string[],
   lastAt: 0,
@@ -130,14 +134,85 @@ export async function hideSession($: any, isHidden: boolean) {
   $.ui.invalidate('ui.render')
 }
 
-// The conversation for the phone: the last 30 messages with text, each cut to 6000 characters.
+// One row of the transcript the phone draws, oldest first: your prompt, Claude's text, or a tool
+// call with what it gave back (absent while it runs).
+export type TranscriptItem =
+  | { k: 'user'; text: string }
+  | { k: 'text'; text: string }
+  | { k: 'tool'; id: string; name: string; arg: string; path?: string; out?: string; isError?: boolean; old?: string; new?: string; qa?: { q: string; a: string }[] }
+
+const TRANSCRIPT_MAX = 80
+const cut = (t: string, n: number) => (t.length > n ? `${t.slice(0, n)}\n… ${t.length - n} more characters` : t)
+const lineCount = (t: string) => (t ? t.split('\n').length : 0)
+
+// What the engine adds around a prompt, which the terminal does not show: reminders,
+// notifications, and a slash command's markup put back as /name args.
+function promptText(text: string) {
+  return text
+    .replace(/<(system-reminder|task-notification)>[\s\S]*?<\/\1>/g, '')
+    .replace(/<command-name>([\s\S]*?)<\/command-name>\s*(?:<command-message>[\s\S]*?<\/command-message>)?\s*(?:<command-args>([\s\S]*?)<\/command-args>)?/g, (_m, name: string, args?: string) => `${name.trim()} ${args?.trim() ?? ''}`)
+    .replace(/<\/?local-command-[a-z]+>/g, '')
+    .trim()
+}
+
+// A question Claude asked: each question with the answer it got ('' when left blank or dismissed),
+// from the call's stored answers, or from the words the model read.
+function askItem(u: any): TranscriptItem {
+  const questions: any[] = Array.isArray(u.input?.questions) ? u.input.questions : []
+  const stored = (u.result?.answers ?? {}) as Record<string, unknown>
+  const read: Record<string, string> = {}
+  for (const m of String(u.text ?? '').matchAll(/"([^"]+)"="([^"]*)"/g)) read[m[1]!] = m[2]!
+  const qa = questions.map(q => {
+    const text = String(q?.question ?? '')
+    return { q: text, a: typeof stored[text] === 'string' ? (stored[text] as string) : read[text] ?? '' }
+  })
+  const text = typeof u.text === 'string' ? u.text : undefined
+  return { k: 'tool', id: String(u.tool_use_id ?? ''), name: 'Ask', arg: oneLine(qa[0]?.q ?? '', 300), out: text === undefined ? undefined : cut(text, 2000), isError: u.isError === true || undefined, qa }
+}
+
+// A tool call as the terminal heads it, Bash(npm test): the tool and its main argument.
+function toolItem(u: any, cwd: string): TranscriptItem {
+  if (u.tool === 'AskUserQuestion') return askItem(u)
+  const input = (u.input ?? {}) as Record<string, unknown>
+  const str = (v: unknown) => (typeof v === 'string' ? v : '')
+  const path = str(input.file_path) || str(input.notebook_path)
+  const rel = path && cwd && path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path
+  const mcp = /^mcp__(.+?)__(.+)$/.exec(String(u.tool))
+  const name = mcp ? `${mcp[1]} - ${mcp[2]} (MCP)` : u.tool === 'Edit' || u.tool === 'MultiEdit' ? 'Update' : u.tool === 'Write' ? 'Write' : String(u.tool)
+  const arg = rel || str(input.command) || str(input.pattern) || str(input.url) || str(input.query) || str(input.description) || str(input.subject) || str(Object.values(input).find(v => typeof v === 'string'))
+  const text = typeof u.text === 'string' ? u.text : undefined
+  // a read's whole file is no use on a phone: the terminal says how many lines
+  const out = text === undefined ? undefined : u.tool === 'Read' && !u.isError ? `Read ${lineCount(text)} lines` : cut(text, 4000)
+  const item: TranscriptItem = { k: 'tool', id: String(u.tool_use_id ?? ''), name, arg: oneLine(arg, 300), out, isError: u.isError === true || undefined }
+  if (path) item.path = path
+  if (u.tool === 'Edit' && !u.isError) {
+    item.old = cut(str(input.old_string), 3000)
+    item.new = cut(str(input.new_string), 3000)
+  }
+  if (u.tool === 'Write' && !u.isError) item.new = cut(str(input.content), 3000)
+  return item
+}
+
+// The session's messages as the terminal draws them, the last TRANSCRIPT_MAX rows.
+export function transcriptOf(list: readonly any[], cwd: string) {
+  const items: TranscriptItem[] = []
+  for (const m of list) {
+    if (m.role === 'user') {
+      const text = promptText(String(m.text ?? ''))
+      if (text) items.push({ k: 'user', text: cut(text, 8000) })
+      continue
+    }
+    if (typeof m.text === 'string' && m.text.trim()) items.push({ k: 'text', text: cut(m.text.trim(), 12000) })
+    for (const u of m.toolUses ?? []) items.push(toolItem(u, cwd))
+  }
+  return items.slice(-TRANSCRIPT_MAX)
+}
+
+// The conversation for the phone, read again.
 export async function readRemoteMessages($: any) {
   if (!cfg.selfRemote || !remote.status) return
   const list: any[] = await $.session.messages().catch(() => [])
-  remote.messages = list
-    .filter(m => (m.role === 'user' || m.role === 'assistant') && typeof m.text === 'string' && m.text.trim())
-    .slice(-30)
-    .map(m => ({ role: m.role, text: m.text.length > 6000 ? `${m.text.slice(0, 6000)}…` : m.text }))
+  remote.transcript = transcriptOf(list, await $.session.cwd().catch(() => ''))
   remote.lastAt = Date.now()
 }
 
@@ -162,9 +237,11 @@ async function snapshotOf($: any) {
     changes: await read($, changes),
     images: (await read($, images)).map(i => ({ n: i.n, path: i.path, bytes: i.bytes })),
     usage: { five: b.five, week: b.week, ctx: u?.ctxPercent ?? null, cost: u?.costUsd ?? null },
-    messages: remote.messages,
+    transcript: remote.transcript,
     queued: remote.queue,
     lastAt: remote.lastAt,
+    // the question Claude waits on, for the phone to answer
+    ask: ask.pending && !ask.pending.result ? { id: ask.pending.id, questions: ask.pending.questions } : null,
   }
 }
 
@@ -174,6 +251,9 @@ export async function tickRemote($: any) {
   if (!cfg.selfRemote) return
   const id = await $.session.id().catch(() => '')
   if (!id) return
+  // a session no terminal draws (an SDK or -p run, such as claude-mem's observer) stays off the phone
+  remote.hasTerminal ??= ((await $.session.surfaces().catch(() => [])) as readonly string[]).includes('terminal')
+  if (!remote.hasTerminal) return
   if (remote.isHidden) return void (await readRemote($))
   if (!remote.isJoined && !(await readRemote($))) {
     if (remote.isStarting && Date.now() - remote.startedAt > HUB_START_MS) {
@@ -182,7 +262,9 @@ export async function tickRemote($: any) {
     }
     return
   }
-  if (!remote.isJoined) await readRemoteMessages($)
+  // the transcript: on joining, and every tick while a turn runs (a prompt is stored a moment after
+  // turn.start, and a phone that comes back to the page must find it there)
+  if (!remote.isJoined || rt.isBusy) await readRemoteMessages($)
   const status: RemoteStatus | undefined = await hub($, 'POST', `/session?id=${encodeURIComponent(id)}`, await snapshotOf($))
   if (!status) {
     // the hub went away: stopped from another session, or idle
@@ -204,6 +286,15 @@ export async function tickRemote($: any) {
   if (JSON.stringify(status) !== was) $.ui.invalidate('ui.render')
   const inbox = await hub($, 'GET', `/inbox?id=${encodeURIComponent(id)}`)
   if (Array.isArray(inbox?.texts)) remote.queue = [...remote.queue, ...inbox.texts.filter((t: unknown) => typeof t === 'string')]
+  // the phone answered Claude's question: only the question's own texts count as keys
+  const a = inbox?.answer
+  if (a && ask.pending && a.id === ask.pending.id) {
+    const known = new Set(ask.pending.questions.map(q => q.question))
+    const answers = Object.fromEntries(Object.entries(a.answers ?? {}).filter(([q, v]) => known.has(q) && typeof v === 'string' && v.trim()).map(([q, v]) => [q, oneLine(String(v), 2000)]))
+    if (a.isDismissed) settleAsk(a.id, 'dismissed', 'phone')
+    else if (Object.keys(answers).length) settleAsk(a.id, { answers }, 'phone')
+    $.ui.invalidate('ui.render')
+  }
   // one text a turn, and never into a running one
   if (remote.queue.length && !rt.isBusy) {
     const text = remote.queue.shift()!

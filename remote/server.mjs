@@ -25,7 +25,9 @@ const DIR = process.argv[2]
 const IDLE_MS = Math.max(5, Number(process.argv[3]) || 30) * 60_000
 const SESSION_TTL = 120_000
 const POLL_WAIT = 25_000
-const MAX_BODY = 256 * 1024
+// a phone's request is small; a session's snapshot carries its transcript
+const MAX_BODY = 64 * 1024
+const MAX_SNAPSHOT = 4 * 1024 * 1024
 const MAX_DEVICES = 5
 const MAX_PAIR_FAILS = 10
 // the pairing code a phone shows and a terminal matches: letters and digits, none that look alike
@@ -60,13 +62,13 @@ const VAPID_PUBLIC = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, 'base64
 // ---- helpers ------------------------------------------------------------------------------
 const sameText = (a, b) => timingSafeEqual(createHash('sha256').update(a).digest(), createHash('sha256').update(b).digest())
 
-function readBody(req) {
+function readBody(req, limit = MAX_BODY) {
   return new Promise((resolve, reject) => {
     let size = 0
     const parts = []
     req.on('data', chunk => {
       size += chunk.length
-      if (size > MAX_BODY) {
+      if (size > limit) {
         reject(new Error('too large'))
         req.destroy()
       } else parts.push(chunk)
@@ -75,7 +77,7 @@ function readBody(req) {
     req.on('error', reject)
   })
 }
-const readJson = req => readBody(req).then(t => JSON.parse(t), () => undefined).catch(() => undefined)
+const readJson = (req, limit) => readBody(req, limit).then(t => JSON.parse(t), () => undefined).catch(() => undefined)
 
 const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
@@ -268,6 +270,18 @@ const pub = createServer(async (req, res) => {
         bump()
         return send(res, 200, { ok: true, queued: Boolean(s.snapshot.busy) })
       }
+      // the phone's answer to the question Claude waits on; the session takes it at its next call
+      case 'POST /api/answer': {
+        const body = await readJson(req)
+        const s = sessions.get(String(body?.session ?? ''))
+        const askId = String(body?.id ?? '')
+        if (!s || !s.snapshot.ask || s.snapshot.ask.id !== askId) return send(res, 409, { error: 'That question is already answered.' })
+        const answers = {}
+        for (const [q, v] of Object.entries(body?.answers ?? {})) if (typeof v === 'string') answers[String(q).slice(0, 2000)] = v.slice(0, 4000)
+        s.answer = { id: askId, answers, isDismissed: body?.isDismissed === true }
+        bump()
+        return send(res, 200, { ok: true })
+      }
       case 'GET /api/diff': {
         const diff = await diffOf(session, url.searchParams.get('path') ?? '')
         return diff === undefined ? send(res, 404, { error: 'Not a file of this session.' }) : send(res, 200, { diff })
@@ -326,7 +340,7 @@ const ctl = createServer(async (req, res) => {
   const route = `${req.method} ${url.pathname}`
   const id = url.searchParams.get('id') ?? ''
   if (route === 'POST /session') {
-    const body = await readJson(req)
+    const body = await readJson(req, MAX_SNAPSHOT)
     if (!body || !id) return send(res, 400, { error: 'bad snapshot' })
     const s = sessions.get(id) ?? { inbox: [], snapshot: {}, seenAt: 0, text: '' }
     const text = JSON.stringify(body)
@@ -342,8 +356,10 @@ const ctl = createServer(async (req, res) => {
   if (route === 'GET /inbox') {
     const s = sessions.get(id)
     const texts = s ? s.inbox.splice(0) : []
+    const answer = s?.answer
+    if (s) delete s.answer
     if (texts.length) bump()
-    return send(res, 200, { texts })
+    return send(res, 200, { texts, answer })
   }
   if (route === 'POST /bye') {
     if (sessions.delete(id)) bump()

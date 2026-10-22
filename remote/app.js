@@ -1,6 +1,8 @@
 // The phone's page for Self remote: pairs with the link's #k= token (a terminal must then allow
 // it), then follows every Claude Code session on the machine with a long poll, as quick tunnels
-// carry no server-sent events. Every text from a session goes in with textContent, never as HTML.
+// carry no server-sent events. One header line (sessions, the session's title, files), the
+// conversation as chat bubbles, and a reply box. Every text from a session goes in with
+// textContent, never as HTML.
 const $ = id => document.getElementById(id)
 const el = (tag, cls, text) => {
   const node = document.createElement(tag)
@@ -9,12 +11,44 @@ const el = (tag, cls, text) => {
   return node
 }
 
+// The icons, drawn as SVG strokes in the text's color: a 24-unit box, one path each.
+const ICONS = {
+  menu: 'M4 6h16M4 12h16M4 18h16',
+  folder: 'M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2.5h7.5A2.5 2.5 0 0 1 21 10v7.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z',
+  back: 'M15 18l-6-6 6-6',
+  arrowUp: 'M12 19V5M6 11l6-6 6 6',
+  arrowDown: 'M12 5v14M6 13l6 6 6-6',
+  chevronDown: 'M6 9l6 6 6-6',
+  chevronRight: 'M9 6l6 6-6 6',
+  spark: 'M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4',
+  box: 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z',
+  branch: 'M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9',
+  help: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM9.5 9.3a2.6 2.6 0 1 1 3.6 2.4c-.7.3-1.1.9-1.1 1.6v.4M12 16.8v.2',
+  boxChecked: 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM8 12.5l2.5 2.5L16 9.5',
+}
+function icon(name) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.setAttribute('viewBox', '0 0 24 24')
+  svg.setAttribute('class', 'ic')
+  svg.setAttribute('aria-hidden', 'true')
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+  path.setAttribute('d', ICONS[name])
+  svg.append(path)
+  return svg
+}
+for (const node of document.querySelectorAll('[data-icon]')) node.prepend(icon(node.dataset.icon))
+
 let state = null // { version, sessions, notice }
 let snap = null // the session shown
 let picked = ''
-let tab = 'activity'
-let clockTimer = 0
 let lastNotice = 0
+let isFirstDraw = true
+let shownId = ''
+let filesTab = 'files'
+const opened = new Set() // the tool rows opened to their output
+// the question Claude waits on: what this phone picked and typed so far, and whether it was put away
+let askDraft = { id: '', picks: {}, other: {} }
+let askHiddenId = ''
 try { picked = localStorage.getItem('qsb-session') || '' } catch {}
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
@@ -68,205 +102,471 @@ async function follow() {
   }
 }
 const q = (path, extra = '') => `${path}?s=${encodeURIComponent(snap ? snap.id : '')}${extra}`
-
-// ---- drawing --------------------------------------------------------------------------------
 const clock = ms => {
   const s = Math.max(0, Math.floor(ms / 1000))
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
-function renderHeader() {
-  const busy = snap.busy
-  $('dot').className = busy ? 'dot busy' : 'dot'
-  const tick = () => {
-    $('status').textContent = busy && snap.turnStartedAt ? `working ${clock(Date.now() - snap.turnStartedAt)}` : 'idle'
+const titleOf = s => s.folder || 'Claude'
+
+// ---- markdown, built as nodes: nothing from a session is parsed as HTML -------------------
+function link(url, label) {
+  const a = el('a', '', label)
+  a.href = url
+  a.target = '_blank'
+  a.rel = 'noopener noreferrer'
+  return a
+}
+const INLINE = /(`[^`\n]+`)|\*\*([^*\n]+)\*\*|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>()"'`]+[^\s<>()"'`.,;:!?])|(?<![\w*])\*([^*\s][^*\n]*)\*(?!\w)/g
+function inline(text, into) {
+  let at = 0
+  for (const m of text.matchAll(INLINE)) {
+    if (m.index > at) into.append(document.createTextNode(text.slice(at, m.index)))
+    if (m[1]) into.append(el('code', '', m[1].slice(1, -1)))
+    else if (m[2] !== undefined) inline(m[2], into.appendChild(el('strong')))
+    else if (m[3] !== undefined) into.append(link(m[4], m[3]))
+    else if (m[5]) into.append(link(m[5], m[5]))
+    else if (m[6] !== undefined) inline(m[6], into.appendChild(el('em')))
+    at = m.index + m[0].length
   }
-  tick()
-  clearInterval(clockTimer)
-  if (busy) clockTimer = setInterval(tick, 1000)
-  $('where').textContent = [snap.folder && `/${snap.folder}`, snap.branch && `⎇ ${snap.branch}`, snap.model].filter(Boolean).join('  ')
-  const chips = $('chips')
-  chips.replaceChildren()
+  if (at < text.length) into.append(document.createTextNode(text.slice(at)))
+  return into
+}
+function table(rows) {
+  const wrap = el('div', 'tablewrap')
+  const t = wrap.appendChild(el('table'))
+  const cells = row => row.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim())
+  rows.filter(r => !/^\s*\|?\s*:?-{2,}/.test(r)).forEach((r, i) => {
+    const tr = t.appendChild(el('tr'))
+    for (const c of cells(r)) inline(c, tr.appendChild(el(i === 0 ? 'th' : 'td')))
+  })
+  return wrap
+}
+function markdown(text) {
+  const box = el('div', 'md')
+  const lines = String(text).split('\n')
+  let para = null, list = null
+  for (let i = 0; i < lines.length; ) {
+    const line = lines[i]
+    if (/^\s*```/.test(line)) {
+      const code = []
+      for (i++; i < lines.length && !/^\s*```/.test(lines[i]); i++) code.push(lines[i])
+      i++
+      box.append(el('pre', '', code.join('\n')))
+      para = list = null
+      continue
+    }
+    if (/^\s*\|.*\|\s*$/.test(line)) {
+      const rows = []
+      while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) rows.push(lines[i++])
+      box.append(table(rows))
+      para = list = null
+      continue
+    }
+    i++
+    const h = /^(#{1,6})\s+(.*)$/.exec(line)
+    const li = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(line)
+    const quote = /^>\s?(.*)$/.exec(line)
+    if (h) {
+      box.append(inline(h[2], el('h4')))
+      para = list = null
+    } else if (li) {
+      const kind = /\d/.test(li[2]) ? 'ol' : 'ul'
+      const parent = list && li[1].length >= 2 ? list.lastElementChild : null
+      // an indented item goes in a list of its own under the item before it
+      if (parent) {
+        const sub = parent.querySelector(':scope > ul, :scope > ol') ?? parent.appendChild(el(kind))
+        sub.append(inline(li[3], el('li')))
+      } else {
+        if (!list) list = box.appendChild(el(kind))
+        list.append(inline(li[3], el('li')))
+      }
+      para = null
+    } else if (quote) {
+      box.append(inline(quote[1], el('blockquote')))
+      para = list = null
+    } else if (!line.trim()) {
+      para = list = null
+    } else {
+      if (para) para.append(el('br'))
+      else para = box.appendChild(el('p'))
+      inline(line, para)
+      list = null
+    }
+  }
+  return box
+}
+
+// ---- the conversation: your bubbles right, Claude's left, its tools as title lines ------------
+// the path the hub knows a tool call's file by: as edited this turn, or as git lists it changed
+const diffPathOf = path => snap.edited.find(f => f.path === path)?.path ?? snap.changes.find(f => path === f.path || path.endsWith(`/${f.path}`))?.path
+
+function toolLines(t) {
+  const lines = []
+  if (t.out === undefined) lines.push(['', 'Running…'])
+  else if (t.isError) for (const l of t.out.split('\n')) lines.push(['del', l])
+  else if (t.old !== undefined) {
+    for (const l of t.old ? t.old.split('\n') : []) lines.push(['del', `- ${l}`])
+    for (const l of t.new ? t.new.split('\n') : []) lines.push(['add', `+ ${l}`])
+  } else if (t.new !== undefined) {
+    lines.push(['', `Wrote ${t.new.split('\n').length} lines`])
+    for (const l of t.new.split('\n')) lines.push(['add', l])
+  } else for (const l of t.out.replace(/\n+$/, '').split('\n')) lines.push(['', l])
+  return lines
+}
+
+// one title line a tool; a press opens what it gave back under it
+// a question Claude asked: in Claude's color, its answers under it, a press shows each question
+function askRow(t, into) {
+  const isOpen = opened.has(t.id)
+  const row = into.appendChild(el('div', `trow ask${isOpen ? ' open' : ''}`))
+  row.append(icon('help'))
+  const name = row.appendChild(el('span', 'name'))
+  name.append(el('strong', '', 'Ask'), document.createTextNode(` ${t.arg}`))
+  row.appendChild(el('span', 'chev')).append(icon(isOpen ? 'chevronDown' : 'chevronRight'))
+  row.onclick = () => {
+    if (isOpen) opened.delete(t.id)
+    else opened.add(t.id)
+    renderChat()
+  }
+  const qa = t.qa || []
+  const summary = t.out === undefined ? 'waiting for your answer' : t.isError ? 'dismissed' : qa.map(x => x.a).filter(Boolean).join(' · ') || 'no answer'
+  if (!isOpen) return into.append(el('div', 'ask-sum', `↳ ${summary}`))
+  const out = into.appendChild(el('div', 'tout ask-out'))
+  for (const x of qa) {
+    out.append(el('div', 'aq', x.q))
+    out.append(el('div', 'aa', `↳ ${t.out === undefined ? 'waiting' : t.isError ? 'dismissed' : x.a || 'left blank'}`))
+  }
+}
+
+function toolRow(t, into) {
+  if (t.qa) return askRow(t, into)
+  const isOpen = opened.has(t.id)
+  const row = into.appendChild(el('div', `trow${isOpen ? ' open' : ''}`))
+  row.append(el('span', `bullet ${t.out === undefined ? 'run' : t.isError ? 'bad' : 'ok'}`))
+  const name = row.appendChild(el('span', 'name'))
+  name.append(el('strong', '', t.name), document.createTextNode(t.arg ? `(${t.arg})` : ''))
+  row.appendChild(el('span', 'chev')).append(icon(isOpen ? 'chevronDown' : 'chevronRight'))
+  row.onclick = () => {
+    if (isOpen) opened.delete(t.id)
+    else opened.add(t.id)
+    renderChat()
+  }
+  if (!isOpen) return
+  const out = into.appendChild(el('div', 'tout'))
+  for (const [cls, text] of toolLines(t)) out.append(el('div', cls, text || ' '))
+  const diffPath = t.path && diffPathOf(t.path)
+  if (diffPath) {
+    const open = out.appendChild(el('div', 'open-diff', 'Open the whole diff'))
+    open.onclick = () => showDiff(diffPath)
+  }
+}
+
+function renderChat() {
+  const root = $('chat')
+  root.replaceChildren()
+  const items = snap.transcript || []
+  if (!items.length && !snap.busy) return root.append(el('div', 'empty', 'Nothing in this session yet.'))
+  let tools = null
+  for (const t of items) {
+    if (t.k === 'tool') {
+      tools ??= root.appendChild(el('div', 'tools'))
+      toolRow(t, tools)
+      continue
+    }
+    tools = null
+    if (t.k === 'user') root.append(inline(t.text, el('div', 'b me')))
+    else root.appendChild(el('div', 'b claude')).append(markdown(t.text))
+  }
+  for (const text of snap.queued || []) {
+    const b = root.appendChild(inline(text, el('div', 'b me queued')))
+    b.append(el('span', 'note', 'waits for this turn to end'))
+  }
+  if (snap.ask) {
+    // the question, as a bubble that opens its page again
+    const b = root.appendChild(el('div', 'b claude ask'))
+    b.append(el('div', 'qt', snap.ask.questions[0]?.question || 'Claude asks you'))
+    if (snap.ask.questions.length > 1) b.append(el('div', 'meta', `and ${snap.ask.questions.length - 1} more`))
+    b.append(el('div', 'go', 'Answer'))
+    b.onclick = () => openAsk(true)
+  }
+  if (snap.busy) {
+    const w = root.appendChild(el('div', 'working'))
+    const head = w.appendChild(el('div', 'head'))
+    head.appendChild(el('span', 'spin')).append(icon('spark'))
+    head.append(el('span', '', 'Working…'), el('span', 'elapsed', ''))
+    if (snap.nowTool) w.append(el('div', 'now', snap.nowTool))
+    for (const t of snap.tasks || []) {
+      const row = w.appendChild(el('div', `task ${t.status === 'completed' ? 'done' : t.status === 'in_progress' ? 'doing' : ''}`))
+      row.append(icon(t.status === 'completed' ? 'boxChecked' : 'box'), el('span', '', t.subject))
+    }
+    tickElapsed()
+  }
+}
+function tickElapsed() {
+  const node = document.querySelector('.working .elapsed')
+  if (node && snap && snap.turnStartedAt) node.textContent = `(${clock(Date.now() - snap.turnStartedAt)})`
+}
+setInterval(tickElapsed, 1000)
+
+const atBottom = () => innerHeight + scrollY >= document.documentElement.scrollHeight - 120
+const toBottom = () => window.scrollTo(0, document.documentElement.scrollHeight)
+
+// ---- the header, the drawer and the session sheet ----------------------------------------------
+function renderHeader() {
+  $('dot').className = snap.busy ? 'dot busy' : 'dot'
+  $('title-text').textContent = titleOf(snap)
+  const n = snap.edited.length + snap.changes.length + snap.images.length
+  $('files-badge').hidden = !n
+  $('files-badge').textContent = String(n)
+  $('text').placeholder = snap.busy ? 'Queue a reply' : 'Reply'
+}
+
+function renderDrawer() {
+  const box = $('sessions')
+  box.replaceChildren()
+  if (!state.sessions.length) box.append(el('div', 'meta', 'No session has the remote on now.'))
+  for (const s of state.sessions) {
+    const row = box.appendChild(el('button', `srow${s.id === picked ? ' on' : ''}`))
+    row.append(el('span', s.busy ? 'dot busy' : 'dot'))
+    const text = row.appendChild(el('div'))
+    const sub = el('div', 'sub')
+    if (s.branch) sub.append(icon('branch'), document.createTextNode(` ${s.branch} · `))
+    sub.append(document.createTextNode(s.busy ? 'working' : 'idle'))
+    text.append(el('div', 'name', titleOf(s)), sub)
+    row.onclick = () => {
+      picked = s.id
+      try { localStorage.setItem('qsb-session', picked) } catch {}
+      closeLayers()
+      render()
+    }
+  }
+}
+function openDrawer() {
+  renderDrawer()
+  $('scrim').hidden = false
+  $('drawer').classList.add('open')
+}
+
+function openSheet() {
+  if (!snap) return
+  const sheet = $('sheet')
+  sheet.replaceChildren()
+  sheet.append(el('h2', '', titleOf(snap)))
+  const line = sheet.appendChild(el('div', 'meta'))
+  if (snap.branch) line.append(icon('branch'), document.createTextNode(` ${snap.branch} · `))
+  line.append(document.createTextNode([snap.model, snap.mode && `mode ${snap.mode}`].filter(Boolean).join(' · ')))
+  if (snap.cwd) sheet.append(el('div', 'meta', snap.cwd))
+  sheet.append(el('div', 'meta', snap.busy && snap.turnStartedAt ? `Working for ${clock(Date.now() - snap.turnStartedAt)}` : 'Idle'))
+  const chips = sheet.appendChild(el('div', 'chips'))
   const usage = snap.usage || {}
   const chip = (label, n, warnAt, badAt) => {
-    if (n === null || n === undefined) return
-    chips.append(el('span', `chip${n >= badAt ? ' bad' : n >= warnAt ? ' warn' : ''}`, `${label} ${Math.round(n)}%`))
+    if (n !== null && n !== undefined) chips.append(el('span', `chip${n >= badAt ? ' bad' : n >= warnAt ? ' warn' : ''}`, `${label} ${Math.round(n)}%`))
   }
   chip('5h', usage.five, 50, 80)
   chip('wk', usage.week, 50, 80)
   chip('ctx', usage.ctx, 70, 85)
-  if (typeof usage.cost === 'number') chips.append(el('span', 'chip', `$${usage.cost.toFixed(2)}`))
-  if (snap.mode) chips.append(el('span', 'chip', snap.mode))
-  const nf = snap.edited.length + snap.changes.length
-  document.querySelector('[data-tab=files]').textContent = nf ? `Files ${nf}` : 'Files'
-  document.querySelector('[data-tab=images]').textContent = snap.images.length ? `Images ${snap.images.length}` : 'Images'
+  if (typeof usage.cost === 'number') chips.append(el('span', 'chip', `$${usage.cost.toFixed(2)} this session`))
+  $('scrim').hidden = false
+  sheet.hidden = false
 }
 
-// text with ``` fences as <pre>, `code` inline, the rest as plain text
-function richText(text) {
-  const box = el('div', 'body')
-  const parts = String(text).split(/```[\w-]*\n?/)
-  parts.forEach((part, i) => {
-    if (i % 2 === 1) return box.append(el('pre', '', part.replace(/\n$/, '')))
-    part.split(/(`[^`\n]+`)/).forEach(bit => box.append(bit.startsWith('`') && bit.endsWith('`') && bit.length > 2 ? el('code', '', bit.slice(1, -1)) : document.createTextNode(bit)))
-  })
-  return box
+function closeLayers() {
+  $('drawer').classList.remove('open')
+  $('sheet').hidden = true
+  $('scrim').hidden = true
 }
 
-function renderActivity() {
-  const root = $('tab-activity')
-  root.replaceChildren()
-  if (snap.busy) {
-    const card = el('div', 'card')
-    card.append(el('h3', '', 'This turn'))
-    if (snap.prompt) card.append(el('div', 'meta', snap.prompt))
-    if (snap.nowTool) card.append(el('div', 'tool now', `▸ ${snap.nowTool}`))
-    for (const t of [...snap.tools].reverse().slice(0, 15)) card.append(el('div', 'tool', t))
-    root.append(card)
-  }
-  if (snap.tasks && snap.tasks.length) {
-    const card = el('div', 'card')
-    card.append(el('h3', '', 'Tasks'))
-    for (const t of snap.tasks) {
-      const mark = t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '▸' : '○'
-      card.append(el('div', `task${t.status === 'completed' ? ' done' : ''}`, `${mark} ${t.subject}`))
-    }
-    root.append(card)
-  }
-  if (snap.summary) {
-    const card = el('div', 'card')
-    card.append(el('h3', '', `Last turn · ${clock(snap.summary.took)}${typeof snap.summary.cost === 'number' ? ` · $${snap.summary.cost.toFixed(2)}` : ''}`))
-    if (snap.summary.did) card.append(el('div', '', snap.summary.did))
-    if (snap.summary.result) card.append(el('div', 'meta', snap.summary.result))
-    root.append(card)
-  }
-  if (snap.queued && snap.queued.length) {
-    const card = el('div', 'card')
-    card.append(el('h3', '', 'Waiting to send'))
-    for (const q of snap.queued) card.append(el('div', 'meta', q))
-    root.append(card)
-  }
-  if (!snap.messages.length) return root.append(el('div', 'empty', 'Nothing in this session yet.'))
-  for (const m of [...snap.messages].reverse()) {
-    const box = el('div', `msg ${m.role}`)
-    box.append(el('div', 'who', m.role === 'user' ? 'You' : 'Claude'))
-    box.append(richText(m.text))
-    root.append(box)
-  }
-}
-
-function fileRow(path, note, noteCls) {
+// ---- files and images, one page with two segments ----------------------------------------------
+function fileRow(path, note, cls) {
   const row = el('div', 'file')
-  row.append(el('span', 'path', path))
-  row.append(el('span', noteCls, note))
+  // shown from the session's folder; the hub still gets the path it knows
+  const shown = snap.cwd && path.startsWith(`${snap.cwd}/`) ? path.slice(snap.cwd.length + 1) : path
+  row.append(el('span', 'path', shown), el('span', cls, note))
   row.onclick = () => showDiff(path)
   return row
 }
 function renderFiles() {
-  const root = $('tab-files')
+  $('seg-files').classList.toggle('on', filesTab === 'files')
+  $('seg-images').classList.toggle('on', filesTab === 'images')
+  $('seg-files').textContent = `Files ${snap.edited.length + snap.changes.length || ''}`.trim()
+  $('seg-images').textContent = `Images ${snap.images.length || ''}`.trim()
+  const root = $('files-body')
   root.replaceChildren()
+  if (filesTab === 'images') {
+    if (!snap.images.length) return root.append(el('div', 'none', 'No images pasted in this session.'))
+    const grid = root.appendChild(el('div', 'grid'))
+    for (const img of snap.images) {
+      const node = grid.appendChild(el('img'))
+      node.loading = 'lazy'
+      node.alt = `Image #${img.n}`
+      node.src = q('/api/image', `&n=${img.n}`)
+      node.onclick = () => {
+        const body = openViewer(`Image #${img.n}`)
+        body.appendChild(el('img')).src = node.src
+      }
+    }
+    return
+  }
   if (snap.edited.length) {
-    const card = el('div', 'card')
+    const card = root.appendChild(el('div', 'card'))
     card.append(el('h3', '', 'Edited this turn'))
     for (const f of snap.edited) {
-      const row = fileRow(f.path, '', '')
+      const row = card.appendChild(fileRow(f.path, '', ''))
       row.lastChild.append(el('span', 'add', `+${f.added} `), el('span', 'del', `−${f.removed}`))
-      card.append(row)
     }
-    root.append(card)
   }
   if (snap.changes.length) {
-    const card = el('div', 'card')
+    const card = root.appendChild(el('div', 'card'))
     card.append(el('h3', '', 'Changed in git'))
     for (const f of snap.changes) card.append(fileRow(f.path, f.code, 'ctx'))
-    root.append(card)
   }
-  if (!root.childElementCount) root.append(el('div', 'empty', 'No changed files.'))
+  if (!root.childElementCount) root.append(el('div', 'none', 'No changed files.'))
+}
+
+function openViewer(title) {
+  $('viewer-title').textContent = title
+  const body = $('viewer-body')
+  body.replaceChildren()
+  $('viewer').hidden = false
+  $('viewer').scrollTop = 0
+  return body
 }
 async function showDiff(path) {
-  const box = openOverlay(path)
+  const body = openViewer(path)
   const r = await fetch(q('/api/diff', `&path=${encodeURIComponent(path)}`))
-  const body = await r.json().catch(() => ({}))
-  const diff = el('div', 'diff')
-  const text = r.ok ? body.diff || '(no changes against HEAD)' : body.error || 'Could not read the diff.'
+  const data = await r.json().catch(() => ({}))
+  const diff = body.appendChild(el('div', 'diff'))
+  const text = r.ok ? data.diff || '(no changes against HEAD)' : data.error || 'Could not read the diff.'
   for (const line of text.split('\n')) {
     const cls = line.startsWith('+++') || line.startsWith('---') ? 'ctx' : line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : line.startsWith('@@') ? 'hunk' : ''
     diff.append(el('div', cls, line || ' '))
   }
-  box.append(diff)
 }
 
-function renderImages() {
-  const root = $('tab-images')
+// ---- Claude's question: every question at once, then Submit ---------------------------------------
+const answersOf = (questions, d) => {
+  const answers = {}
+  questions.forEach((q, i) => {
+    const parts = [...(d.picks[i] || []), ...(d.other[i]?.trim() ? [d.other[i].trim()] : [])]
+    if (parts.length) answers[q.question] = parts.join(', ')
+  })
+  return answers
+}
+function renderAsk() {
+  const a = snap.ask
+  const root = $('ask-body')
   root.replaceChildren()
-  if (!snap.images.length) return root.append(el('div', 'empty', 'No images pasted in this session.'))
-  const grid = el('div', 'grid')
-  for (const img of snap.images) {
-    const node = el('img')
-    node.loading = 'lazy'
-    node.alt = `Image #${img.n}`
-    node.src = q('/api/image', `&n=${img.n}`)
-    node.onclick = () => {
-      const box = openOverlay(`Image #${img.n}`)
-      const full = el('img')
-      full.src = node.src
-      box.append(full)
-    }
-    grid.append(node)
+  if (askDraft.id !== a.id) askDraft = { id: a.id, picks: {}, other: {} }
+  const count = () => {
+    const n = Object.keys(answersOf(a.questions, askDraft)).length
+    $('ask-submit').textContent = `Submit ${n}/${a.questions.length}`
+    $('ask-submit').disabled = !n
   }
-  root.append(grid)
-}
-
-function openOverlay(title) {
-  const o = $('overlay')
-  o.replaceChildren()
-  const head = el('div', 'row between')
-  head.append(el('strong', 'meta', title))
-  const close = el('button', 'small', 'Close')
-  close.onclick = () => { o.hidden = true }
-  head.append(close)
-  o.append(head)
-  const body = el('div')
-  body.style.marginTop = '12px'
-  o.append(body)
-  o.hidden = false
-  return body
-}
-
-function renderSessions() {
-  const box = $('sessions')
-  box.replaceChildren()
-  const list = state.sessions
-  snap = list.find(s => s.id === picked) || list[0] || null
-  if (snap) picked = snap.id
-  if (list.length < 2) return
-  for (const s of list) {
-    const b = el('button', `pick${s.id === picked ? ' on' : ''}`)
-    b.append(el('span', s.busy ? 'dot busy' : 'dot'), document.createTextNode(`/${s.folder || '?'}${s.branch ? ` ⎇ ${s.branch}` : ''}`))
-    b.onclick = () => {
-      picked = s.id
-      try { localStorage.setItem('qsb-session', picked) } catch {}
-      render()
+  a.questions.forEach((q, i) => {
+    const box = root.appendChild(el('div', 'q'))
+    if (q.header) box.append(el('div', 'qh', q.header))
+    box.append(el('div', 'qt', q.question))
+    if (q.description) box.append(el('div', 'qd', q.description))
+    const options = q.kind === 'text' || q.kind === 'number' ? [] : q.options || []
+    const drawOptions = () => {
+      for (const n of box.querySelectorAll('.opt, pre.preview')) n.remove()
+      const anchor = box.querySelector('.other, .stepper')
+      for (const o of options) {
+        const isOn = (askDraft.picks[i] || []).includes(o.label)
+        const row = el('button', `opt${isOn ? ' on' : ''}`)
+        row.append(el('span', `mk${q.multiSelect ? ' box' : ''}`))
+        const text = row.appendChild(el('div'))
+        text.append(el('div', 'ol', o.label))
+        if (o.description) text.append(el('div', 'od', o.description))
+        row.onclick = () => {
+          const now = askDraft.picks[i] || []
+          askDraft.picks[i] = q.multiSelect ? (now.includes(o.label) ? now.filter(l => l !== o.label) : [...now, o.label]) : now[0] === o.label ? [] : [o.label]
+          drawOptions()
+          count()
+        }
+        box.insertBefore(row, anchor)
+        if (isOn && o.preview) box.insertBefore(el('pre', 'preview', o.preview), anchor)
+      }
     }
-    box.append(b)
+    if (q.kind === 'number') {
+      const step = box.appendChild(el('div', 'stepper'))
+      const val = el('span', 'val')
+      const show = () => { val.textContent = `${askDraft.other[i] ?? q.defaultValue ?? q.min ?? 0}${q.unit ? ` ${q.unit}` : ''}` }
+      const move = by => () => {
+        const n = Number(askDraft.other[i] ?? q.defaultValue ?? q.min ?? 0) + by * (q.step || 1)
+        askDraft.other[i] = String(Math.min(q.max ?? Infinity, Math.max(q.min ?? -Infinity, n)))
+        show()
+        count()
+      }
+      const dec = step.appendChild(el('button', '', '−')), inc = el('button', '', '+')
+      dec.onclick = move(-1)
+      inc.onclick = move(1)
+      step.append(val, inc)
+      show()
+    } else {
+      const other = box.appendChild(el('textarea', 'other'))
+      other.rows = 2
+      other.placeholder = q.kind === 'text' ? q.placeholder || 'Type your answer' : 'Other: type your own answer'
+      other.value = askDraft.other[i] || ''
+      other.oninput = () => {
+        askDraft.other[i] = other.value
+        count()
+      }
+    }
+    drawOptions()
+  })
+  count()
+}
+function openAsk(isAsked) {
+  if (!snap?.ask) return
+  if (isAsked) askHiddenId = ''
+  renderAsk()
+  $('ask').hidden = false
+}
+async function sendAnswer(isDismissed) {
+  const a = snap?.ask
+  if (!a) return
+  const answers = isDismissed ? {} : answersOf(a.questions, askDraft)
+  $('ask-submit').disabled = true
+  const r = await fetch('/api/answer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session: snap.id, id: a.id, answers, isDismissed }) }).catch(() => undefined)
+  const body = r ? await r.json().catch(() => ({})) : {}
+  if (!r || !r.ok) {
+    $('ask-submit').disabled = false
+    return toast({ title: 'Not sent', body: body.error || 'The session did not answer. Try again.' })
   }
+  askHiddenId = a.id
+  $('ask').hidden = true
+  toast({ title: isDismissed ? 'Dismissed' : 'Answered', body: isDismissed ? 'Claude goes on without an answer.' : 'Claude has your answer.' })
 }
 
+// ---- one drawing for every update ----------------------------------------------------------------
 function render() {
-  renderSessions()
+  snap = state.sessions.find(s => s.id === picked) || state.sessions[0] || null
+  if (snap) picked = snap.id
+  if ($('drawer').classList.contains('open')) renderDrawer()
   if (!snap) {
-    $('tab-activity').replaceChildren(el('div', 'empty', 'No Claude Code session has the remote on now.'))
-    $('tab-files').replaceChildren()
-    $('tab-images').replaceChildren()
-    $('where').textContent = ''
-    $('chips').replaceChildren()
+    $('title-text').textContent = 'Claude'
+    $('dot').className = 'dot'
+    $('files-badge').hidden = true
+    $('chat').replaceChildren(el('div', 'empty', 'No Claude Code session has the remote on now.'))
     return
   }
+  // the chat sticks to its newest line, as a terminal does, unless you scrolled up to read
+  const isFollowing = isFirstDraw || atBottom() || shownId !== snap.id
+  shownId = snap.id
   renderHeader()
-  renderActivity()
-  renderFiles()
-  renderImages()
-  $('hint').hidden = !snap.busy
-  $('hint').textContent = 'Claude is working. What you send goes in when this turn ends.'
+  renderChat()
+  if (!$('files').hidden) renderFiles()
+  // a new question opens its page; one answered elsewhere closes it
+  if (snap.ask && snap.ask.id !== askHiddenId && $('ask').hidden) openAsk(false)
+  else if (snap.ask && !$('ask').hidden && askDraft.id !== snap.ask.id) renderAsk()
+  if (!snap.ask && !$('ask').hidden) {
+    $('ask').hidden = true
+    toast({ title: 'Answered', body: 'The question was answered on the Mac.' })
+  }
+  if (isFollowing) toBottom()
+  else $('jump').hidden = false
+  isFirstDraw = false
 }
 
 function toast(n) {
@@ -276,20 +576,58 @@ function toast(n) {
   setTimeout(() => t.remove(), 5000)
 }
 
-// ---- tabs and the composer ------------------------------------------------------------------
-for (const b of document.querySelectorAll('nav button'))
-  b.onclick = () => {
-    tab = b.dataset.tab
-    for (const x of document.querySelectorAll('nav button')) x.classList.toggle('on', x === b)
-    for (const name of ['activity', 'files', 'images']) $(`tab-${name}`).hidden = name !== tab
-    window.scrollTo(0, 0)
+// ---- controls ----------------------------------------------------------------------------------
+$('open-drawer').onclick = openDrawer
+$('title').onclick = openSheet
+$('scrim').onclick = closeLayers
+$('open-files').onclick = () => {
+  if (!snap) return
+  renderFiles()
+  $('files').hidden = false
+}
+$('close-files').onclick = () => { $('files').hidden = true }
+$('close-viewer').onclick = () => { $('viewer').hidden = true }
+$('close-ask').onclick = () => {
+  askHiddenId = snap?.ask?.id || ''
+  $('ask').hidden = true
+}
+$('ask-submit').onclick = () => sendAnswer(false)
+$('ask-dismiss').onclick = () => sendAnswer(true)
+$('seg-files').onclick = () => { filesTab = 'files'; renderFiles() }
+$('seg-images').onclick = () => { filesTab = 'images'; renderFiles() }
+window.addEventListener('scroll', () => { if (atBottom()) $('jump').hidden = true }, { passive: true })
+$('jump').onclick = () => {
+  toBottom()
+  $('jump').hidden = true
+}
+
+// unpairing takes a second press within 4 seconds; no browser dialog
+let unpairArmedAt = 0
+$('unpair').onclick = async () => {
+  if (Date.now() - unpairArmedAt > 4000) {
+    unpairArmedAt = Date.now()
+    $('unpair').textContent = 'Press again to unpair'
+    $('unpair').classList.add('warn')
+    setTimeout(() => {
+      $('unpair').textContent = 'Unpair this phone'
+      $('unpair').classList.remove('warn')
+    }, 4000)
+    return
   }
+  await fetch('/api/forget', { method: 'POST' }).catch(() => undefined)
+  closeLayers()
+  gate('This phone is unpaired. Scan the QR code in the terminal to pair it again.')
+}
 
 const text = $('text')
-text.addEventListener('input', () => {
-  text.style.height = 'auto'
-  text.style.height = `${Math.min(text.scrollHeight, 160)}px`
-})
+// grows with what is typed, up to 160px; only then does it scroll
+function fitText() {
+  text.style.height = '42px'
+  const h = Math.max(42, text.scrollHeight + 2)
+  text.style.height = `${Math.min(h, 160)}px`
+  text.style.overflowY = h > 160 ? 'auto' : 'hidden'
+}
+text.addEventListener('input', fitText)
 $('send').onclick = async () => {
   const value = text.value.trim()
   if (!value || !snap) return
@@ -299,8 +637,8 @@ $('send').onclick = async () => {
   const body = r ? await r.json().catch(() => ({})) : {}
   if (!r || !r.ok) return toast({ title: 'Not sent', body: body.error || 'The session did not answer. Try again.' })
   text.value = ''
-  text.style.height = 'auto'
-  toast({ title: body.queued ? 'Queued' : 'Sent', body: body.queued ? 'It goes in when Claude finishes this turn.' : value.slice(0, 120) })
+  fitText()
+  toBottom()
 }
 
 // ---- push -----------------------------------------------------------------------------------
@@ -317,7 +655,9 @@ function setupNotify() {
     }
     return
   }
-  btn.hidden = Notification.permission === 'granted' && localStorage.getItem('qsb-sub') === location.host
+  let isSubscribed = false
+  try { isSubscribed = localStorage.getItem('qsb-sub') === location.host } catch {}
+  btn.hidden = Notification.permission === 'granted' && isSubscribed
   btn.onclick = subscribe
   if (Notification.permission === 'granted') subscribe().catch(() => undefined)
 }
