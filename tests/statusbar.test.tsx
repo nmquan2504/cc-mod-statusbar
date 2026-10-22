@@ -1344,6 +1344,30 @@ test('a turn the 5-hour limit stopped gets "continue" a minute after the window 
   expect(await band.find({ key: 'continue' })).toBeUndefined()
 })
 
+test('a "continue" planned after a limit stop is dropped when the person goes on before it', async ($, on) => {
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('session.cwd', () => ({ value: '/work/shop' }))
+  on('process.run', () => ({ value: exited(1) }))
+  on('settings.read', () => ({ value: {} }))
+  on('ui.toast', () => ({ value: undefined }))
+  on('session.usage', () => ({ value: { startedAt: 0, context: { window: 1 }, rateLimits: [{ kind: 'five_hour', percentUsed: 100, resetsAt: iso(VN_10 + 30_000) }] } }))
+  on('turn.start', () => ({ turnId: 't1' }))
+  on('turn.complete', () => ({ text: '' }))
+  const { clock, submitted } = automationEngine(on, VN_10)
+  const t = $ as any
+  await t.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+  await t.turn.start({ text: 'build it', turnId: 't1', kind: 'engine' })
+  await t.turn.complete({ answer: '', reason: 'error', durationMs: 1000, isAborted: false, turnId: 't1' })
+  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  expect((await band.find({ key: 'continue' }))?.text).toBe(' ⏵ 10:01 ')
+  // the person types on before the reset; the turn answers
+  await t.turn.start({ text: 'go on', turnId: 't2', kind: 'engine' })
+  await t.turn.complete({ answer: 'done', reason: 'end', durationMs: 1000, isAborted: false, turnId: 't2' })
+  expect(await band.find({ key: 'continue' })).toBeUndefined()
+  for (let i = 0; i < 120; i++) await clock.advance(1000)
+  expect(submitted.filter(x => x === 'continue').length).toBe(0)
+})
+
 test('a turn that ends on another error, or answers, sends nothing', async ($, on) => {
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   on('session.cwd', () => ({ value: '/work/shop' }))

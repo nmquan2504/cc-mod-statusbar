@@ -15,6 +15,32 @@ export async function drawSettingsMenu($: any, els: any, _isTerminal: boolean, _
     ;(cfg as Record<string, unknown>)[key] = value
     await saveSettings($)
   }
+  // one row: a switch, or a number with − and +; the first nine take their digit
+  const rowOf = (r: (typeof SETTINGS)[number]) => {
+    const i = SETTINGS.indexOf(r)
+    if (r.kind === 'switch') {
+      const isOn = cfg[r.key] as boolean
+      return (
+        <Button key={`set:${r.key}`} plain hotkey={i < 9 ? String(i + 1) : undefined} onPress={() => set(r.key, !isOn)}>
+          <Text color={isOn ? 'success' : 'inactive'} bold>{isOn ? '[on] ' : '[off]'}</Text>
+          {' '}<Text bold>{r.label}</Text><Text dimColor>{`  ${r.note}`}</Text>
+        </Button>
+      )
+    }
+    const n = cfg[r.key] as number
+    return (
+      <Box key={`num:${r.key}`} flexDirection="row" gap={1}>
+        <Button key={`dec:${r.key}`} plain onPress={() => set(r.key, Math.max(r.min, n - r.step))}>
+          <Text backgroundColor="subtle" color="inverseText" bold>{' − '}</Text>
+        </Button>
+        <Text color="claude" bold>{`${n}${r.unit}`.padStart(5)}</Text>
+        <Button key={`inc:${r.key}`} plain onPress={() => set(r.key, Math.min(r.max, n + r.step))}>
+          <Text backgroundColor="subtle" color="inverseText" bold>{' + '}</Text>
+        </Button>
+        <Text><Text bold>{r.label}</Text><Text dimColor>{`  ${r.note}`}</Text></Text>
+      </Box>
+    )
+  }
   return (
     <Box flexDirection="column">
       <Text>
@@ -59,30 +85,12 @@ export async function drawSettingsMenu($: any, els: any, _isTerminal: boolean, _
           )
         })}
       </Box>
-      {SETTINGS.map((r, i) => {
-        if (r.kind === 'switch') {
-          const isOn = cfg[r.key] as boolean
-          return (
-            <Button key={`set:${r.key}`} plain hotkey={i < 9 ? String(i + 1) : undefined} onPress={() => set(r.key, !isOn)}>
-              <Text color={isOn ? 'success' : 'inactive'} bold>{isOn ? '[on] ' : '[off]'}</Text>
-              {' '}<Text bold>{r.label}</Text><Text dimColor>{`  ${r.note}`}</Text>
-            </Button>
-          )
-        }
-        const n = cfg[r.key] as number
-        return (
-          <Box key={`num:${r.key}`} flexDirection="row" gap={1}>
-            <Button key={`dec:${r.key}`} plain onPress={() => set(r.key, Math.max(r.min, n - r.step))}>
-              <Text backgroundColor="subtle" color="inverseText" bold>{' − '}</Text>
-            </Button>
-            <Text color="claude" bold>{`${n}${r.unit}`.padStart(5)}</Text>
-            <Button key={`inc:${r.key}`} plain onPress={() => set(r.key, Math.min(r.max, n + r.step))}>
-              <Text backgroundColor="subtle" color="inverseText" bold>{' + '}</Text>
-            </Button>
-            <Text><Text bold>{r.label}</Text><Text dimColor>{`  ${r.note}`}</Text></Text>
-          </Box>
-        )
-      })}
+      {SETTINGS.filter(r => !r.group).map(rowOf)}
+      <Text>
+        {'\n'}<Text bold>Self remote</Text>
+        <Text dimColor>  every session on this machine on your phone, through a Cloudflare quick tunnel; ⇄ on the bar starts it; off by default</Text>
+      </Text>
+      {SETTINGS.filter(r => r.group === 'remote').map(rowOf)}
       <Text>
         {'\n'}<Text bold>Output style</Text>
         <Text dimColor>  how Claude answers; a pick runs /output-style, kept in .claude/settings.local.json</Text>

@@ -40,6 +40,9 @@ export const cfg = {
   hiSchedule: true,
   hiStartHour: 7,
   hiStartMinute: 0,
+  // Self remote: the ⇄ chip, a link the phone opens through a Cloudflare quick tunnel; off by default
+  selfRemote: false,
+  remoteIdleMinutes: 30,
 }
 
 export type CfgKey = keyof typeof cfg
@@ -116,11 +119,12 @@ export async function importSettings($: any, text: string) {
   return known.length
 }
 
-// The Settings menu's rows, in order: a switch, or a number with its step and range.
-export const SETTINGS: (
+// The Settings menu's rows, in order: a switch, or a number with its step and range. A row with
+// a group is drawn under that group's own heading, after the rows without one.
+export const SETTINGS: ((
   | { key: CfgKey; kind: 'switch'; label: string; note: string }
   | { key: CfgKey; kind: 'number'; label: string; note: string; step: number; min: number; max: number; unit: string }
-)[] = [
+) & { group?: 'remote' })[] = [
   { key: 'usageGauge', kind: 'switch', label: 'Usage gauges', note: 'on: gauge and figure (5h ▰▱▱▱ 21%); off: the figure alone (5h 21%)' },
   { key: 'gitMarks', kind: 'switch', label: 'Git marks', note: 'files changed, commits to push and to pull' },
   { key: 'ctxChip', kind: 'switch', label: 'Context chip', note: 'ctx n% on the bar past the threshold below' },
@@ -138,6 +142,8 @@ export const SETTINGS: (
   { key: 'hiStartHour', kind: 'number', label: 'Schedule starts at', note: 'each day, Vietnam time (UTC+7)', step: 1, min: 0, max: 23, unit: 'h' },
   { key: 'hiStartMinute', kind: 'number', label: 'Schedule starts at, minute', note: 'past that hour, in steps of 15', step: 15, min: 0, max: 45, unit: 'm' },
   { key: 'dangerConfirm', kind: 'switch', label: 'Confirm dangerous commands', note: 'rm -rf, push --force, reset --hard, curl | sh ask you, even in auto mode' },
+  { key: 'selfRemote', kind: 'switch', label: 'Self remote', note: 'the ⇄ chip on the bar', group: 'remote' },
+  { key: 'remoteIdleMinutes', kind: 'number', label: 'Remote stops after', note: 'minutes with no phone watching', step: 5, min: 5, max: 240, unit: ' min', group: 'remote' },
 ]
 
 // The bar's items as Settings lists them, left to right, each with the switch that shows it.

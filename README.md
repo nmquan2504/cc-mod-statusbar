@@ -75,8 +75,24 @@ A background command that fails, or whose log shows an error line (`Error`, `Exc
 | `hiStartHour` | 7 | The hour of the schedule's first slot each day, 0 to 23, Vietnam time |
 | `hiStartMinute` | 0 | Its minute: 0, 15, 30 or 45. With 7 and 30 the slots are 07:30, 12:30, 17:30 and 22:30 |
 | `dangerConfirm` | on | A dangerous Bash command asks you in Claude Code's question dialog before it runs, in any mode, auto and bypass included: `rm -rf` (any spelling of the two flags), `git push --force` (`-f`, `+branch`; `--force-with-lease` passes), `git reset --hard`, `git clean -f`, `git branch -D`, `curl` or `wget` piped into a shell, and `mkfs` or `dd of=/dev/…`. A subagent's commands ask too. Where Claude Code will ask you anyway (manual, accept edits or plan mode with no allow rule) its own prompt is the only one; a command the rules deny is not asked about. If the dialog cannot open (dismissed, a `-p` run) the command is refused. Each one caught counts on the shield chip after its score (`◈ 2/3 ⚠1`, the `⚠1` in yellow) and goes into the shield menu's event list: allowed, or in red refused |
+| `selfRemote` | off | The `⇄` chip at the head of the right group, which opens Self remote (below) |
+| `remoteIdleMinutes` | 30 | Minutes with no phone watching before the remote stops, from 5 to 240 |
 
 The Settings menu ends with the output style: the styles `/config` offers (default, Explanatory, Learning, Concise and your own), and every `.md` in `~/.claude/output-styles` and the project's `.claude/output-styles`. The one in force is marked; a pick runs `/output-style <name>`, which keeps it in the project's `.claude/settings.local.json`.
+
+## Self remote
+
+Its two rows have a group of their own in Settings, after the other rows and before the output style. With `selfRemote` on, `⇄` on the bar opens a menu that puts every Claude Code session on this machine on your phone or another browser. Start takes a second press within 5 seconds. It runs one hub for the machine (`remote/server.mjs`, in Node, started in the background so it outlives the session that started it) and one Cloudflare quick tunnel to it, so it needs `node` and `cloudflared`; a quick tunnel needs no Cloudflare account. Start looks for `cloudflared` first (on the PATH, then in Homebrew's folders) and starts no hub without it: the menu then offers Install with Homebrew (two presses; it runs `brew install cloudflared` with a spinner, then starts the remote), or, on a Mac without Homebrew, the link to Cloudflare's releases, and Check again. The menu then draws a QR code of the link. It shows the code about 15 seconds after Start, once Cloudflare's resolver knows the tunnel's new name, because a phone that asks too early caches the miss.
+
+Every session with the setting on joins the hub and sends it a snapshot every 2 seconds: the folder and branch, the model and mode, the turn's prompt, the tool running and the tools run, the task list, the last turn's summary, the last 30 messages, the files edited this turn and the files git reports changed, the pasted images, and the usage figures. On the phone the page reads as a chat: your messages in bubbles on the right, Claude's on the left, and each tool call as one line (a press opens what it gave back, or an edit's diff). One line heads it: the drawer of sessions, the session's name (a press shows its branch, model, mode, usage and cost) and a button that opens the files (a press shows the file's diff against HEAD) and the images. A text sent from the phone goes into that session as your prompt; one sent while Claude works waits and goes in when the turn ends, one a turn. When a main-loop turn ends, or Claude waits for you (a permission prompt), every phone that turned on notifications gets a push. On an iPhone that needs the page added to the Home Screen first (iOS 16.4 or later).
+
+The link alone does not let anyone in. It carries a random 256-bit key after `#`, which the browser never sends to Cloudflare as part of the address. A phone that opens it is held with a 4-character code (letters and digits) until you press Allow beside the same code in a terminal; only then does it get a cookie, HttpOnly and SameSite=Strict. Every other request without that cookie is refused. Ten wrong keys lock pairing until the remote starts again, at most five phones stay paired, `f` forgets them all, and a stop or a restart makes a new key and a new address. The phone sees only what the snapshots hold: a diff is served only for a file a session lists, and an image only from the session's own images folder. The hub talks to the sessions over a Unix socket in `/tmp/qsb-remote-<uid>`, which only your user can open.
+
+`h` takes this session off the phone's list and leaves the others. `x` stops the hub for every session, after a second press. The hub also stops by itself when no session has called in for two minutes, or no phone has watched for `remoteIdleMinutes`. Its log is `/tmp/qsb-remote-<uid>/hub.log`. Quick tunnels carry at most 200 requests at once and no server-sent events, so the page asks again (a long poll) and gets each change within a second or two. Each start has a new address, so a page saved to an iPhone's Home Screen works until the remote stops.
+
+## Claude's questions
+
+When Claude calls AskUserQuestion, the mod answers the call itself and the engine's dialog does not open. The band opens a `? Claude asks` menu instead, with every question at once: each with its options (`( )` for one choice, `[ ]` for several; a digit picks the first nine), the preview of the option picked, and an Other box for an answer of your own. `s` submits and `d` dismisses; a question left blank is left out, and Claude reads the answers in the dialog's own words. Shut the menu and a `? Claude asks` chip on the bar opens it again. With Self remote on, the phone shows the same questions on a page of their own and gets a push; the first answer in, from the Mac or the phone, is the one Claude gets, and the other side closes. Where no band draws (Claude Code for VS Code, a `-p` run), or while another question waits, the engine's dialog asks as before. While a question waits, the hook sleeps in short `sleep` commands, as a hook's own time is capped at 10 seconds and a `$` call does not count against it.
 
 ## Secret vault
 
@@ -120,18 +136,21 @@ hooks/events/                   the hooks, one file per group: session, tools, s
                                 turn, commands, permissions, settings-hooks, ui
 hooks/ui/band.tsx               the band in the terminal: the bar, the arena, the menu above it (none in VS Code)
 hooks/ui/menus/                 one file per menu (add, commands, model, effort, git, usage, mcp,
-                                mode, guard, tasks, settings, images, files, web, automation);
+                                mode, guard, tasks, settings, images, files, web, automation, remote,
+                                ask);
                                 index.tsx picks one, entry.tsx is the row most of them list
 hooks/features/                 what the menus and hooks do: vault, guard, permissions, usage,
                                 automation, arena, mcp, work, images, commands, assist, mode,
                                 status (the bar's readings), menu, egress, audit, edits,
-                                update (the mod's own new commits)
+                                update (the mod's own new commits), remote (Self remote), ask (Claude's questions)
 hooks/lib/                      plain helpers: format, graphics, catalog (models, modes, efforts),
-                                danger, schedule (Vietnam time)
+                                danger, schedule (Vietnam time), qr (the QR encoder)
 hooks/state/                    runtime.ts (the values the hooks share), config.ts (the settings)
 types/index.d.ts                the state contract
 tests/statusbar.test.tsx        the bar, its menus and settings, both surfaces
 tests/vault.test.ts             the vault, the Bash guard, the mode menu
+tests/remote.test.tsx           Self remote (the QR code, the chip, Start, pairing) and Claude's questions
+remote/                         Self remote's hub (server.mjs) and the phone's page (app.html, app.js, sw.js)
 docs/                           the README's screenshots
 ```
 

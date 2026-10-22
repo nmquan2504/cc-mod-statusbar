@@ -4,6 +4,7 @@ import { COLLAPSED_KEY, TOP_GROUP, USE_KEY, groupOf } from './commands'
 import { readGuard } from './guard'
 import { readImages } from './images'
 import { readMcp } from './mcp'
+import { readRemote } from './remote'
 import { refreshBar } from './status'
 import { readBreakdown } from './usage'
 import { readVault } from './vault'
@@ -65,6 +66,7 @@ export async function openMenu($: any, kind: MenuKind) {
   if (kind === 'model' || kind === 'effort') await refreshBar($)
   if (kind === 'mcp') await readMcp($)
   if (kind === 'images') await readImages($)
+  if (kind === 'remote') await readRemote($)
   if (kind === 'tasks') {
     await readWork($)
     await readServers($)

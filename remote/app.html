@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#1a1a18">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Claude remote</title>
+<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<style>
+  :root {
+    --bg: #1a1a18; --panel: #24241f; --line: #34342d; --text: #ecebe4; --dim: #9b9a90;
+    --claude: #d97757; --me: #b4532a; --me-text: #ffffff; --ok: #6fbf73; --bad: #e5675e; --warn: #e0b04a; --link: #7aa7e6;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+    --top: calc(48px + env(safe-area-inset-top));
+    /* how much of the bottom the on-screen keyboard covers, where the browser does not resize for it */
+    --kb: 0px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f7f6f1; --panel: #ffffff; --line: #e3e1d7; --text: #23231f; --dim: #6c6b63; --ok: #2e8b3a; --bad: #c4372d; --warn: #a87a10; --link: #2d63b8; }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  button { font: inherit; color: inherit; }
+  [hidden] { display: none !important; }
+
+  /* the one header line */
+  .bar { position: fixed; top: 0; left: 0; right: 0; z-index: 10; height: var(--top); padding: env(safe-area-inset-top) 8px 0; display: flex; align-items: center; gap: 4px; background: var(--bg); border-bottom: 1px solid var(--line); }
+  .icon { position: relative; flex: none; width: 40px; height: 40px; border: 0; background: none; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; }
+  svg.ic { width: 22px; height: 22px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .caret svg.ic, .task svg.ic { width: 14px; height: 14px; }
+  .chev svg.ic { width: 12px; height: 12px; }
+  .sub svg.ic, .meta svg.ic { width: 13px; height: 13px; vertical-align: -2px; }
+  .send svg.ic, .jump svg.ic { width: 20px; height: 20px; }
+  .icon:active { background: var(--panel); }
+  .title { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 8px; border: 0; background: none; height: 40px; font-weight: 700; }
+  .title-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .caret { color: var(--dim); display: inline-flex; }
+  .badge { position: absolute; top: 3px; right: 1px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; background: var(--claude); color: #fff; font: 700 11px/17px -apple-system, sans-serif; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--dim); flex: none; display: inline-block; }
+  .dot.busy { background: var(--claude); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+
+  /* the conversation */
+  main { padding: calc(var(--top) + 12px) 12px calc(76px + env(safe-area-inset-bottom) + var(--kb)); }
+  .b { max-width: 88%; margin: 0 0 10px; padding: 8px 12px; border-radius: 18px; overflow-wrap: anywhere; }
+  .b.me { margin-left: auto; background: var(--me); color: var(--me-text); border-bottom-right-radius: 6px; white-space: pre-wrap; width: fit-content; }
+  .b.me a { color: var(--me-text); }
+  .b.me.queued { opacity: .55; }
+  .b.me .note { display: block; font-size: 12px; opacity: .85; margin-top: 2px; }
+  .b.claude { margin-right: auto; background: var(--panel); border: 1px solid var(--line); border-bottom-left-radius: 6px; width: fit-content; min-width: 0; }
+  .tools { margin: 0 0 10px 6px; font: 11.5px/1.45 var(--mono); color: var(--dim); }
+  .tools strong { font-weight: 600; }
+  .trow { display: flex; gap: 7px; align-items: center; padding: 1px 0; cursor: pointer; opacity: .7; max-width: 75%; }
+  .trow.open { opacity: 1; }
+  .trow.ask { opacity: 1; color: var(--claude); }
+  .trow.ask svg.ic { width: 14px; height: 14px; margin-left: -3px; }
+  .ask-sum { margin: 0 0 4px 17px; max-width: 75%; color: var(--claude); opacity: .8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tout.ask-out { border-left-color: var(--claude); }
+  .tout .aq { color: var(--text); white-space: normal; } .tout .aa { color: var(--claude); margin-bottom: 6px; }
+  .trow .name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .trow.open .name { white-space: normal; overflow-wrap: anywhere; }
+  .trow .chev { color: var(--dim); flex: none; display: inline-flex; }
+  .bullet { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--dim); }
+  .bullet.ok { background: var(--ok); } .bullet.bad { background: var(--bad); } .bullet.run { animation: pulse 1.2s infinite; }
+  .tout { margin: 2px 0 6px 13px; padding: 4px 8px; border-left: 2px solid var(--line); font: 11.5px/1.45 var(--mono); color: var(--dim); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 50vh; overflow-y: auto; }
+  .tout .add { color: var(--ok); } .tout .del { color: var(--bad); }
+  .tout .open-diff { color: var(--link); margin-top: 4px; cursor: pointer; }
+  .working { margin: 0 0 10px 4px; color: var(--claude); font: 13px/1.5 var(--mono); }
+  .working .head { display: flex; align-items: center; gap: 6px; }
+  .working .spin { display: inline-flex; animation: spin 2s linear infinite; }
+  .working .spin svg.ic { width: 14px; height: 14px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .working .now { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .working .task { display: flex; align-items: center; gap: 6px; color: var(--dim); } .working .task.doing { color: var(--claude); } .working .task.done span { text-decoration: line-through; }
+  .empty { color: var(--dim); text-align: center; padding: 30vh 16px 0; }
+
+  /* markdown inside a bubble */
+  .md p { margin: 0 0 8px; } .md > :last-child { margin-bottom: 0; }
+  .md h4 { margin: 10px 0 4px; font-size: 15px; } .md > h4:first-child { margin-top: 0; }
+  .md ul, .md ol { margin: 0 0 8px; padding-left: 20px; } .md li > ul, .md li > ol { margin: 2px 0 0; }
+  .md a { color: var(--link); overflow-wrap: anywhere; }
+  .md blockquote { margin: 0 0 8px; padding-left: 10px; border-left: 3px solid var(--line); color: var(--dim); }
+  pre { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; overflow-x: auto; font: 12px/1.4 var(--mono); white-space: pre; margin: 6px 0; }
+  code { font: 13px var(--mono); background: var(--bg); padding: 0 3px; border-radius: 4px; }
+  .b.me code { background: rgba(0, 0, 0, .2); }
+  .tablewrap { overflow-x: auto; margin: 0 0 8px; }
+  .md table { border-collapse: collapse; font-size: 13px; }
+  .md th, .md td { border: 1px solid var(--line); padding: 3px 8px; text-align: left; vertical-align: top; }
+
+  /* the composer */
+  footer { position: fixed; left: 0; right: 0; bottom: var(--kb); z-index: 10; display: flex; gap: 8px; align-items: flex-end; background: var(--bg); border-top: 1px solid var(--line); padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); }
+  textarea { flex: 1; resize: none; height: 42px; max-height: 160px; overflow-y: hidden; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 21px; padding: 10px 14px; font-family: inherit; font-size: 15px; line-height: 20px; }
+  .send { flex: none; width: 42px; height: 42px; border-radius: 50%; border: 0; background: var(--claude); color: #fff; display: inline-flex; align-items: center; justify-content: center; }
+  .send:disabled { opacity: .5; }
+  .jump { position: fixed; right: 14px; bottom: calc(70px + env(safe-area-inset-bottom) + var(--kb)); z-index: 11; width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); display: inline-flex; align-items: center; justify-content: center; }
+
+  /* the drawer, the session sheet, the files page */
+  .scrim { position: fixed; inset: 0; z-index: 20; background: rgba(0, 0, 0, .45); }
+  .drawer { position: fixed; top: 0; bottom: 0; left: 0; z-index: 21; width: min(84vw, 320px); background: var(--bg); border-right: 1px solid var(--line); padding: calc(12px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; transform: translateX(-102%); transition: transform .2s ease; }
+  .drawer.open { transform: none; }
+  .drawer h3 { margin: 4px 4px 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); }
+  .sessions { flex: 1; overflow-y: auto; }
+  .srow { width: 100%; display: flex; gap: 10px; align-items: flex-start; text-align: left; border: 0; background: none; padding: 10px; border-radius: 10px; }
+  .srow.on { background: var(--panel); }
+  .srow .dot { margin-top: 6px; }
+  .srow .name { font-weight: 700; overflow-wrap: anywhere; }
+  .srow .sub { color: var(--dim); font-size: 13px; }
+  .drawer-foot { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
+  .plain { border: 1px solid var(--line); background: none; border-radius: 10px; padding: 9px 12px; text-align: left; }
+  .plain.warn { color: var(--bad); border-color: var(--bad); }
+  .sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 21; background: var(--bg); border-top: 1px solid var(--line); border-radius: 16px 16px 0 0; padding: 16px 16px calc(20px + env(safe-area-inset-bottom)); }
+  .sheet h2 { margin: 0 0 4px; font-size: 18px; overflow-wrap: anywhere; }
+  .meta { color: var(--dim); font-size: 13px; overflow-wrap: anywhere; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0 0; }
+  .chip { font: 12px var(--mono); padding: 3px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--dim); }
+  .chip.warn { color: var(--warn); border-color: var(--warn); } .chip.bad { color: var(--bad); border-color: var(--bad); }
+  .page { position: fixed; inset: 0; z-index: 30; background: var(--bg); overflow-y: auto; padding: 0 12px calc(20px + env(safe-area-inset-bottom)); }
+  .page-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 4px; background: var(--bg); padding-top: env(safe-area-inset-top); height: var(--top); margin: 0 -12px; padding-left: 8px; padding-right: 12px; border-bottom: 1px solid var(--line); }
+  .page-head strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .seg { display: flex; margin: 12px 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .seg button { flex: 1; border: 0; background: none; padding: 8px; font-weight: 600; color: var(--dim); }
+  .seg button.on { background: var(--panel); color: var(--text); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 4px 12px; margin-bottom: 12px; }
+  .card h3 { margin: 8px 0 2px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); }
+  .file { display: flex; justify-content: space-between; gap: 8px; padding: 10px 0; border-top: 1px solid var(--line); font: 13px var(--mono); cursor: pointer; }
+  .card h3 + .file { border-top: 0; }
+  .file .path { overflow-wrap: anywhere; color: var(--link); }
+  .add { color: var(--ok); } .del { color: var(--bad); } .hunk { color: var(--link); } .ctx { color: var(--dim); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
+  .grid img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); }
+  .diff { font: 12px/1.45 var(--mono); white-space: pre; overflow-x: auto; padding-top: 12px; }
+  .diff div { min-height: 1.45em; }
+  .viewer img { max-width: 100%; margin-top: 12px; }
+  .none { color: var(--dim); text-align: center; padding: 40px 0; }
+
+  /* Claude's questions */
+  .q { margin: 16px 0 20px; }
+  .q .qh { display: inline-block; font: 600 11px/1 -apple-system, sans-serif; text-transform: uppercase; letter-spacing: .06em; color: #fff; background: var(--claude); border-radius: 6px; padding: 4px 7px; margin-bottom: 6px; }
+  .q .qt { font-weight: 700; font-size: 16px; }
+  .q .qd { color: var(--dim); font-size: 13px; margin-top: 2px; }
+  .opt { width: 100%; display: flex; gap: 10px; align-items: flex-start; text-align: left; margin-top: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: none; }
+  .opt.on { border-color: var(--claude); background: var(--panel); }
+  .opt .mk { flex: none; width: 18px; height: 18px; margin-top: 1px; border: 2px solid var(--dim); border-radius: 50%; }
+  .opt .mk.box { border-radius: 5px; }
+  .opt.on .mk { border-color: var(--claude); background: var(--claude); box-shadow: inset 0 0 0 3px var(--bg); }
+  .opt .ol { font-weight: 600; } .opt .od { color: var(--dim); font-size: 13px; }
+  .q pre.preview { margin: 6px 0 0; }
+  .q textarea.other { width: 100%; margin-top: 8px; height: auto; min-height: 42px; border-radius: 12px; overflow-y: auto; }
+  .stepper { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+  .stepper button { width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); font-size: 18px; }
+  .stepper .val { font: 700 18px var(--mono); color: var(--claude); min-width: 60px; text-align: center; }
+  .ask-actions { position: sticky; bottom: 0; display: flex; gap: 8px; padding: 10px 0 calc(10px + env(safe-area-inset-bottom)); background: var(--bg); border-top: 1px solid var(--line); margin: 0 -12px; padding-left: 12px; padding-right: 12px; }
+  .ask-actions button { flex: 1; text-align: center; font-weight: 700; }
+  .primary { border: 0; border-radius: 10px; padding: 10px 12px; background: var(--claude); color: #fff; }
+  .primary:disabled { opacity: .5; }
+  .b.ask { cursor: pointer; border-color: var(--claude); }
+  .b.ask .qt { font-weight: 700; } .b.ask .go { color: var(--link); font-size: 13px; margin-top: 4px; }
+  .toast { position: fixed; left: 12px; right: 12px; top: calc(var(--top) + 8px); z-index: 40; background: var(--panel); border: 1px solid var(--claude); border-radius: 12px; padding: 10px 12px; }
+  .gate { max-width: 420px; margin: 20vh auto 0; padding: 0 16px; text-align: center; }
+  .code { font: 700 40px var(--mono); letter-spacing: .2em; color: var(--claude); margin-top: 12px; }
+</style>
+</head>
+<body>
+<div id="gate" class="gate" hidden>
+  <h2>Claude remote</h2>
+  <p id="gate-text">Scan the QR code in the terminal (⇄ on the status bar).</p>
+  <div id="gate-code" class="code" hidden></div>
+</div>
+
+<div id="app" hidden>
+  <header class="bar">
+    <button id="open-drawer" class="icon" aria-label="Sessions" data-icon="menu"></button>
+    <button id="title" class="title" aria-label="Session details"><span id="dot" class="dot"></span><span id="title-text" class="title-text">Claude</span><span class="caret" data-icon="chevronDown"></span></button>
+    <button id="open-files" class="icon" aria-label="Files and images" data-icon="folder"><span id="files-badge" class="badge" hidden></span></button>
+  </header>
+  <main id="chat"></main>
+  <footer>
+    <textarea id="text" rows="1" placeholder="Reply" aria-label="Reply to Claude"></textarea>
+    <button id="send" class="send" aria-label="Send" data-icon="arrowUp"></button>
+  </footer>
+</div>
+<button id="jump" class="jump" aria-label="Newest" data-icon="arrowDown" hidden></button>
+
+<div id="scrim" class="scrim" hidden></div>
+<aside id="drawer" class="drawer" aria-label="Sessions">
+  <h3>Sessions</h3>
+  <div id="sessions" class="sessions"></div>
+  <div class="drawer-foot">
+    <button id="notify" class="plain" hidden>Notify me when Claude finishes</button>
+    <button id="unpair" class="plain">Unpair this phone</button>
+  </div>
+</aside>
+<div id="sheet" class="sheet" hidden></div>
+
+<div id="files" class="page" hidden>
+  <div class="page-head">
+    <button id="close-files" class="icon" aria-label="Back" data-icon="back"></button>
+    <strong>Files &amp; images</strong>
+  </div>
+  <div class="seg">
+    <button id="seg-files" class="on">Files</button>
+    <button id="seg-images">Images</button>
+  </div>
+  <div id="files-body"></div>
+</div>
+
+<div id="ask" class="page" hidden>
+  <div class="page-head">
+    <button id="close-ask" class="icon" aria-label="Back" data-icon="back"></button>
+    <strong>Claude asks</strong>
+  </div>
+  <div id="ask-body"></div>
+  <div class="ask-actions">
+    <button id="ask-dismiss" class="plain">Dismiss</button>
+    <button id="ask-submit" class="primary">Submit</button>
+  </div>
+</div>
+
+<div id="viewer" class="page viewer" hidden>
+  <div class="page-head">
+    <button id="close-viewer" class="icon" aria-label="Back" data-icon="back"></button>
+    <strong id="viewer-title"></strong>
+  </div>
+  <div id="viewer-body"></div>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>
