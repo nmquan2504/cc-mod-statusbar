@@ -562,6 +562,7 @@ async function snapshotOf($: any) {
     folder: b.folder,
     branch: b.branch,
     model: shortModel(b.model),
+    effort: b.effort ?? null,
     mode: rt.drawnMode ?? b.mode,
     cwd: await $.session.cwd().catch(() => ''),
     busy: rt.isBusy,
