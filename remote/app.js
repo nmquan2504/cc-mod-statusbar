@@ -822,6 +822,7 @@ function render() {
   if (snap.ask && snap.ask.id !== askHiddenId && $('ask').hidden) openAsk(false)
   else if (snap.ask && !$('ask').hidden && askDraft.id !== snap.ask.id) renderAsk()
   renderPage()
+  renderFacts()
   if (!snap.ask && !$('ask').hidden) {
     $('ask').hidden = true
     toast({ title: 'Answered', body: 'The question was answered on the Mac.' })
@@ -1189,6 +1190,28 @@ function openUsage() {
   ctx.append(el('h3', '', 'This session'))
   ctx.append(meterRow('Context', u.ctx, u.tokens ? `${Math.round(u.tokens / 1000)}k of ${Math.round((u.window || 0) / 1000)}k tokens` : ''))
   if (typeof u.cost === 'number') ctx.append(el('div', 'meta pad', `Cost so far $${u.cost.toFixed(2)}${u.startedAt ? `, over ${clock(Date.now() - u.startedAt)}` : ''}`))
+}
+
+// ---- under the reply box: the model and the effort, each a press from its page ---------------------
+function renderFacts() {
+  const root = $('facts')
+  root.replaceChildren()
+  if (!snap) return
+  // a pill of one or more parts, each a press that opens its own page
+  const pill = () => root.appendChild(el('div', 'pill'))
+  const part = (into, cls, title, open) => {
+    if (into.childElementCount) into.append(el('span', 'sep', '·'))
+    const b = into.appendChild(el('button', cls))
+    b.title = title
+    b.onclick = open
+    return b
+  }
+  // the model and its effort, one pill
+  if (snap.model || snap.effort) {
+    const p = pill()
+    if (snap.model) part(p, 'model', 'Model', () => openPage('model')).append(snap.model)
+    if (snap.effort) part(p, '', 'Effort', () => openPage('effort')).append(snap.effort)
+  }
 }
 
 // ---- a panel's command as a page: the session builds it as data, one renderer draws them all ----
