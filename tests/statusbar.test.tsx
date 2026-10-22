@@ -1,4 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
+import { ASK_KEY, rulesFor } from '../hooks/features/permissions'
+import { SHOW_MS, WAIT_MS, clearPrompts, duePrompts, noteCheck, noteSpinner, permissionQuestion, prompts, verdictOf, waitingPrompts } from '../hooks/features/prompts'
 
 // The hooks registered here sit beneath the plugin and stand for the engine: the model,
 // the rate limits, the settings, the command list, the file system and the prompt box.
@@ -448,20 +450,16 @@ test('the prompts asked most become allow rules after two presses', async ($, on
   const written: Record<string, string> = {}
   on('fs.exists', () => ({ value: false }))
   on('fs.write', (_: unknown, e: any) => ((written[e.path] = e.text), { value: undefined }))
-  on('classic.PermissionRequest', () => ({}))
-  const t = $ as any
-  const ask = { tool_name: 'Bash', tool_input: { command: 'npm test' },
-    permission_suggestions: [{ type: 'addRules', behavior: 'allow', destination: 'localSettings', rules: [{ toolName: 'Bash', ruleContent: 'npm test:*' }] }] }
-  await t.classic.PermissionRequest(ask)
-  await t.classic.PermissionRequest(ask)
+  // two dialogs for npm test, as tickPrompts counts them (when it counts: the test of tool.check and the spinner)
+  store.set(ASK_KEY, { [rulesFor({ tool_name: 'Bash', tool_input: { command: 'npm test' } })[0]!]: { n: 2, last: 1 } })
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   await band.press({ key: 'guard' })
   expect(await textOf(band)).toContain('asked 2×')
-  await band.press({ key: 'allow:Bash(npm test:*)' })
+  await band.press({ key: 'allow:Bash(npm:*)' })
   expect(Object.keys(written).length).toBe(0) // the first press only arms it
-  await band.press({ key: 'allow:Bash(npm test:*)' })
+  await band.press({ key: 'allow:Bash(npm:*)' })
   const file = written['/work/shop/.claude/settings.local.json'] ?? ''
-  expect(JSON.parse(file).permissions.allow).toContain('Bash(npm test:*)')
+  expect(JSON.parse(file).permissions.allow).toContain('Bash(npm:*)')
 })
 
 test('past 70% of the context a ctx chip shows; its menu runs /compact', async ($, on) => {
@@ -1935,4 +1933,50 @@ test('settings copy as JSON with no secret; a paste takes them in place of these
   expect(await textOf(band)).toMatch(/◈ guardrails[\s\S]*● model/)
   await band.press({ key: 'set:undo' })
   expect(store.get('settings')).toMatchObject({ arcade: true, topCommands: 5, gitMarks: false })
+})
+
+test('a permission prompt is told from tool.check and the spinner, not the classic hooks', () => {
+  const call = (id: string, more: object = {}) => ({ tool: 'Bash', input: { command: 'mkdir /tmp/x' }, tool_use_id: id, approver: 'person', ...more })
+  const ask = { decision: 'ask', reason: 'The path is outside the working directories.' }
+  clearPrompts()
+  noteSpinner('tool-input')
+  noteCheck(call('a'), ask, 0)
+  noteCheck(call('b'), { decision: 'allow' }, 0) // let run: no dialog
+  noteCheck(call('c', { agentId: 'ag1' }), ask, 0) // an agent's: not the main loop
+  noteCheck(call('d', { tool_use_id: undefined }), ask, 0) // a $.tool.check query
+  noteCheck(call('e', { tool: 'AskUserQuestion' }), ask, 0) // the ask feature's own dialog
+  noteCheck(call('f', { approver: undefined }), ask, 0) // nobody can be asked
+  expect(prompts.pending.map(p => p.id)).toEqual(['a'])
+  // the phone sees it after SHOW_MS, with what it would run and why it asks
+  expect(waitingPrompts(SHOW_MS - 1)).toEqual([])
+  expect(waitingPrompts(SHOW_MS)).toEqual([{ id: 'a', tool: 'Bash', text: 'mkdir /tmp/x', reason: ask.reason, at: 0 }])
+  // counted and pushed once, after WAIT_MS; still shown until it is answered
+  expect(duePrompts(WAIT_MS - 1)).toEqual([])
+  expect(duePrompts(WAIT_MS).map(p => p.id)).toEqual(['a'])
+  expect(duePrompts(WAIT_MS + 1000)).toEqual([])
+  expect(waitingPrompts(WAIT_MS + 1000).map(p => p.id)).toEqual(['a'])
+  // answered: the spinner turns to tool-use and nothing is left waiting
+  noteSpinner('tool-use')
+  expect(waitingPrompts(WAIT_MS + 2000)).toEqual([])
+  // another call already running keeps the spinner on tool-use: that is no answer
+  noteCheck(call('h'), ask, 20)
+  noteSpinner('tool-use')
+  expect(duePrompts(20 + WAIT_MS).map(p => p.id)).toEqual(['h'])
+  clearPrompts()
+})
+
+test('a permission prompt asked in the band and on the phone: Yes, Yes always, No with what to do instead', () => {
+  const rule = rulesFor({ tool_name: 'Bash', tool_input: { command: 'mkdir /tmp/x' } })[0]!
+  expect(rule).toBe('Bash(mkdir:*)')
+  const q = permissionQuestion('Bash', { command: 'mkdir /tmp/x' }, rule, 'The path is outside the working directories.')
+  expect(q.description).toBe('mkdir /tmp/x\nThe path is outside the working directories.')
+  expect(q.options!.map(o => o.label)).toEqual(['Yes', "Yes, and don't ask again for Bash(mkdir:*)", 'No'])
+  const said = (a: string) => verdictOf({ answers: { [q.question]: a } }, rule)
+  expect(said('Yes')).toEqual({ decision: 'allow', reason: 'The person allowed it.' })
+  expect(said("Yes, and don't ask again for Bash(mkdir:*)")).toMatchObject({ decision: 'allow', isAlways: true })
+  expect(said('No')).toEqual({ decision: 'deny', reason: 'The person declined this call.' })
+  expect(said('No, use the scratchpad')).toEqual({ decision: 'deny', reason: 'The person declined this call and said: use the scratchpad' })
+  expect(said('make it under ./tmp')).toEqual({ decision: 'deny', reason: 'The person declined this call and said: make it under ./tmp' })
+  expect(verdictOf('dismissed', rule).decision).toBe('deny')
+  expect(verdictOf(undefined, rule).decision).toBe('deny')
 })

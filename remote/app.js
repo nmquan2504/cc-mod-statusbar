@@ -382,6 +382,15 @@ function renderChat() {
     b.append(el('div', 'go', 'Answer'))
     b.onclick = () => openAsk(true)
   }
+  // a permission prompt waiting at the computer: what it would run and why it asks; no buttons,
+  // since an organization's policy may not let a plugin answer one
+  for (const p of snap.permissions || []) {
+    const b = root.appendChild(el('div', 'b claude ask perm'))
+    b.append(el('div', 'qt', `Claude asks to use ${p.tool}`))
+    b.append(el('pre', 'call', p.text))
+    if (p.reason) b.append(el('div', 'meta', p.reason))
+    b.append(el('div', 'go', 'Answer it at the computer'))
+  }
   if (snap.busy) {
     const w = root.appendChild(el('div', 'working'))
     const head = w.appendChild(el('div', 'head'))
@@ -688,6 +697,12 @@ const answersOf = (questions, d) => {
   })
   return answers
 }
+// One question, one choice, no previews (a permission prompt is one): a tap is the answer, sent at
+// once; with previews a tap shows one first, and with several questions Submit sends them.
+const isOneTap = qs => {
+  const q = qs.length === 1 ? qs[0] : null
+  return Boolean(q && q.kind !== 'text' && q.kind !== 'number' && !q.multiSelect && q.options?.length && !q.options.some(o => o.preview))
+}
 function renderAsk() {
   const a = snap.ask
   const root = $('ask-body')
@@ -719,6 +734,7 @@ function renderAsk() {
           askDraft.picks[i] = q.multiSelect ? (now.includes(o.label) ? now.filter(l => l !== o.label) : [...now, o.label]) : now[0] === o.label ? [] : [o.label]
           drawOptions()
           count()
+          if (isOneTap(a.questions) && askDraft.picks[i]?.length) void sendAnswer(false)
         }
         box.insertBefore(row, anchor)
         if (isOn && o.preview) box.insertBefore(el('pre', 'preview', o.preview), anchor)

@@ -17,6 +17,7 @@
 import { execFile, spawn } from 'node:child_process'
 import { generateKeyPairSync, randomBytes, randomInt, sign } from 'node:crypto'
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { Resolver } from 'node:dns/promises'
 import { createServer } from 'node:http'
 import { connect } from 'node:net'
 import { basename, dirname, extname, isAbsolute, join, relative, sep } from 'node:path'
@@ -534,23 +535,40 @@ const ctl = createServer(async (req, res) => {
 let tunnel
 let tunnelSeen = ''
 // A new quick-tunnel name takes some seconds to resolve, and a phone that asks too early keeps
-// the miss in its DNS cache: the link shows once Cloudflare's own resolver has the name, and a
-// few seconds more.
+// the miss in its DNS cache: the link shows once the name resolves, and a few seconds more.
+// It is asked of trycloudflare.com's own name servers, which keep no miss: a public resolver
+// asked too early keeps the miss for the zone's negative TTL, 60 s, and the wait grew to a minute.
+// With those servers out of reach, Cloudflare's public resolver is asked instead.
+async function zoneServers() {
+  try {
+    const r = new Resolver({ timeout: 3000, tries: 1 })
+    const names = await r.resolveNs('trycloudflare.com')
+    return (await Promise.all(names.map(n => r.resolve4(n).catch(() => [])))).flat()
+  } catch {
+    return []
+  }
+}
+async function isResolvable(host, servers) {
+  if (servers.length) {
+    const r = new Resolver({ timeout: 2000, tries: 1 })
+    r.setServers(servers)
+    return r.resolve4(host).then(a => a.length > 0, () => false)
+  }
+  const r = await fetch(`https://1.1.1.1/dns-query?name=${host}&type=A`, { headers: { accept: 'application/dns-json' } }).catch(() => undefined)
+  const body = await r?.json().catch(() => undefined)
+  return Array.isArray(body?.Answer) && body.Answer.length > 0
+}
 async function whenResolvable(url) {
   const host = new URL(url).hostname
-  for (let i = 0; i < 60 && !isShuttingDown; i++) {
-    try {
-      const r = await fetch(`https://1.1.1.1/dns-query?name=${host}&type=A`, { headers: { accept: 'application/dns-json' } })
-      const body = await r.json()
-      if (Array.isArray(body.Answer) && body.Answer.length) break
-    } catch {
-      // no answer yet: ask again
-    }
+  const servers = await zoneServers()
+  const startedAt = Date.now()
+  for (let i = 0; i < 90 && !isShuttingDown; i++) {
+    if (await isResolvable(host, servers)) break
     await new Promise(resolve => setTimeout(resolve, 1000))
   }
   await new Promise(resolve => setTimeout(resolve, 3000))
   tunnelUrl = url
-  log(`tunnel ready ${url}`)
+  log(`tunnel ready ${url} (the name resolved after ${Math.round((Date.now() - startedAt) / 1000) - 3} s, asked of ${servers.length ? `the zone's ${servers.length} name servers` : '1.1.1.1'})`)
 }
 function findCloudflared() {
   for (const d of [...String(process.env.PATH ?? '').split(':'), '/opt/homebrew/bin', '/usr/local/bin'])

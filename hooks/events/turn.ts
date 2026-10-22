@@ -2,6 +2,7 @@ import { atom, read, update } from 'claude-code'
 import { summarizeTurn } from '../features/assist'
 import { planContinue } from '../features/automation'
 import { readGuard } from '../features/guard'
+import { clearPrompts } from '../features/prompts'
 import { notifyRemote, readRemoteMessages, remote } from '../features/remote'
 import { refreshBar } from '../features/status'
 import { keepUsage } from '../features/usage'
@@ -62,12 +63,6 @@ export function registerTurn(on: On) {
     return next(e)
   }).catch(($, e, next) => next(e)) // a status bar never holds up the session
 
-  // Claude waits for the person (a permission prompt, an idle prompt): the phone hears of it
-  on('classic.Notification', async ($, e: any, next) => {
-    if (cfg.selfRemote) void notifyRemote($, `Claude needs you · /${(await read($, bar)).folder}`, oneLine(String(e.message ?? ''), 200)).catch(() => undefined)
-    return next(e)
-  }).catch(($, e, next) => next(e))
-
   // StopFailure names the API error a turn died on; a turn.complete with reason 'error' follows
   on('classic.StopFailure', async ($, e: any, next) => {
     if (e.error === 'rate_limit') rt.isLimitStop = true
@@ -75,6 +70,8 @@ export function registerTurn(on: On) {
   }).catch(($, e, next) => next(e))
 
   on('turn.complete', async ($, e, next) => {
+    // a turn that ended (an Esc at the dialog among them) leaves no prompt waiting
+    if (!e.agentId) clearPrompts()
     await refreshBar($)
     await readGuard($)
     // A main-loop turn the 5-hour or weekly limit stopped: "continue" once the window resets.
