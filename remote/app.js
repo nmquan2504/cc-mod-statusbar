@@ -372,14 +372,15 @@ function renderChat() {
     if (t.k === 'user') root.append(prompted(t.text, el('div', 'b me')))
     else root.appendChild(el('div', 'b claude')).append(markdown(t.text))
   }
-  // Claude Code's guess at your next prompt, under its last answer: a press puts it in the box
-  if (snap.suggestion && !snap.busy) {
-    const chip = root.appendChild(el('button', 'suggest'))
-    chip.append(icon('spark'), el('span', '', snap.suggestion))
-    chip.onclick = () => {
-      text.value = snap.suggestion
-      fitText()
-      text.focus()
+  // under Claude's last answer: Claude Code's guess at your next prompt, then what the answer
+  // suggests sending (read by rule), three at most; a press sends it as if typed and sent
+  const chips = snap.busy ? [] : snap.suggestions || []
+  if (chips.length) {
+    const row = root.appendChild(el('div', 'suggests'))
+    for (const s of chips) {
+      const chip = row.appendChild(el('button', 'suggest'))
+      chip.append(icon('spark'), el('span', '', s))
+      chip.onclick = () => sendText(s)
     }
   }
   // sent as the prompt, not in the transcript yet: drawn as the bubble it will be
@@ -941,25 +942,34 @@ fitFoot()
 text.addEventListener('input', fitText)
 // a tap anywhere in the frame but its buttons puts the keyboard in the box
 document.querySelector('.composer').addEventListener('click', e => { if (!e.target.closest('button')) text.focus() })
-$('send').onclick = async () => {
-  const value = text.value.trim()
+$('send').onclick = () => sendText(text.value, true)
+// a text sent, from the box or a chip: /usage, /secret and the pages open here; the rest goes to the session
+// `isBox`: it came from the reply box, which empties once it goes; a chip leaves a draft alone
+async function sendText(raw, isBox = false) {
+  const value = String(raw ?? '').trim()
   if (!value || !snap) return
   // /usage shows here, from what the session reports; nothing opens on the computer
   // /secret opens a dialog on the computer: here, the phone's own sheet takes the secret
   if (/^\/secret$/.test(value)) {
-    text.value = ''
-    fitText()
+    if (isBox) {
+      text.value = ''
+      fitText()
+    }
     return openSecretSheet()
   }
   if (/^\/(usage|cost)\b/.test(value)) {
-    text.value = ''
-    fitText()
+    if (isBox) {
+      text.value = ''
+      fitText()
+    }
     return openUsage()
   }
   const asPage = /^\/(\w+)$/.exec(value)
   if (asPage && PAGES.has(asPage[1])) {
-    text.value = ''
-    fitText()
+    if (isBox) {
+      text.value = ''
+      fitText()
+    }
     return openPage(asPage[1])
   }
   $('send').disabled = true
@@ -967,8 +977,10 @@ $('send').onclick = async () => {
   $('send').disabled = false
   const body = r.b || {}
   if (r.s !== 200) return toast({ title: 'Not sent', body: body.error || 'The session did not answer. Try again.' })
-  text.value = ''
-  fitText()
+  if (isBox) {
+    text.value = ''
+    fitText()
+  }
   toBottom()
 }
 

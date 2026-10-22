@@ -9,6 +9,8 @@ export const ME = 'cc-mod-statusbar'
 // What the mod keeps between events and draws, outside $.state: plain values its hooks set
 // and read; one object, so every module reads and writes the same ones.
 export const rt = {
+  // what Claude's last answer suggests sending next (lib/suggest.ts), cleared when a turn starts
+  answerChips: [] as string[],
   // The main loop's turn: when it began and ended, and the session's cost when it began.
   turnStartedAt: 0,
   turnEndedAt: 0,

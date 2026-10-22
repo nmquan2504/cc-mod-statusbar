@@ -1,5 +1,6 @@
 import { atom, read } from 'claude-code'
 import { oneLine, shortModel } from '../lib/format'
+import { suggestionChips } from '../lib/suggest'
 import { ask, settleAsk } from './ask'
 import { buildPage, isPage, pageAction } from './pages'
 import type { Page, PageName } from './pages'
@@ -597,7 +598,8 @@ async function snapshotOf($: any) {
     roots: [await $.session.cwd().catch(() => ''), ...remote.context.dirs].filter(Boolean),
     context: remote.context,
     commands: remote.commands,
-    suggestion: rt.isBusy ? '' : remote.suggestion,
+    // the chips under Claude's last answer (features/chips.ts), sent at a press
+    suggestions: rt.isBusy ? [] : suggestionChips(remote.suggestion, rt.answerChips),
     vaultNote: remote.vaultNote,
     lastAt: remote.lastAt,
     // the question Claude waits on, for the phone to answer
