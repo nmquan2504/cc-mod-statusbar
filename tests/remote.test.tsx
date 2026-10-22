@@ -127,13 +127,39 @@ test('with the hub up: the QR code, a phone asking to pair with its code, Allow 
   await switchOn(band)
   await band.press({ key: 'remote' })
   const drawn = await textOf(band)
-  expect((await band.find({ key: 'remote' }))?.text).toBe(' ⇄ ? ')
+  // a request to pair waits a minute: the chip and the row count it down
+  expect((await band.find({ key: 'remote' }))?.text).toBe(' ⇄ ? 60s ')
   expect(drawn).toContain('Android, Chrome asks to pair, code K7M3')
+  expect(drawn).toContain('"60 s"')
   expect(drawn).toContain('█▀') // the QR code's rows
   expect(drawn).toContain('Sessions on the link ')
   await band.press({ key: 'allow:p1' })
   expect(asked).toContain('/allow {"id":"p1"}')
   expect((await band.find({ key: 'remote' }))?.text).toBe(' ⇄ 1 ')
+})
+
+test('a request to pair a minute old is gone from the terminal; Allow on one the hub dropped says so', async ($, on) => {
+  const toasts: string[] = []
+  let late = false
+  engine(on, {
+    toasts,
+    hub: path => {
+      if (path === '/allow') return undefined // the hub answers 410 for an expired request
+      return { ...STATUS, pending: [{ id: 'p1', code: 'K7M3', name: 'Android, Chrome', at: 0, expiresAt: late ? Date.now() - 1 : Date.now() + 30_000 }] }
+    },
+  })
+  const band = await $.ui.mount({ plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await switchOn(band)
+  await band.press({ key: 'remote' })
+  expect((await band.find({ key: 'remote' }))?.text).toBe(' ⇄ ? 30s ')
+  await band.press({ key: 'allow:p1' })
+  expect(toasts.join()).toContain('had expired')
+  // its minute over, the request leaves the menu and the chip before the hub's next answer
+  late = true
+  await band.press({ key: 'close-menu' })
+  await band.press({ key: 'remote' })
+  expect(await textOf(band)).not.toContain('asks to pair')
+  expect((await band.find({ key: 'remote' }))?.text).not.toContain('?')
 })
 
 test('the transcript reads as the terminal: prompts without reminders, text, tool calls with output', () => {

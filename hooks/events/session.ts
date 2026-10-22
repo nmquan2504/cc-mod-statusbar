@@ -7,7 +7,7 @@ import { readImages } from '../features/images'
 import { readMcp } from '../features/mcp'
 import { probeMode } from '../features/mode'
 import { tickPrompts } from '../features/prompts'
-import { isRemoteWaiting, tickRemote } from '../features/remote'
+import { isRemoteWaiting, pendingPairs, tickRemote } from '../features/remote'
 import { refreshBar } from '../features/status'
 import { UPDATE_EVERY, checkModUpdate } from '../features/update'
 import { cache, vaultSessionStart } from '../features/vault'
@@ -39,7 +39,7 @@ export function registerSession(on: On) {
     $.clock.every(120, () => {
       if (rt.isBusy && cfg.arcade) stepArena()
       else if (rt.lingerUntil) stepLinger()
-      else if (!isRemoteWaiting()) return // idle and cleared: nothing to draw (a waiting remote turns its spinner)
+      else if (!isRemoteWaiting() && !pendingPairs().length) return // idle and cleared: nothing to draw (a waiting remote turns its spinner, a request to pair counts down)
       $.ui.invalidate('ui.render')
     })
     // shift+tab changes the mode between turns: only the hint line shows it then

@@ -97,7 +97,7 @@ async function pair() {
     }
     if (r.s === 200) return
     if (r.s === 202) {
-      gate('Check the code in the terminal and press Allow there.', r.b.code)
+      gate('Check the code in the terminal and press Allow there.', r.b.code, false, r.b.secondsLeft)
       await sleep(2000)
       continue
     }
@@ -106,13 +106,27 @@ async function pair() {
     throw new Error('refused')
   }
 }
-function gate(text, code, canPaste) {
+// `secondsLeft`: how long the request still waits for Allow (a minute in all); counted down here
+// between the hub's answers, and the request is over when it reaches 0
+let pairUntil = 0
+let pairTimer = 0
+function gate(text, code, canPaste, secondsLeft) {
   $('gate-text').textContent = text
   $('gate-code').textContent = code || ''
   $('gate-code').hidden = !code
   $('gate-paste').hidden = !canPaste
   $('gate').hidden = false
   $('app').hidden = true
+  pairUntil = code && typeof secondsLeft === 'number' ? Date.now() + secondsLeft * 1000 : 0
+  clearInterval(pairTimer)
+  showPairLeft()
+  if (pairUntil) pairTimer = setInterval(showPairLeft, 500)
+}
+function showPairLeft() {
+  const left = Math.max(0, Math.ceil((pairUntil - Date.now()) / 1000))
+  $('gate-left').hidden = !pairUntil
+  $('gate-left').textContent = left ? `Allow it within ${left} s` : 'Checking…'
+  $('gate-left').classList.toggle('low', left > 0 && left <= 15)
 }
 
 // ---- the long poll ---------------------------------------------------------------------------
@@ -133,6 +147,7 @@ async function follow() {
     }
     $('gate').hidden = true
     $('app').hidden = false
+    clearInterval(pairTimer)
     render()
   }
 }

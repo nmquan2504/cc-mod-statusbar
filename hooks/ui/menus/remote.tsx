@@ -1,5 +1,5 @@
 import { ARM_MS } from '../../features/permissions'
-import { CLOUDFLARED_DOWNLOAD, answerPairing, checkCloudflared, forgetDevices, hideSession, installCloudflared, remote, spinnerFrame, startRemote, stopRemote, waitedFor } from '../../features/remote'
+import { CLOUDFLARED_DOWNLOAD, answerPairing, checkCloudflared, forgetDevices, hideSession, installCloudflared, pendingPairs, remote, secondsToPair, spinnerFrame, startRemote, stopRemote, waitedFor } from '../../features/remote'
 import { oneLine } from '../../lib/format'
 import { qrMatrix, qrRows } from '../../lib/qr'
 import { rt } from '../../state/runtime'
@@ -84,9 +84,10 @@ export async function drawRemoteMenu($: any, els: any, _isTerminal: boolean, ent
       {s.error ? <Text color="error">{s.error}</Text> : null}
       {!s.url && !s.error ? waiting("Waiting for the tunnel's address") : null}
       {s.isLocked ? <Text color="error">Pairing is locked after 10 wrong links. Stop and start again.</Text> : null}
-      {s.pending.map(p => (
+      {pendingPairs().map(p => (
         <Box key={`pend:${p.id}`} flexDirection="row" gap={1}>
           <Text color="warning" bold>{`${p.name} asks to pair, code ${p.code}`}</Text>
+          <Text dimColor>{`${secondsToPair(p)} s`}</Text>
           <Button key={`allow:${p.id}`} plain onPress={() => answerPairing($, p.id, true)}>
             <Text backgroundColor="success" color="inverseText" bold>{' Allow '}</Text>
           </Button>
