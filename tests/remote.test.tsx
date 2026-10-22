@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { contextOf, phoneMayRun, transcriptOf } from '../hooks/features/remote'
+import { contextOf, phoneCommand, phoneMayRun, transcriptOf } from '../hooks/features/remote'
 import { qrMatrix, qrRows } from '../hooks/lib/qr'
 
 // Self remote: the ⇄ chip and its menu. The hooks registered here stand for the engine; the hub
@@ -305,10 +305,22 @@ test('the QR code shows on the first opening after Start; once the menu shut, q 
 
 test('from the phone a built-in runs only when it prints text or takes a value; a panel stays on the computer', () => {
   expect(phoneMayRun('humanizer', '', false)).toBe(true) // a skill hands the model a prompt
-  expect(phoneMayRun('cost', '', true)).toBe(true)
+  expect(phoneMayRun('compact', '', true)).toBe(true)
+  expect(phoneMayRun('code-review', '', true)).toBe(true) // a bundled skill
   expect(phoneMayRun('model', 'opus', true)).toBe(true)
   expect(phoneMayRun('model', '', true)).toContain('opens a picker on the computer')
   expect(phoneMayRun('usage', '', true)).toContain('opens a panel on the computer')
   expect(phoneMayRun('config', '', true)).toContain('the phone cannot close it')
   expect(phoneMayRun('exit', '', true)).toContain('run it at the computer')
+})
+
+test('a text from the phone: a listed command runs, an unknown /name is refused, a path goes in as a prompt', () => {
+  const commands = [{ name: 'compact', isBuiltin: true }, { name: 'usage', isBuiltin: true }, { name: 'humanizer', isBuiltin: false }, { name: 'model', isBuiltin: true }]
+  expect(phoneCommand('/compact', commands)).toEqual({ kind: 'run', name: 'compact', args: '' })
+  expect(phoneCommand('/humanizer fix the README', commands)).toEqual({ kind: 'run', name: 'humanizer', args: 'fix the README' })
+  expect(phoneCommand('/model opus', commands)).toEqual({ kind: 'run', name: 'model', args: 'opus' })
+  expect(phoneCommand('/cost', commands)).toEqual({ kind: 'refuse', text: '/cost is not a command in this session' })
+  expect(phoneCommand('/usage', commands)).toMatchObject({ kind: 'refuse' })
+  expect(phoneCommand('/Users/me/notes.md read this', commands)).toEqual({ kind: 'prompt' })
+  expect(phoneCommand('run the tests', commands)).toEqual({ kind: 'prompt' })
 })
