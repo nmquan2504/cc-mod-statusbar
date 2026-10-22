@@ -1,6 +1,8 @@
 import { atom, read } from 'claude-code'
 import { oneLine, shortModel } from '../lib/format'
 import { ask, settleAsk } from './ask'
+import { TOP_GROUP, USE_KEY, groupOf } from './commands'
+import { saveTyped } from './vault'
 import { cfg } from '../state/config'
 import { rt } from '../state/runtime'
 
@@ -41,6 +43,10 @@ export const remote = {
   // brew install cloudflared runs, since when; and the last lines it failed with
   installingAt: 0,
   installError: '',
+  // the menu draws the QR code: at first after a Start, then only on request once the menu was shut
+  isQrShown: true,
+  // the menu has drawn it since it was last opened, so shutting the menu puts it away
+  isQrSeen: false,
   // this session stays off the phone's list
   isHidden: false,
   isJoined: false,
@@ -54,6 +60,13 @@ export const remote = {
   // folders /add-dir added this session (the DirectoryAdded hook), and when the memory files were read
   addedDirs: [] as string[],
   memoryAt: 0,
+  // the slash commands and skills, for the phone's list, read on joining and every five minutes
+  commands: [] as { name: string; description: string; group: string }[],
+  commandsAt: 0,
+  // Claude Code's own suggestion for the next prompt (the dim line, Tab to take); '' with none
+  suggestion: '',
+  // what came of the last secret the phone sent, for its toast: the NAME and host, or why not
+  vaultNote: null as { at: number; text: string; isError: boolean } | null,
   // texts sent as the prompt that the transcript does not show yet: the phone keeps their bubbles
   sending: [] as { text: string; at: number }[],
   // the conversation as the phone shows it, as the terminal draws it: read at a turn's start and
@@ -136,6 +149,7 @@ export async function startRemote($: any) {
   remote.missing = null
   remote.isStarting = true
   remote.startedAt = Date.now()
+  remote.isQrShown = true
   remote.isHidden = false
   $.ui.invalidate('ui.render')
   const server = `${$.plugin.root}/remote/server.mjs`
@@ -325,6 +339,19 @@ async function readMemory($: any) {
   if (Array.isArray(files)) remote.context.memory = files.map((f: any) => ({ path: String(f.path), type: String(f.type ?? ''), tokens: Number(f.tokens ?? 0) }))
 }
 
+// The commands the phone lists, as the ⁄ menu has them: the ones typed most first, then by group.
+async function readCommands($: any) {
+  if (Date.now() - remote.commandsAt < 300_000) return
+  remote.commandsAt = Date.now()
+  const list: any[] = await $.command.list().catch(() => [])
+  const rows = list.map(c => ({ name: String(c.name), description: oneLine(String(c.description ?? ''), 120), group: groupOf(c) }))
+    .sort((a, b) => a.group.localeCompare(b.group) || a.name.localeCompare(b.name))
+  const counts = ((await $.store.get(USE_KEY).catch(() => undefined)) ?? {}) as Record<string, { n: number; last: number }>
+  const top = Object.entries(counts).filter(([name]) => rows.some(r => r.name === name)).sort(([, a], [, b]) => b.n - a.n || b.last - a.last).slice(0, cfg.topCommands)
+    .map(([name]) => ({ ...rows.find(r => r.name === name)!, group: TOP_GROUP }))
+  remote.commands = [...top, ...rows]
+}
+
 // The conversation for the phone, read again, and what it put in context.
 export async function readRemoteMessages($: any) {
   if (!cfg.selfRemote || !remote.status) return
@@ -333,6 +360,7 @@ export async function readRemoteMessages($: any) {
   const home: string = (await $.env.get('HOME').catch(() => '')) ?? ''
   remote.context = { ...remote.context, ...contextOf(list, cwd, home), dirs }
   await readMemory($)
+  await readCommands($)
   remote.transcript = transcriptOf(list, cwd)
   remote.lastAt = Date.now()
   // a sent text the transcript now shows, or one two minutes old, leaves the sending list
@@ -367,6 +395,9 @@ async function snapshotOf($: any) {
     // what the phone may browse: the session's folder and the folders added; what is in context
     roots: [await $.session.cwd().catch(() => ''), ...remote.context.dirs].filter(Boolean),
     context: remote.context,
+    commands: remote.commands,
+    suggestion: rt.isBusy ? '' : remote.suggestion,
+    vaultNote: remote.vaultNote,
     lastAt: remote.lastAt,
     // the question Claude waits on, for the phone to answer
     ask: ask.pending && !ask.pending.result ? { id: ask.pending.id, questions: ask.pending.questions } : null,
@@ -423,9 +454,20 @@ export async function tickRemote($: any) {
     else if (Object.keys(answers).length) settleAsk(a.id, { answers }, 'phone')
     $.ui.invalidate('ui.render')
   }
-  // one text a turn, and never into a running one
+  // secrets typed on the phone go to the keychain; the phone hears the NAME and host, never the value
+  for (const given of Array.isArray(inbox?.secrets) ? inbox.secrets : []) {
+    const r: any = await saveTyped($, given).catch(() => ({ error: 'the keychain refused it' }))
+    remote.vaultNote = { at: Date.now(), text: r.error ? `Not saved: ${r.error}` : `${r.name} saved to the ${r.where}; it goes only to ${r.host}`, isError: Boolean(r.error) }
+    $.ui.toast(r.error ? `statusbar: remote: a secret from the phone was not saved (${r.error})` : `statusbar: remote: ${r.name} saved from the phone (sent only to ${r.host})`)
+  }
+  // one text a turn, and never into a running one; "/name args" runs that command, as typed
   if (remote.queue.length && !rt.isBusy) {
     const text = remote.queue.shift()!
+    const slash = /^\/(\S+)\s*([\s\S]*)$/.exec(text)
+    if (slash && remote.commands.some(c => c.name === slash[1])) {
+      const isRun = await $.command.run({ command: slash[1], args: slash[2]!.trim() }).then(() => true, () => false)
+      if (isRun) return void $.ui.toast(`statusbar: remote: ran /${slash[1]} from the phone`)
+    }
     const isSent = await $.prompt.submit({ text, asUser: true }).then(() => true, () => false)
     if (isSent) {
       remote.sending = [...remote.sending, { text, at: Date.now() }]

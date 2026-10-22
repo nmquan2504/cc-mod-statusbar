@@ -138,6 +138,11 @@ export async function drawBand($: any, e: any, next: any) {
   // ? Claude asks: a question waits and its menu is shut; a press opens it again
   const askLabel = ask.pending && !ask.pending.result && open !== 'ask' ? ' ? Claude asks ' : ''
   // ⇄: Self remote, with the setting on; ⇄ 2 while two phones watch, ⇄ ? while one asks to pair
+  // the remote menu shut after showing its QR code: the next opening keeps it hidden (q shows it)
+  if (open !== 'remote' && remote.isQrSeen) {
+    remote.isQrSeen = false
+    remote.isQrShown = false
+  }
   const rs = remote.status
   // while the hub starts or the tunnel waits for its address, the chip turns a spinner: ⇄ ✻
   const remoteLabel = !cfg.selfRemote ? '' : rs?.pending.length ? ' ⇄ ? ' : isRemoteWaiting() ? ` ⇄ ${spinnerFrame()} ` : rs?.phones ? ` ⇄ ${rs.phones} ` : ' ⇄ '

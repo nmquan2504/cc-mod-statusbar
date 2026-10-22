@@ -70,6 +70,8 @@ export async function drawRemoteMenu($: any, els: any, _isTerminal: boolean, ent
   let rows: string[] = []
   try {
     rows = s.link ? qrRows(qrMatrix(s.link)) : []
+    // drawn now: shutting the menu puts it away until asked for again
+    if (rows.length && remote.isQrShown) remote.isQrSeen = true
   } catch {
     rows = []
   }
@@ -93,7 +95,11 @@ export async function drawRemoteMenu($: any, els: any, _isTerminal: boolean, ent
           </Button>
         </Box>
       ))}
-      {rows.length > 0 && (
+      {rows.length > 0 && !remote.isQrShown ? entry('remote-qr', 'q', '▦', 'Show the QR code', 'to pair another phone; it goes away again when the menu shuts', () => {
+        remote.isQrShown = true
+        $.ui.invalidate('ui.render')
+      }) : null}
+      {rows.length > 0 && remote.isQrShown && (
         <Box flexDirection="column" marginY={1}>
           {rows.map((row, i) => <Text key={`qr:${i}`} color="#ffffff" backgroundColor="#000000">{row}</Text>)}
         </Box>
