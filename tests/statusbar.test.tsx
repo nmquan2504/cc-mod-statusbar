@@ -10,6 +10,12 @@ const BAND = {
 } as const
 
 type Run = { exitCode: number; stdout: string; stderr: string }
+// a process.run answer as the engine gives it
+const exited = (exitCode: number, stderr = '') => ({ exitCode, stdout: '', stderr, isStdoutTruncated: false, isStderrTruncated: false })
+// model.complete's token counts, none spent
+const USAGE = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+// the environment has the web timers; the engine's declarations leave them out
+declare function setTimeout(callback: (...args: never[]) => void, ms: number): unknown
 type Cmd = { name: string; description: string; source: string; plugin?: string }
 function engine(on: any, opts: { filled?: string[]; settings?: object; toasts?: string[]; run?: (argv: string[]) => Run | undefined; commands?: Cmd[]; breakdown?: (detail: string) => object } = {}) {
   on('session.model', () => ({ value: 'claude-sonnet-5-5' }))
@@ -164,7 +170,7 @@ test('outside a git repository the bar shows the folder alone', async ($, on) =>
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   on('session.cwd', () => ({ value: '/tmp/scratch' }))
   on('session.usage', () => ({ value: { startedAt: 0, context: { window: 1 }, rateLimits: [] } }))
-  on('process.run', () => ({ value: { exitCode: 128, stdout: '', stderr: 'not a git repository' } }))
+  on('process.run', () => ({ value: exited(128, 'not a git repository') }))
   on('settings.read', () => ({ value: {} }))
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   await band.press({ key: 'model' })
@@ -175,7 +181,7 @@ test('outside a git repository the bar shows the folder alone', async ($, on) =>
 
 test('the gauges follow session.measure, the figures the footer shows', async ($, on) => {
   engine(on)
-  on('session.measure', (_: unknown, e: { changed: string[] }) => ({ changed: e.changed }))
+  on('session.measure', (_, e) => ({ changed: e.changed }))
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'desktop', ...BAND } as never)
   await band.press({ key: 'model' })
   await ($ as any).session.measure({
@@ -273,7 +279,7 @@ test('Claude in the arena opens what it works on: its tasks and the agents runni
 test('a click on the gauges opens the usage in detail', async ($, on) => {
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   on('session.cwd', () => ({ value: '/work/shop' }))
-  on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: '' } }))
+  on('process.run', () => ({ value: exited(1) }))
   on('settings.read', () => ({ value: {} }))
   on('session.usage', () => ({
     value: {
@@ -313,7 +319,7 @@ test('a click on the folder lists the changed files; a pick goes in as an @-ment
 test('a window passing 80% warns once, again at 90%, and the bar blinks past 90%', async ($, on) => {
   const toasts: string[] = []
   engine(on, { toasts })
-  on('session.measure', (_: unknown, e: { changed: string[] }) => ({ changed: e.changed }))
+  on('session.measure', (_, e) => ({ changed: e.changed }))
   const t = $ as any
   const at = (five: number) => t.session.measure({
     context: { window: 1 }, changed: ['rateLimits'],
@@ -332,7 +338,7 @@ test('a long turn ends with a toast of its time and cost', async ($, on) => {
   const toasts: string[] = []
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   on('session.cwd', () => ({ value: '/work/shop' }))
-  on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: '' } }))
+  on('process.run', () => ({ value: exited(1) }))
   on('settings.read', () => ({ value: {} }))
   on('ui.toast', (_: unknown, e: unknown) => (toasts.push(JSON.stringify(e)), { value: undefined }))
   let usd = 1.0
@@ -351,7 +357,7 @@ test('a long turn ends with a toast of its time and cost', async ($, on) => {
 
 test('the shield lists what the guardrails blocked this session', async ($, on) => {
   engine(on)
-  on('tool.call', () => ({ result: {}, isError: false }))
+  on('tool.call', () => ({ result: {} }))
   const t = $ as any
   const service = ['cc-mod-statusbar', 'vault'].join('-')
   await t.tool.call({ tool: 'Bash', command: `security find-generic-password -s ${service} -w` })
@@ -418,7 +424,7 @@ test('the tasks menu lists the files edited this turn with lines added and remov
   const filled: string[] = []
   engine(on, { filled })
   on('agent.list', () => ({ value: [] }))
-  on('tool.call', (_: unknown, e: any) => (e.tool === 'TaskList' ? { deny: 'not in a turn' } : { result: {}, isError: false }))
+  on('tool.call', (_: unknown, e: any) => (e.tool === 'TaskList' ? { deny: 'not in a turn' } : { result: {} }))
   const t = $ as any
   await t.tool.call({ tool: 'Edit', file_path: '/work/shop/src/app.ts', old_string: 'a', new_string: 'b\nc' })
   await t.tool.call({ tool: 'Write', file_path: '/work/shop/README.md', content: 'x\ny\nz' })
@@ -462,7 +468,7 @@ test('past 70% of the context a ctx chip shows; its menu runs /compact', async (
   const ran: string[] = []
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   on('session.cwd', () => ({ value: '/work/shop' }))
-  on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: '' } }))
+  on('process.run', () => ({ value: exited(1) }))
   on('settings.read', () => ({ value: {} }))
   on('ui.toast', () => ({ value: undefined }))
   on('command.run', (_: unknown, e: any) => (ran.push(e.command), { text: '' }))
@@ -522,7 +528,7 @@ test('settings: a threshold stepped down moves the usage alert; the ctx chip swi
   const toasts: string[] = []
   engine(on, { toasts })
   settingsStore(on)
-  on('session.measure', (_: unknown, e: { changed: string[] }) => ({ changed: e.changed }))
+  on('session.measure', (_, e) => ({ changed: e.changed }))
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   await band.press({ key: 'add' })
   await band.press({ key: 'settings' })
@@ -540,7 +546,7 @@ test('settings: a threshold stepped down moves the usage alert; the ctx chip swi
 test('a group heading folds its commands away; the fold is kept in the store', async ($, on) => {
   engine(on)
   const store = settingsStore(on)
-  on('ui.scroll', () => ({ value: {} }))
+  on('ui.scroll', () => ({}))
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   await band.press({ key: 'commands' })
   expect(await textOf(band)).toContain('/help')
@@ -557,7 +563,7 @@ test('a group heading folds its commands away; the fold is kept in the store', a
 test('typing in the commands menu narrows the list; Enter puts the first match in the prompt', async ($, on) => {
   const filled: string[] = []
   engine(on, { filled })
-  on('ui.scroll', () => ({ value: {} }))
+  on('ui.scroll', () => ({}))
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   await band.press({ key: 'commands' })
   await band.input({ key: 'cmd-search', text: 'knowledge', kind: 'change' })
@@ -573,7 +579,7 @@ test('the effort chip shows the effort and its menu runs /effort', async ($, on)
   const ran: { command: string; args?: string }[] = []
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   on('session.cwd', () => ({ value: '/work/shop' }))
-  on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: '' } }))
+  on('process.run', () => ({ value: exited(1) }))
   on('settings.read', () => ({ value: { effortLevel: 'high' } }))
   on('session.usage', () => ({ value: { startedAt: 0, context: { window: 1 }, rateLimits: [] } }))
   on('command.run', (_: unknown, e: any) => (ran.push(e), { text: '' }))
@@ -696,7 +702,7 @@ test('the MCP chip counts the servers connected; its menu lists them, sign-ins, 
     { name: 'mcp__claude_ai_Slack__authenticate', description: '', mcp: true },
     { name: 'mcp__claude_ai_Slack__complete_authentication', description: '', mcp: true },
   ] }))
-  on('tool.call', (_: unknown, e: any) => (e.tool.endsWith('create_draft') ? { result: {}, isError: true } : { result: {}, isError: false }))
+  on('tool.call', (_: unknown, e: any) => (e.tool.endsWith('create_draft') ? { result: {}, isError: true } : { result: {} }))
   const t = $ as any
   await t.tool.call({ tool: 'mcp__claude_ai_Gmail__search_threads', query: 'x' })
   await t.tool.call({ tool: 'mcp__claude_ai_Gmail__create_draft', to: 'a' })
@@ -719,7 +725,7 @@ test('the MCP chip counts the servers connected; its menu lists them, sign-ins, 
 
 test('the shield lists every host the session reached, through which tools, and what was blocked', async ($, on) => {
   engine(on)
-  on('tool.call', () => ({ result: {}, isError: false }))
+  on('tool.call', () => ({ result: {} }))
   const t = $ as any
   await t.tool.call({ tool: 'WebFetch', url: 'https://docs.example.com/a', prompt: 'x' })
   await t.tool.call({ tool: 'Bash', command: 'curl -s https://api.github.com/repos/x && wget http://Docs.Example.com/b' })
@@ -747,7 +753,7 @@ test('a long turn gets a summary: what was done and the result, on top of the ta
   engine(on)
   const asked: any[] = []
   on('model.complete', (_: unknown, e: any) => (asked.push(e), {
-    value: { isAnswered: true, text: 'Did: Fixed the login redirect in src/auth.ts.\nResult: The auth tests pass (12 of 12).', usage: {} },
+    value: { isAnswered: true, text: 'Did: Fixed the login redirect in src/auth.ts.\nResult: The auth tests pass (12 of 12).', usage: USAGE },
   }))
   on('session.messages', () => ({ value: [
     { role: 'user', text: 'fix the login redirect', toolUses: [] },
@@ -756,7 +762,7 @@ test('a long turn gets a summary: what was done and the result, on top of the ta
   on('agent.list', () => ({ value: [] }))
   on('turn.start', () => ({ turnId: 't1' }))
   on('turn.complete', () => ({ text: 'ok' }))
-  on('tool.call', (_: unknown, e: any) => (e.tool === 'TaskList' ? { deny: 'not in a turn' } : { result: {}, isError: false }))
+  on('tool.call', (_: unknown, e: any) => (e.tool === 'TaskList' ? { deny: 'not in a turn' } : { result: {} }))
   let now = 1_000_000
   on('clock.now', () => ({ value: now }))
   const t = $ as any
@@ -779,7 +785,7 @@ test('a long turn gets a summary: what was done and the result, on top of the ta
 test('a short turn gets no summary', async ($, on) => {
   engine(on)
   let asked = 0
-  on('model.complete', () => (asked++, { value: { isAnswered: true, text: 'Did: x\nResult: y', usage: {} } }))
+  on('model.complete', () => (asked++, { value: { isAnswered: true, text: 'Did: x\nResult: y', usage: USAGE } }))
   on('session.messages', () => ({ value: [] }))
   on('turn.start', () => ({ turnId: 't1' }))
   on('turn.complete', () => ({ text: 'ok' }))
@@ -800,7 +806,7 @@ test('+ Polish and Translate rewrite the draft through Haiku, and Put back resto
   const systems: string[] = []
   on('prompt.read', () => ({ value: { text: 'sua loi dang nhap trong src/auth.ts', cursor: 0 } }))
   on('model.complete', (_: unknown, e: any) => (systems.push(e.system), {
-    value: { isAnswered: true, text: e.system.startsWith('Translate') ? 'Fix the login bug in src/auth.ts' : 'Sửa lỗi đăng nhập trong src/auth.ts: kiểm tra redirect.', usage: {} },
+    value: { isAnswered: true, text: e.system.startsWith('Translate') ? 'Fix the login bug in src/auth.ts' : 'Sửa lỗi đăng nhập trong src/auth.ts: kiểm tra redirect.', usage: USAGE },
   }))
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   await band.press({ key: 'add' })
@@ -872,12 +878,12 @@ test('arena: each tool call sends its monster, a failure a boss that only a succ
     if (e.tool === 'TaskUpdate') return { result: { success: true, taskId: e.taskId, updatedFields: ['status'] } }
     if (e.tool === 'TaskList') return { deny: 'not in a turn' }
     if (failNext) return (failNext = false, { result: { stdout: '', stderr: 'boom', interrupted: false }, isError: true })
-    return { result: { stdout: 'ok', stderr: '', interrupted: false }, isError: false }
+    return { result: { stdout: 'ok', stderr: '', interrupted: false } }
   })
   on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
   on('ui.status', () => ({ value: undefined }))
-  on('tool.register', () => ({ value: undefined }))
-  on('command.register', () => ({ value: undefined }))
+  on('tool.register', (_: unknown, e: { name: string }) => ({ value: { tool: e.name } }))
+  on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
   const t = $ as any
   await t.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true }) // starts the arena's 120 ms clock
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, isWorking: true, bodyColumns: 180 } } as never)
@@ -910,11 +916,11 @@ test('arena: a monster that reaches Claude counts as a hit, ✗ beside the kills
   engine(on)
   const clock = mock.clock(on)
   on('agent.list', () => ({ value: [] }))
-  on('tool.call', () => ({ result: {}, isError: false }))
+  on('tool.call', () => ({ result: {} }))
   on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
   on('ui.status', () => ({ value: undefined }))
-  on('tool.register', () => ({ value: undefined }))
-  on('command.register', () => ({ value: undefined }))
+  on('tool.register', (_: unknown, e: { name: string }) => ({ value: { tool: e.name } }))
+  on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
   const t = $ as any
   await t.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
   // the narrowest arena (16 cells at 116 columns) and Edit monsters, two hits each: some get through
@@ -1173,7 +1179,9 @@ test('a dangerous command the person allows runs', async ($, on) => {
 
 test('where the engine asks the person itself (manual, no allow rule) only its dialog asks', async ($, on) => {
   engine(on)
+  settingsStore(on) // the answered prompt is counted in the store
   const { asked, ran } = dangerEngine(on, { verdict: 'ask' })
+  on('classic.PermissionRequest', () => ({ decision: { behavior: 'allow' } })) // the person allows it in the engine's dialog
   await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never) // the bar reads the mode: manual
   await ($ as any).tool.call({ tool: 'Bash', command: 'git reset --hard HEAD~1' })
   expect(asked).toEqual([])
@@ -1268,8 +1276,8 @@ test('the shield follows the settings with its menu shut: at once on ConfigChang
   on('agent.list', () => ({ value: [] }))
   on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
   on('ui.status', () => ({ value: undefined }))
-  on('tool.register', () => ({ value: undefined }))
-  on('command.register', () => ({ value: undefined }))
+  on('tool.register', (_: unknown, e: { name: string }) => ({ value: { tool: e.name } }))
+  on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
   const t = $ as any
   await t.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true }) // starts the 1-second clock
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
@@ -1291,8 +1299,8 @@ function automationEngine(on: any, start: number) {
   on('agent.list', () => ({ value: [] }))
   on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
   on('ui.status', () => ({ value: undefined }))
-  on('tool.register', () => ({ value: undefined }))
-  on('command.register', () => ({ value: undefined }))
+  on('tool.register', (_: unknown, e: { name: string }) => ({ value: { tool: e.name } }))
+  on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
   const submitted: string[] = []
   on('prompt.submit', (_: unknown, e: any) => (submitted.push(e.text), { text: e.text }))
   const store = settingsStore(on)
@@ -1307,7 +1315,7 @@ test('a turn the 5-hour limit stopped gets "continue" a minute after the window 
   const toasts: string[] = []
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   on('session.cwd', () => ({ value: '/work/shop' }))
-  on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: '' } }))
+  on('process.run', () => ({ value: exited(1) }))
   on('settings.read', () => ({ value: {} }))
   on('ui.toast', (_: unknown, e: unknown) => (toasts.push(JSON.stringify(e)), { value: undefined }))
   const reset = VN_10 + 30_000 // the 5-hour window resets in half a minute
@@ -1339,7 +1347,7 @@ test('a turn the 5-hour limit stopped gets "continue" a minute after the window 
 test('a turn that ends on another error, or answers, sends nothing', async ($, on) => {
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   on('session.cwd', () => ({ value: '/work/shop' }))
-  on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: '' } }))
+  on('process.run', () => ({ value: exited(1) }))
   on('settings.read', () => ({ value: {} }))
   on('ui.toast', () => ({ value: undefined }))
   on('session.usage', () => ({ value: { startedAt: 0, context: { window: 1 }, rateLimits: [{ kind: 'five_hour', percentUsed: 40, resetsAt: iso(VN_10 + 60_000) }] } }))
@@ -1411,7 +1419,7 @@ test('the first "hi" of the day takes a minute too, in steps of 15', async ($, o
 test('the output styles are the ones /config offers, Concise among them', async ($, on) => {
   engine(on)
   settingsStore(on)
-  on('config.list', () => ({ value: [{ key: 'outputStyle', label: 'Output style', kind: 'enum', value: 'default', options: ['default', 'Explanatory', 'Learning', 'Concise', 'Team'] }] }))
+  on('config.list', () => ({ value: [{ key: 'outputStyle', label: 'Output style', kind: 'choice', value: 'default', options: ['default', 'Explanatory', 'Learning', 'Concise', 'Team'], provider: { plugin: 'core', tier: 'core' }, isLocked: false }] }))
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   await band.press({ key: 'add' })
   await band.press({ key: 'settings' })
@@ -1583,7 +1591,7 @@ test('every settings change keeps the one before; Undo puts it back, one change 
 test('the tasks menu opens an agent on a press: its tools in order and its answer', async ($, on) => {
   engine(on)
   on('agent.list', () => ({ value: [{ id: 'a1', description: 'research ragas', type: 'general-purpose', status: 'completed' }] }))
-  on('tool.call', (_: unknown, e: any) => ({ result: { stdout: '', stderr: '', interrupted: false } }))
+  on('tool.call', () => ({ result: { stdout: '', stderr: '', interrupted: false } }))
   on('turn.complete', () => ({ text: '' }))
   const t = $ as any
   await t.tool.call({ tool: 'WebSearch', query: 'ragas metrics', agentId: 'a1' })
@@ -1686,8 +1694,8 @@ test('a background command that ended reruns from the menu; its log counts its e
   on('agent.list', () => ({ value: [] }))
   on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
   on('ui.status', () => ({ value: undefined }))
-  on('tool.register', () => ({ value: undefined }))
-  on('command.register', () => ({ value: undefined }))
+  on('tool.register', (_: unknown, e: { name: string }) => ({ value: { tool: e.name } }))
+  on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
   const clock = mock.clock(on, { now: 1_000_000 })
   const t = $ as any
   await t.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
@@ -1734,8 +1742,8 @@ test('a failed background command: its taken port and the pid holding it, a stop
   on('agent.list', () => ({ value: [] }))
   on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
   on('ui.status', () => ({ value: undefined }))
-  on('tool.register', () => ({ value: undefined }))
-  on('command.register', () => ({ value: undefined }))
+  on('tool.register', (_: unknown, e: { name: string }) => ({ value: { tool: e.name } }))
+  on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
   const clock = mock.clock(on, { now: 1_000_000 })
   const t = $ as any
   await t.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
@@ -1768,8 +1776,8 @@ test('the addresses a running background command printed open from its row', asy
   on('agent.list', () => ({ value: [] }))
   on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
   on('ui.status', () => ({ value: undefined }))
-  on('tool.register', () => ({ value: undefined }))
-  on('command.register', () => ({ value: undefined }))
+  on('tool.register', (_: unknown, e: { name: string }) => ({ value: { tool: e.name } }))
+  on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
   const clock = mock.clock(on, { now: 1_000_000 })
   const t = $ as any
   await t.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
@@ -1791,8 +1799,8 @@ test('follow keeps a log at its newest lines: the tasks menu redraws it every se
   on('agent.list', () => ({ value: [] }))
   on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
   on('ui.status', () => ({ value: undefined }))
-  on('tool.register', () => ({ value: undefined }))
-  on('command.register', () => ({ value: undefined }))
+  on('tool.register', (_: unknown, e: { name: string }) => ({ value: { tool: e.name } }))
+  on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
   const clock = mock.clock(on, { now: 1_000_000 })
   const t = $ as any
   await t.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
@@ -1822,8 +1830,8 @@ test('every 30 seconds each server is asked over HTTP; one that does not answer,
   on('agent.list', () => ({ value: [] }))
   on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
   on('ui.status', () => ({ value: undefined }))
-  on('tool.register', () => ({ value: undefined }))
-  on('command.register', () => ({ value: undefined }))
+  on('tool.register', (_: unknown, e: { name: string }) => ({ value: { tool: e.name } }))
+  on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
   const clock = mock.clock(on, { now: 1_000_000 })
   await ($ as any).session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
@@ -1858,8 +1866,8 @@ test('new commits on the mod\'s upstream: a minute in, ↑ mod shows; a press as
   on('agent.list', () => ({ value: [] }))
   on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
   on('ui.status', () => ({ value: undefined }))
-  on('tool.register', () => ({ value: undefined }))
-  on('command.register', () => ({ value: undefined }))
+  on('tool.register', (_: unknown, e: { name: string }) => ({ value: { tool: e.name } }))
+  on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
   const clock = mock.clock(on, { now: 1_000_000 })
   await ($ as any).session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)

@@ -21,7 +21,7 @@ function fakeOs(on: any, answers: (string | null)[] = []) {
     }
     if (e.argv[0] === 'security' && e.argv[1] === '-i') {
       const m = /-a (\S+) -s cc-mod-statusbar-vault -w "(.*)"\n$/.exec(e.init?.stdin ?? '')
-      if (m) keychain.set(m[1], m[2])
+      if (m) keychain.set(m[1]!, m[2]!)
       return ok()
     }
     if (e.argv[0] === 'security' && e.argv[1] === 'find-generic-password') {
@@ -102,7 +102,7 @@ test('nothing saved: secret_fetch opens the dialog just in time; cancel is a den
 test('taint + vault: after WebFetch a secret may be used for GET only', async ($, on) => {
   fakeOs(on, [FIG])
   on('http.fetch', () => ({ value: { status: 200, ok: true, headers: {}, text: '{}' } }))
-  on('tool.call', () => ({ result: {}, isError: false }))
+  on('tool.call', () => ({ result: {} }))
   const t = $ as any
   await t.command.run({ command: 'secret', args: 'FIGMA_TOKEN' })
   await t.tool.call({ tool: 'WebFetch', url: 'https://evil.example', prompt: 'x' })
@@ -114,7 +114,7 @@ test('taint + vault: after WebFetch a secret may be used for GET only', async ($
 
 test('Bash cannot reach the vault', async ($, on) => {
   fakeOs(on, ['s3cr3t-value-123', 'api.acme.dev', 'Authorization: Bearer'])
-  on('tool.call', () => ({ result: {}, isError: false }))
+  on('tool.call', () => ({ result: {} }))
   const t = $ as any
   expect((await t.tool.call({ tool: T('secret_list') })).deny).toBeUndefined()
   await t.command.run({ command: 'secret', args: 'MY_KEY' })
