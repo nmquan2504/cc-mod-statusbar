@@ -328,3 +328,34 @@ test('a text from the phone: a listed command runs, an unknown /name is refused,
   expect(phoneCommand('/secrets', own)).toEqual({ kind: 'own', name: 'secrets', args: '' })
   expect(phoneCommand('/secret-forget ACME_KEY', own)).toEqual({ kind: 'own', name: 'secret-forget', args: 'ACME_KEY' })
 })
+
+test('the phone keeps whole turns, each from its prompt; a long turn shows its last 30 tool calls', () => {
+  const tool = (i: number) => ({ tool_use_id: `t${i}`, tool: 'Bash', input: { command: `step ${i}` }, text: 'ok' })
+  const turn = (n: number, tools: number) => [
+    { role: 'user', text: `prompt ${n}`, toolUses: [] },
+    { role: 'assistant', text: `answer ${n}`, toolUses: Array.from({ length: tools }, (_, i) => tool(n * 100 + i)) },
+  ]
+  // 25 turns: the first 5 go whole, never half of one
+  const many = transcriptOf(Array.from({ length: 25 }, (_, n) => turn(n, 2)).flat(), '/w')
+  expect(many[0]).toEqual({ k: 'user', text: 'prompt 5' })
+  expect(many.filter(t => t.k === 'user').length).toBe(20)
+  // one turn of 45 tool calls: its prompt stays, 15 are counted, the last 30 shown
+  const long = transcriptOf(turn(1, 45), '/w')
+  expect(long.slice(0, 3)).toEqual([{ k: 'user', text: 'prompt 1' }, { k: 'text', text: 'answer 1' }, { k: 'more', n: 15 }])
+  expect(long.filter(t => t.k === 'tool').length).toBe(30)
+  expect((long[3] as { arg: string }).arg).toBe('step 115')
+})
+
+test('a command sent from the phone takes its place in the transcript, where the session stood when it ran', () => {
+  const list = [
+    { role: 'user', text: 'first', toolUses: [] },
+    { role: 'assistant', text: 'one', toolUses: [] },
+    { role: 'user', text: 'second', toolUses: [] },
+    { role: 'assistant', text: 'two', toolUses: [] },
+  ]
+  const items = transcriptOf(list, '/w', [
+    { anchor: 2, command: '/secrets', text: 'FIGMA_TOKEN -> api.figma.com', isError: false },
+    { anchor: 4, command: '/compact', text: 'ran', isError: false },
+  ])
+  expect(items.map(t => (t.k === 'cmd' ? t.command : t.k === 'user' || t.k === 'text' ? t.text : t.k))).toEqual(['first', 'one', '/secrets', 'second', 'two', '/compact'])
+})

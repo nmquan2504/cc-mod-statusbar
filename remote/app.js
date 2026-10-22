@@ -314,6 +314,18 @@ function renderChat() {
   if (!items.length && !snap.busy) return root.append(el('div', 'empty', 'Nothing in this session yet.'))
   let tools = null
   for (const t of items) {
+    // a command sent from here: its bubble, and what it printed or why it did not run
+    if (t.k === 'cmd') {
+      tools = null
+      root.append(inline(t.command, el('div', 'b me')))
+      root.append(el('pre', `cmdout${t.isError ? ' bad' : ''}`, t.text))
+      continue
+    }
+    if (t.k === 'more') {
+      tools = null
+      root.append(el('div', 'more-tools', `… ${t.n} earlier tool call${t.n === 1 ? '' : 's'}`))
+      continue
+    }
     if (t.k === 'tool') {
       tools ??= root.appendChild(el('div', 'tools'))
       toolRow(t, tools)
@@ -323,10 +335,15 @@ function renderChat() {
     if (t.k === 'user') root.append(inline(t.text, el('div', 'b me')))
     else root.appendChild(el('div', 'b claude')).append(markdown(t.text))
   }
-  // the commands sent from here: each with what it printed, or why it did not run
-  for (const c of snap.cmdLog || []) {
-    root.append(inline(c.command, el('div', 'b me')))
-    root.append(el('pre', `cmdout${c.isError ? ' bad' : ''}`, c.text))
+  // Claude Code's guess at your next prompt, under its last answer: a press puts it in the box
+  if (snap.suggestion && !snap.busy) {
+    const chip = root.appendChild(el('button', 'suggest'))
+    chip.append(icon('spark'), el('span', '', snap.suggestion))
+    chip.onclick = () => {
+      text.value = snap.suggestion
+      fitText()
+      text.focus()
+    }
   }
   // sent as the prompt, not in the transcript yet: drawn as the bubble it will be
   for (const text of snap.sending || []) root.append(inline(text, el('div', 'b me')))
@@ -918,14 +935,6 @@ function openPlus() {
   item('globe', 'Add a web page', 'Claude reads it as context', openWebSheet)
   item('key', 'Add a secret', 'saved to the Mac\'s keychain, never to the chat', openSecretSheet)
   item('slash', 'Slash commands', 'commands and skills, the ones you type most first', openCommands)
-  if (snap?.suggestion) {
-    menu.append(el('h4', '', 'Suggested next'))
-    item('spark', snap.suggestion, 'Claude Code\'s guess; a press puts it in the box', () => {
-      text.value = snap.suggestion
-      fitText()
-      text.focus()
-    })
-  }
   menu.hidden = false
   $('plus').classList.add('on')
 }

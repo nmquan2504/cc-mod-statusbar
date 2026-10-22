@@ -63,7 +63,8 @@ export const remote = {
   // the slash commands and skills, for the phone's list, read on joining and every five minutes
   commands: [] as { name: string; description: string; group: string; isBuiltin: boolean; isComputerOnly: boolean; needsArgs: boolean; isOwn: boolean }[],
   // the commands the phone sent, each with what it printed or why it did not run, newest last
-  cmdLog: [] as { at: number; command: string; text: string; isError: boolean }[],
+  // `anchor`: how many messages the session held when it ran, which places it in the transcript
+  cmdLog: [] as { at: number; anchor: number; command: string; text: string; isError: boolean }[],
   commandsAt: 0,
   // Claude Code's own suggestion for the next prompt (the dim line, Tab to take); '' with none
   suggestion: '',
@@ -231,8 +232,15 @@ export type TranscriptItem =
   | { k: 'user'; text: string }
   | { k: 'text'; text: string }
   | { k: 'tool'; id: string; name: string; arg: string; path?: string; out?: string; isError?: boolean; old?: string; new?: string; qa?: { q: string; a: string }[] }
+  // the earlier tool calls of a long turn, left out: how many
+  | { k: 'more'; n: number }
+  // a command sent from the phone, with what it printed or why it did not run
+  | { k: 'cmd'; command: string; text: string; isError: boolean }
 
-const TRANSCRIPT_MAX = 80
+// The phone keeps whole turns, each from your prompt, so no answer loses its question: the last
+// TURNS_MAX, and in each the last TOOLS_PER_TURN tool calls (the earlier ones counted, not shown).
+const TURNS_MAX = 20
+const TOOLS_PER_TURN = 30
 const cut = (t: string, n: number) => (t.length > n ? `${t.slice(0, n)}\n… ${t.length - n} more characters` : t)
 const lineCount = (t: string) => (t ? t.split('\n').length : 0)
 
@@ -284,10 +292,15 @@ function toolItem(u: any, cwd: string): TranscriptItem {
   return item
 }
 
-// The session's messages as the terminal draws them, the last TRANSCRIPT_MAX rows.
-export function transcriptOf(list: readonly any[], cwd: string) {
+// The session's messages as the terminal draws them: the last TURNS_MAX turns, long ones trimmed.
+export function transcriptOf(list: readonly any[], cwd: string, cmds: readonly { anchor: number; command: string; text: string; isError: boolean }[] = []) {
   const items: TranscriptItem[] = []
-  for (const m of list) {
+  // a command run from the phone is in no message: it goes where the session stood when it ran
+  const cmdsAt = (from: number, to: number) => {
+    for (const c of cmds) if (c.anchor >= from && c.anchor < to) items.push({ k: 'cmd', command: c.command, text: c.text, isError: c.isError })
+  }
+  for (const [i, m] of list.entries()) {
+    cmdsAt(i, i + 1)
     if (m.role === 'user') {
       const text = promptText(String(m.text ?? ''))
       if (text) items.push({ k: 'user', text: cut(text, 8000) })
@@ -296,7 +309,31 @@ export function transcriptOf(list: readonly any[], cwd: string) {
     if (typeof m.text === 'string' && m.text.trim()) items.push({ k: 'text', text: cut(m.text.trim(), 12000) })
     for (const u of m.toolUses ?? []) items.push(toolItem(u, cwd))
   }
-  return items.slice(-TRANSCRIPT_MAX)
+  cmdsAt(list.length, Infinity)
+  const turns: TranscriptItem[][] = []
+  for (const it of items) {
+    if (it.k === 'user' || it.k === 'cmd' || !turns.length) turns.push([])
+    turns[turns.length - 1]!.push(it)
+  }
+  return turns.slice(-TURNS_MAX).flatMap(trimTurn)
+}
+
+// A turn with more than TOOLS_PER_TURN tool calls: its prompt and Claude's text all kept, its
+// earliest tool calls left out and counted in one row where the first of them stood.
+function trimTurn(turn: TranscriptItem[]): TranscriptItem[] {
+  const tools = turn.filter(t => t.k === 'tool').length
+  const drop = tools - TOOLS_PER_TURN
+  if (drop <= 0) return turn
+  const out: TranscriptItem[] = []
+  let seen = 0
+  for (const it of turn) {
+    if (it.k === 'tool' && seen++ < drop) {
+      if (seen === 1) out.push({ k: 'more', n: drop })
+      continue
+    }
+    out.push(it)
+  }
+  return out
 }
 
 // The files a session's messages put in context: those @-mentioned in a prompt (as typed, made
@@ -402,7 +439,7 @@ export async function readRemoteMessages($: any) {
   remote.context = { ...remote.context, ...contextOf(list, cwd, home), dirs }
   await readMemory($)
   await readCommands($)
-  remote.transcript = transcriptOf(list, cwd)
+  remote.transcript = transcriptOf(list, cwd, remote.cmdLog)
   remote.lastAt = Date.now()
   // a sent text the transcript now shows, or one two minutes old, leaves the sending list
   const shown = new Set(remote.transcript.filter(t => t.k === 'user').map(t => (t as { text: string }).text.trim()))
@@ -430,7 +467,6 @@ async function snapshotOf($: any) {
     changes: await read($, changes),
     images: (await read($, images)).map(i => ({ n: i.n, path: i.path, bytes: i.bytes })),
     usage: { five: b.five, week: b.week, ctx: u?.ctxPercent ?? null, cost: u?.costUsd ?? null, limits: u?.rateLimits ?? [], tokens: u?.tokens ?? null, window: u?.window ?? 0, startedAt: u?.startedAt ?? 0 },
-    cmdLog: remote.cmdLog,
     transcript: remote.transcript,
     queued: remote.queue,
     sending: remote.sending.map(s => s.text),
@@ -506,7 +542,12 @@ export async function tickRemote($: any) {
   if (remote.queue.length && !rt.isBusy) {
     const text = remote.queue.shift()!
     const what = phoneCommand(text, remote.commands)
-    const log = (out: string, isError: boolean) => { remote.cmdLog = [...remote.cmdLog, { at: Date.now(), command: text.trim(), text: out, isError }].slice(-10) }
+    // where the session stands before the command runs: its place in the transcript
+    const anchor = (await $.session.messages().catch(() => [])).length
+    const log = async (out: string, isError: boolean) => {
+      remote.cmdLog = [...remote.cmdLog, { at: Date.now(), anchor, command: text.trim(), text: out, isError }].slice(-10)
+      await readRemoteMessages($)
+    }
     if (what.kind === 'refuse') return log(what.text, true)
     // this mod's own commands, answered by the same code their hooks run
     if (what.kind === 'own') {
@@ -519,7 +560,7 @@ export async function tickRemote($: any) {
       const r: any = await $.command.run({ command: what.name, args: what.args }).catch((err: unknown) => ({ error: String(err) }))
       if (r?.error) return log(`/${what.name} did not run: ${oneLine(r.error, 200)}`, true)
       $.ui.toast(`statusbar: remote: ran /${what.name} from the phone`)
-      log(typeof r?.text === 'string' && r.text.trim() ? (r.text.length > 8000 ? `${r.text.slice(0, 8000)}…` : r.text) : 'ran', false)
+      await log(typeof r?.text === 'string' && r.text.trim() ? (r.text.length > 8000 ? `${r.text.slice(0, 8000)}…` : r.text) : 'ran', false)
       return
     }
     const isSent = await $.prompt.submit({ text, asUser: true }).then(() => true, () => false)
