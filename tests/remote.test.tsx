@@ -287,3 +287,18 @@ test('what a session holds in context: files @-mentioned in a prompt, and files 
   expect(c.mentions).toEqual(['/work/shop/docs/my notes.md', '/Users/me/.zshrc', '/work/shop/src/qr.ts'])
   expect(c.reads).toEqual(['/work/shop/README.md'])
 })
+
+test('the QR code shows on the first opening after Start; once the menu shut, q shows it again', async ($, on) => {
+  engine(on, { hub: () => ({ ...STATUS, pending: [] }) })
+  const band = await $.ui.mount({ plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await switchOn(band)
+  await band.press({ key: 'remote' })
+  expect(await textOf(band)).toContain('█▀')
+  await band.press({ key: 'close-menu' })
+  await band.press({ key: 'remote' })
+  const shut = await textOf(band)
+  expect(shut).not.toContain('█▀')
+  expect(shut).toContain('Show the QR code')
+  await band.press({ key: 'remote-qr' })
+  expect(await textOf(band)).toContain('█▀')
+})

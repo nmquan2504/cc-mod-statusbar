@@ -299,6 +299,16 @@ async function answerOp(dev, id, op, a, res) {
       bump()
       return [200, { ok: true }]
     }
+    // a secret typed on the phone: held for the session to take into the keychain, never logged,
+    // never in a snapshot; the session's next snapshot says what came of it
+    case 'secret': {
+      const s = sessions.get(session)
+      const value = typeof a.value === 'string' ? a.value.trim().slice(0, 4096) : ''
+      if (!s || !value) return [400, { error: value ? 'That session is gone.' : 'empty' }]
+      const pick = k => (typeof a[k] === 'string' ? a[k].trim().slice(0, 200) : '')
+      s.secrets = [...(s.secrets ?? []), { value, name: pick('name'), host: pick('host'), header: pick('header') }].slice(-5)
+      return [200, { ok: true }]
+    }
     case 'diff': {
       const diff = await diffOf(session, String(a.path ?? ''))
       return diff === undefined ? [404, { error: 'Not a file of this session.' }] : [200, { diff }]
@@ -471,14 +481,18 @@ const ctl = createServer(async (req, res) => {
     const s = sessions.get(id)
     const texts = s ? s.inbox.splice(0) : []
     const answer = s?.answer
-    if (s) delete s.answer
+    const secrets = s?.secrets ?? []
+    if (s) {
+      delete s.answer
+      delete s.secrets
+    }
     // the texts stay on the phone as sent until the session's next snapshot says where they are
     if (texts.length) {
       s.snapshot = { ...s.snapshot, sending: [...(s.snapshot.sending ?? []), ...texts] }
       s.text = ''
       bump()
     }
-    return send(res, 200, { texts, answer })
+    return send(res, 200, { texts, answer, secrets })
   }
   if (route === 'POST /bye') {
     if (sessions.delete(id)) bump()

@@ -23,6 +23,10 @@ const ICONS = {
   spark: 'M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4',
   file: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5',
   lock: 'M7 11V7a5 5 0 0 1 10 0v4M6 11h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1z',
+  plus: 'M12 5v14M5 12h14',
+  globe: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3.5 12h17M12 3c2.5 2.5 3.8 5.5 3.8 9s-1.3 6.5-3.8 9c-2.5-2.5-3.8-5.5-3.8-9S9.5 5.5 12 3z',
+  key: 'M14.5 4a5.5 5.5 0 1 1-4.2 9L4 19.3V21h3v-2h2v-2h2l.7-.7A5.5 5.5 0 0 1 14.5 4zM16 8.5h.01',
+  slash: 'M16 3L8 21',
   box: 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z',
   branch: 'M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9',
   help: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM9.5 9.3a2.6 2.6 0 1 1 3.6 2.4c-.7.3-1.1.9-1.1 1.6v.4M12 16.8v.2',
@@ -47,6 +51,9 @@ let lastNotice = 0
 let isFirstDraw = true
 let shownId = ''
 let filesTab = 'folder'
+// the Folder tab picks a file for the reply (the + menu's Browse project file) instead of opening it
+let isPicking = false
+let lastVaultAt = 0
 const opened = new Set() // the tool rows opened to their output
 // the question Claude waits on: what this phone picked and typed so far, and whether it was put away
 let askDraft = { id: '', picks: {}, other: {} }
@@ -460,6 +467,7 @@ function renderFiles() {
 }
 
 async function renderFolder(root) {
+  if (isPicking) root.append(el('div', 'pickbar', 'Pick a file to mention in your reply'))
   const roots = snap.roots || []
   if (!roots.length) return root.append(el('div', 'none', 'This session names no folder.'))
   if (!roots.includes(browse.root)) browse = { root: roots[0], path: roots[0] }
@@ -500,7 +508,8 @@ async function renderFolder(root) {
       if (row.isDir) {
         browse.path = row.path
         renderFiles()
-      } else showFile(row.path)
+      } else if (isPicking) pickFile(row.path)
+      else showFile(row.path)
     }
   }
 }
@@ -737,6 +746,13 @@ function render() {
   // the chat sticks to its newest line, as a terminal does, unless you scrolled up to read
   const isFollowing = isFirstDraw || atBottom() || shownId !== snap.id
   shownId = snap.id
+  // what came of a secret sent from here: a toast once (a note from before this page loaded is not news)
+  const note = snap.vaultNote
+  if (!lastVaultAt) lastVaultAt = note?.at || 1
+  else if (note && note.at > lastVaultAt) {
+    toast({ title: note.isError ? 'Secret not saved' : 'Secret saved', body: note.text })
+    lastVaultAt = note.at
+  }
   renderHeader()
   renderChat()
   // the folder tab stays as it is (no listing read again under the reader); the others follow the session
@@ -769,7 +785,10 @@ $('open-files').onclick = () => {
   renderFiles()
   $('files').hidden = false
 }
-$('close-files').onclick = () => { $('files').hidden = true }
+$('close-files').onclick = () => {
+  $('files').hidden = true
+  isPicking = false
+}
 $('close-viewer').onclick = () => { $('viewer').hidden = true }
 $('close-ask').onclick = () => {
   askHiddenId = snap?.ask?.id || ''
@@ -846,6 +865,159 @@ $('send').onclick = async () => {
   fitText()
   toBottom()
 }
+
+// ---- the + menu: files, a web page, a secret, slash commands, and Claude Code's next-prompt hint ----
+// text put in the reply box at the cursor, the box grown to fit and focused
+function insertText(t) {
+  const at = text.selectionStart ?? text.value.length
+  text.value = `${text.value.slice(0, at)}${t}${text.value.slice(text.selectionEnd ?? at)}`
+  fitText()
+  text.focus()
+  text.selectionStart = text.selectionEnd = at + t.length
+}
+function closePlus() {
+  $('plus-menu').hidden = true
+  $('plus').classList.remove('on')
+}
+function openPlus() {
+  const menu = $('plus-menu')
+  menu.replaceChildren()
+  const item = (iconName, title, note, run) => {
+    const b = menu.appendChild(el('button', 'item'))
+    b.append(icon(iconName))
+    const t = b.appendChild(el('div'))
+    t.append(el('div', 't', title), el('div', 'd', note))
+    b.onclick = () => {
+      closePlus()
+      run()
+    }
+  }
+  item('file', 'Browse project file', 'mention it in your reply as @path', () => {
+    isPicking = true
+    filesTab = 'folder'
+    renderFiles()
+    $('files').hidden = false
+  })
+  item('globe', 'Add a web page', 'Claude reads it as context', openWebSheet)
+  item('key', 'Add a secret', 'saved to the Mac\'s keychain, never to the chat', openSecretSheet)
+  item('slash', 'Slash commands', 'commands and skills, the ones you type most first', openCommands)
+  if (snap?.suggestion) {
+    menu.append(el('h4', '', 'Suggested next'))
+    item('spark', snap.suggestion, 'Claude Code\'s guess; a press puts it in the box', () => {
+      text.value = snap.suggestion
+      fitText()
+      text.focus()
+    })
+  }
+  menu.hidden = false
+  $('plus').classList.add('on')
+}
+$('plus').onclick = () => ($('plus-menu').hidden ? openPlus() : closePlus())
+document.addEventListener('click', e => {
+  if (!$('plus-menu').hidden && !$('plus-menu').contains(e.target) && !$('plus').contains(e.target)) closePlus()
+})
+
+// a file picked from the Folder tab: @path from the session's folder, quoted when it has a space
+function pickFile(path) {
+  const rel = snap.cwd && path.startsWith(`${snap.cwd}/`) ? path.slice(snap.cwd.length + 1) : path
+  insertText(`${/\s/.test(rel) ? `@"${rel}"` : `@${rel}`} `)
+  isPicking = false
+  $('files').hidden = true
+}
+
+// a bottom sheet holding a small form
+function formSheet(title, note, fields, submitLabel, onSubmit) {
+  const sheet = $('sheet')
+  sheet.replaceChildren(el('h2', '', title), el('div', 'meta', note))
+  const form = sheet.appendChild(el('div', 'form'))
+  const inputs = {}
+  const add = (into, f) => {
+    const i = into.appendChild(el('input'))
+    i.type = f.type || 'text'
+    i.placeholder = f.placeholder
+    i.autocomplete = 'off'
+    i.setAttribute('autocapitalize', 'off')
+    i.spellcheck = false
+    inputs[f.key] = i
+  }
+  for (const f of fields.filter(x => !x.isMore)) add(form, f)
+  const more = fields.filter(x => x.isMore)
+  if (more.length) {
+    const d = form.appendChild(el('details'))
+    d.append(el('summary', '', 'For an unknown kind of token: its name, host and header'))
+    for (const f of more) add(d, f)
+  }
+  const go = form.appendChild(el('button', 'primary', submitLabel))
+  go.onclick = async () => {
+    go.disabled = true
+    const isDone = await onSubmit(inputs)
+    go.disabled = false
+    if (isDone) closeLayers()
+  }
+  $('scrim').hidden = false
+  sheet.hidden = false
+  inputs[fields[0].key].focus()
+}
+function openWebSheet() {
+  formSheet('Add a web page', 'Your reply asks Claude to read it, as the + menu on the Mac does.', [{ key: 'url', type: 'url', placeholder: 'https://example.com/docs' }], 'Add to the reply', inputs => {
+    const url = inputs.url.value.trim()
+    if (!/^https?:\/\/\S+$/.test(url)) {
+      toast({ title: 'Not a web address', body: 'Give the whole address, from https://.' })
+      return false
+    }
+    insertText(`Read ${url} and use it as context. `)
+    return true
+  })
+}
+function openSecretSheet() {
+  formSheet('Add a secret', 'Saved to the Mac\'s keychain, end to end encrypted on the way. Claude sees only its NAME and uses it only with its host. Known tokens (ghp_, sk-ant-, figd_, glpat-, xoxb-, sk-) name themselves.', [
+    { key: 'value', type: 'password', placeholder: 'the token or key' },
+    { key: 'name', placeholder: 'NAME, e.g. ACME_API_KEY', isMore: true },
+    { key: 'host', placeholder: 'host, e.g. api.acme.dev', isMore: true },
+    { key: 'header', placeholder: 'header, e.g. Authorization: Bearer', isMore: true },
+  ], 'Save on the Mac', async inputs => {
+    const value = inputs.value.value.trim()
+    if (!value) return false
+    const r = await api('secret', { value, name: inputs.name.value, host: inputs.host.value, header: inputs.header.value })
+    inputs.value.value = ''
+    if (r.s !== 200) {
+      toast({ title: 'Not sent', body: r.b.error || 'The session did not answer. Try again.' })
+      return false
+    }
+    toast({ title: 'Sent to the Mac', body: 'It says in a moment what it saved.' })
+    return true
+  })
+}
+
+// the slash commands, filtered as typed; a press puts "/name " at the head of the reply
+function renderCommands() {
+  const words = $('cmd-search').value.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  const list = (snap?.commands || []).filter(c => words.every(w => `${c.name} ${c.description}`.toLowerCase().includes(w)))
+  const root = $('cmds-body')
+  root.replaceChildren()
+  if (!list.length) return root.append(el('div', 'none', words.length ? 'Nothing matches.' : 'The session has listed no commands yet.'))
+  for (const group of new Set(list.map(c => c.group))) {
+    const card = root.appendChild(el('div', 'card'))
+    card.append(el('h3', '', group.replace(/^\d+ · /, '')))
+    for (const c of list.filter(x => x.group === group)) {
+      const b = card.appendChild(el('button', 'cmd'))
+      b.append(el('div', 'n', `/${c.name}`), el('div', 'd', c.description))
+      b.onclick = () => {
+        text.value = `/${c.name} ${text.value.replace(/^\/\S+\s*/, '')}`
+        fitText()
+        $('cmds').hidden = true
+        text.focus()
+      }
+    }
+  }
+}
+function openCommands() {
+  $('cmd-search').value = ''
+  renderCommands()
+  $('cmds').hidden = false
+}
+$('cmd-search').addEventListener('input', renderCommands)
+$('close-cmds').onclick = () => { $('cmds').hidden = true }
 
 // ---- push -----------------------------------------------------------------------------------
 const isIos = /iPhone|iPad|iPod/.test(navigator.userAgent)

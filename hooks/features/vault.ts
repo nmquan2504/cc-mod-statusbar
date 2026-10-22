@@ -141,6 +141,40 @@ export async function acquire($: any, want: { name?: string; purpose?: string })
   return { name, binding, where }
 }
 
+// A secret typed on the phone (Self remote), saved with no dialog: a known prefix names it and binds
+// its host; any other value needs a NAME, a host and "Header: scheme" with it. typedSecret decides
+// (`stored`: the binding a NAME already has), saveTyped keeps it. The value is never shown or logged.
+export type Typed = { value?: unknown; name?: unknown; host?: unknown; header?: unknown }
+export function typedSecret(given: Typed, stored: (name: string) => Binding | undefined): { value: string; name: string; binding: Binding } | { error: string } {
+  const value = typeof given.value === 'string' ? given.value.trim() : ''
+  if (!value) return { error: 'no value given; nothing saved' }
+  const name0 = typeof given.name === 'string' && given.name.trim() ? normName(given.name) : undefined
+  if (name0 && !NAME_RE.test(name0)) return { error: `"${given.name}" is not a valid NAME (A-Z, 0-9, _)` }
+  const known = byValue(value) ?? (name0 ? byName(name0) : undefined)
+  const name = name0 ?? known?.name
+  if (!name) return { error: 'an unknown kind of secret needs a NAME, a host and a header' }
+  const kept = known ? { host: known.host, header: known.header, scheme: known.scheme } : stored(name)
+  if (kept) return { value, name, binding: kept }
+  const host = typeof given.host === 'string' ? given.host.trim().toLowerCase() : ''
+  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(host)) return { error: 'no valid host given; nothing saved' }
+  const [header, ...rest] = (typeof given.header === 'string' && given.header.trim() ? given.header : 'Authorization: Bearer').split(':')
+  return { value, name, binding: { host, header: (header ?? '').trim(), scheme: rest.join(':').trim() ? `${rest.join(':').trim()} ` : '' } }
+}
+
+export async function saveTyped($: any, given: Typed) {
+  const name0 = typeof given.name === 'string' && given.name.trim() ? normName(given.name) : ''
+  const stored = name0 ? ((await $.store.get(meta(name0)).catch(() => undefined)) as Binding | undefined) : undefined
+  const plan = typedSecret(given, () => stored)
+  if ('error' in plan) return plan
+  const where = await kcSave($, plan.name, plan.value).catch(() => '')
+  if (!where) return { error: 'no keychain available' }
+  cache.set(plan.name, plan.value)
+  await $.store.set(meta(plan.name), plan.binding)
+  await readVault($)
+  await logAudit($, `vault: saved ${plan.name} from the phone, sent only to ${plan.binding.host}`)
+  return { name: plan.name, host: plan.binding.host, where }
+}
+
 export async function listSecrets($: any) {
   const keys = ((await $.store.keys()) as string[]).filter(k => k.startsWith('secret:'))
   const rows = await Promise.all(

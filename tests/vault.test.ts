@@ -1,4 +1,5 @@
 import { expect, test } from 'claude-code/testing'
+import { typedSecret } from '../hooks/features/vault'
 
 // The secret vault. A fake OS stands in for the dialog (osascript),
 // the keychain (security) and the plugin store.
@@ -139,4 +140,18 @@ test('mode menu: plan runs /plan, another mode says how many shift+tab', async (
   await band.press({ key: 'mode' })
   await band.press({ key: 'p:auto' })
   expect(JSON.stringify(toasts)).toContain('shift+tab 3×')
+})
+
+test('a secret typed on the phone: a known prefix names itself; an unknown one needs a name, host and header', () => {
+  const none = () => undefined
+  expect(typedSecret({ value: `ghp_${'a'.repeat(36)}` }, none)).toMatchObject({ name: 'GITHUB_TOKEN', binding: { host: 'api.github.com', header: 'Authorization', scheme: 'Bearer ' } })
+  expect(typedSecret({ value: '  ' }, none)).toEqual({ error: 'no value given; nothing saved' })
+  expect(typedSecret({ value: 'opaque-token-123' }, none)).toEqual({ error: 'an unknown kind of secret needs a NAME, a host and a header' })
+  expect(typedSecret({ value: 'opaque-token-123', name: '9bad' }, none)).toEqual({ error: '"9bad" is not a valid NAME (A-Z, 0-9, _)' })
+  expect(typedSecret({ value: 'opaque-token-123', name: 'acme key', host: 'not a host' }, none)).toEqual({ error: 'no valid host given; nothing saved' })
+  expect(typedSecret({ value: 'opaque-token-123', name: 'acme key', host: 'API.acme.dev', header: 'X-Api-Key' }, none))
+    .toEqual({ value: 'opaque-token-123', name: 'ACME_KEY', binding: { host: 'api.acme.dev', header: 'X-Api-Key', scheme: '' } })
+  // a NAME saved before keeps the host it was bound to, whatever the phone typed
+  const kept = { host: 'api.acme.dev', header: 'Authorization', scheme: 'Bearer ' }
+  expect(typedSecret({ value: 'new-value', name: 'ACME_KEY', host: 'evil.example' }, () => kept)).toMatchObject({ name: 'ACME_KEY', binding: kept })
 })

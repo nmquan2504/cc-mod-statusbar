@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import { summarizeTurn } from '../features/assist'
 import { planContinue } from '../features/automation'
 import { readGuard } from '../features/guard'
-import { notifyRemote, readRemoteMessages } from '../features/remote'
+import { notifyRemote, readRemoteMessages, remote } from '../features/remote'
 import { refreshBar } from '../features/status'
 import { keepUsage } from '../features/usage'
 
@@ -50,6 +50,8 @@ export function registerTurn(on: On) {
     // a "continue" planned after a limit stop is dropped once the person goes on themselves; a new
     // stop plans one again at turn.complete
     if (!(e as any).agentId && !rt.isContinueTurn && (await read($, autoContinue))) await update($, autoContinue, () => null)
+    // Claude Code's last next-prompt suggestion is spent once a turn starts
+    remote.suggestion = ''
     rt.turnStartedAt = await $.clock.now()
     rt.turnEndedAt = 0
     rt.turnTools = []
