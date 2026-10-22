@@ -6,6 +6,13 @@ import { rt } from '../state/runtime'
 // suggestion, then what the answer suggests sending (lib/suggest.ts), three at most.
 export const chipsNow = () => (rt.isBusy ? [] : suggestionChips(remote.suggestion, rt.answerChips))
 
+// ✕ on the row: the chips go until the next answer brings its own (the phone's with them)
+export function dismissChips($: any) {
+  rt.answerChips = []
+  remote.suggestion = ''
+  $.ui.invalidate('ui.render')
+}
+
 // A chip pressed is sent at once: a /command runs (a plugin's prompt runs none), anything else
 // goes in as your prompt.
 export async function sendChip($: any, text: string) {
