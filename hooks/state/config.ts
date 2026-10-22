@@ -8,13 +8,15 @@ export const cfg = {
   barFolder: true,
   barGit: true,
   barUsage: true,
+  // ⇄, drawn only while Self remote is on: this switch hides the chip, not the remote
+  barRemote: true,
   barImages: true,
   barMcp: true,
   barMode: true,
   barGuard: true,
   arcade: true,
   // the items' order, left to right, as BAR_ITEMS keys; those before the arena sit left of it
-  barOrder: 'barModel,barEffort,barFolder,barGit,arcade,barUsage,barImages,barMcp,barMode,barGuard',
+  barOrder: 'barModel,barEffort,barFolder,barGit,arcade,barUsage,barRemote,barImages,barMcp,barMode,barGuard',
   // on: the 4-cell gauge and the figure (5h ▰▱▱▱ 21%); off: the figure alone (5h 21%)
   usageGauge: true,
   gitMarks: true,
@@ -154,6 +156,7 @@ export const BAR_ITEMS: { key: CfgKey; label: string }[] = [
   { key: 'barGit', label: '⎇ git' },
   { key: 'arcade', label: '¬✻ arena' },
   { key: 'barUsage', label: '5h usage' },
+  { key: 'barRemote', label: '⇄ remote' },
   { key: 'barImages', label: '▣ images' },
   { key: 'barMcp', label: '⌁ mcp' },
   { key: 'barMode', label: '‖ mode' },
@@ -184,7 +187,7 @@ export async function moveBarItem($: any, key: CfgKey, by: -1 | 1) {
 export const BAR_PRESETS: { name: string; note: string; on: CfgKey[] }[] = [
   { name: 'Full', note: 'every item', on: BAR_ITEMS.map(i => i.key) },
   { name: 'Focus', note: 'every item but the arena', on: BAR_ITEMS.map(i => i.key).filter(k => k !== 'arcade') },
-  { name: 'Minimal', note: 'model, usage, shield', on: ['barModel', 'barUsage', 'barGuard'] },
+  { name: 'Minimal', note: 'model, usage, remote, shield', on: ['barModel', 'barUsage', 'barRemote', 'barGuard'] },
 ]
 
 // The preset the switches match now, or undefined for a mix of your own

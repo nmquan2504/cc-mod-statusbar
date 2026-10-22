@@ -14,6 +14,7 @@ import { barOrder, cfg } from '../state/config'
 import type { CfgKey } from '../state/config'
 import { rt } from '../state/runtime'
 import { drawMenu } from './menus/index'
+import { chipsNow, sendChip } from '../features/chips'
 
 // The atoms this file reads or writes (each file declares its own: the engine reads an atom only
 // where a const of the same file made it; the same plugin and key are the same value).
@@ -146,7 +147,7 @@ export async function drawBand($: any, e: any, next: any) {
   const rs = remote.status
   // while the hub starts or the tunnel waits for its address, the chip turns a spinner: ⇄ ✻
   const pairs = pendingPairs()
-  const remoteLabel = !cfg.selfRemote ? '' : pairs.length ? ` ⇄ ? ${secondsToPair(pairs[0]!)}s ` : isRemoteWaiting() ? ` ⇄ ${spinnerFrame()} ` : rs?.phones ? ` ⇄ ${rs.phones} ` : ' ⇄ '
+  const remoteLabel = !cfg.selfRemote || !cfg.barRemote ? '' : pairs.length ? ` ⇄ ? ${secondsToPair(pairs[0]!)}s ` : isRemoteWaiting() ? ` ⇄ ${spinnerFrame()} ` : rs?.phones ? ` ⇄ ${rs.phones} ` : ' ⇄ '
   const remoteColor = pairs.length ? 'warning' : isRemoteWaiting() ? 'claude' : rs?.url ? 'success' : 'subtle'
   const imageCount = (await read($, images)).length
   const imagesLabel = cfg.barImages && imageCount ? ` ▣ ${imageCount} ` : ''
@@ -177,6 +178,7 @@ export async function drawBand($: any, e: any, next: any) {
       barFolder: !cfg.barFolder ? 0 : folderMarkCells + folderText.length + (isGitJoined ? (branchText ? 1 + branchText.length : 0) + marksText.length : 0),
       barGit: isGitJoined || !branchText ? 0 : branchText.length + marksText.length,
       barUsage: cfg.barUsage ? meterWidth('5h', b.five) + 1 + meterWidth('wk', b.week) : 0,
+      barRemote: remoteLabel.length,
       barImages: imagesLabel.length,
       barMcp: mcpLabel.length,
       barMode: modeLabel.length,
@@ -186,7 +188,7 @@ export async function drawBand($: any, e: any, next: any) {
     const cellsOf = (keys: string[]) => keys.map(k => width[k] ?? 0).filter(Boolean).reduce((n, w) => n + 1 + w, 0)
     const left = 3 + 1 + 3 + cellsOf(order.slice(0, split))
     const rightCells = (askLabel ? 1 + askLabel.length : 0) + (brokenLabel ? 1 + brokenLabel.length : 0) + (continueLabel ? 1 + continueLabel.length : 0)
-      + (updateLabel ? 1 + updateLabel.length : 0) + (remoteLabel ? 1 + remoteLabel.length : 0) + cellsOf(order.slice(split + 1))
+      + (updateLabel ? 1 + updateLabel.length : 0) + cellsOf(order.slice(split + 1))
     const right = Math.max(0, rightCells - 1)
     return { folderText, branchText, marksText, modelLabel, modeLabel, effortLabel, showGauge, left, right }
   }
@@ -238,6 +240,12 @@ export async function drawBand($: any, e: any, next: any) {
   // One item of the bar, by its Settings key; null when it draws nothing (never '').
   const itemOf = (key: CfgKey) => {
     switch (key) {
+      case 'barRemote':
+        return remoteLabel ? (
+          <Button key="remote" plain hover={{ scope: 'qsb-remote', bold: true }} onPress={() => openMenu($, 'remote')}>
+            {pill('remote', remoteLabel, remoteColor)}
+          </Button>
+        ) : null
       case 'barModel':
         return modelLabel ? (
           <Button key="model" plain hover={{ scope: 'qsb-model', bold: true }} onPress={() => openMenu($, 'model')}>
@@ -309,6 +317,7 @@ export async function drawBand($: any, e: any, next: any) {
     }
   }
 
+  const chips = chipsNow()
   return (
     <Box flexDirection="column" width={e.props.bodyColumns} borderStyle="round" borderColor={open ? 'claude' : 'subtle'} paddingX={1}>
       {/* the menu opens upward: the bar stays next to the prompt */}
@@ -324,6 +333,17 @@ export async function drawBand($: any, e: any, next: any) {
           {await drawMenu($, els, open, e.surface === 'terminal')}
         </Box>
       )}
+      {/* what Claude's last answer suggests sending next: a press sends it */}
+      {open === null && chips.length ? (
+        <Box flexDirection="row" gap={1}>
+          <Text dimColor>↳</Text>
+          {chips.map((c, i) => (
+            <Button key={`chip:${i}`} plain hover={{ scope: 'qsb-chip', bold: true }} onPress={() => sendChip($, c)}>
+              <Text color="suggestion">{`‹ ${oneLine(c, 40)} ›`}</Text>
+            </Button>
+          ))}
+        </Box>
+      ) : null}
       <Box flexDirection="row" justifyContent="space-between">
         {/* the left group keeps its width: the arena takes the spare cells, so the gaps on either
             side of it stay two cells (branch to kills, Claude to the clock). Neither group
@@ -381,11 +401,6 @@ export async function drawBand($: any, e: any, next: any) {
           {updateLabel ? (
             <Button key="update" plain hover={{ scope: 'qsb-update', bold: true }} onPress={() => pullModUpdate($)}>
               <Text backgroundColor="suggestion" color="inverseText" bold>{updateLabel}</Text>
-            </Button>
-          ) : null}
-          {remoteLabel ? (
-            <Button key="remote" plain hover={{ scope: 'qsb-remote', bold: true }} onPress={() => openMenu($, 'remote')}>
-              {pill('remote', remoteLabel, remoteColor)}
             </Button>
           ) : null}
           {order.slice(split + 1).map(itemOf)}

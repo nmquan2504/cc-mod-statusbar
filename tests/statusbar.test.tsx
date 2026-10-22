@@ -1,5 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 import { ASK_KEY, rulesFor } from '../hooks/features/permissions'
+import { suggestionChips, suggestionsIn } from '../hooks/lib/suggest'
 import { SHOW_MS, WAIT_MS, clearPrompts, duePrompts, noteCheck, noteSpinner, permissionQuestion, prompts, verdictOf, waitingPrompts } from '../hooks/features/prompts'
 
 // The hooks registered here sit beneath the plugin and stand for the engine: the model,
@@ -1087,11 +1088,13 @@ test('settings, On the bar: ‹ › move an item, past the arena to the other gr
   // the first item has no ‹, the last no ›
   expect(await band.find({ key: 'left:barModel' })).toBeUndefined()
   expect(await band.find({ key: 'right:barGuard' })).toBeUndefined()
-  // the shield, five places left: past the arena, into the left group
-  for (let i = 0; i < 5; i++) await band.press({ key: 'left:barGuard' })
+  // the shield, six places left: past the arena, into the left group
+  for (let i = 0; i < 6; i++) await band.press({ key: 'left:barGuard' })
   // the folder one place right: past the branch, so the two split into their own buttons
   await band.press({ key: 'right:barFolder' })
-  expect((store.get('settings') as { barOrder: string }).barOrder).toBe('barModel,barEffort,barGit,barFolder,barGuard,arcade,barUsage,barImages,barMcp,barMode')
+  // ⇄ moves as any item does: one place right, past the images
+  await band.press({ key: 'right:barRemote' })
+  expect((store.get('settings') as { barOrder: string }).barOrder).toBe('barModel,barEffort,barGit,barFolder,barGuard,arcade,barUsage,barImages,barRemote,barMcp,barMode')
   const menu = await textOf(band)
   expect(menu.indexOf('◈ guardrails')).toBeLessThan(menu.indexOf('¬✻ arena'))
   await band.press({ key: 'close-menu' })
@@ -2004,4 +2007,44 @@ test('a permission prompt asked in the band and on the phone: Yes, Yes always, N
   expect(said('make it under ./tmp')).toEqual({ decision: 'deny', reason: 'The person declined this call and said: make it under ./tmp' })
   expect(verdictOf('dismissed', rule).decision).toBe('deny')
   expect(verdictOf(undefined, rule).decision).toBe('deny')
+})
+
+test('what the last answer suggests sending is read by rule, three at most', () => {
+  const said = (lines: string[]) => suggestionsIn(lines.join('\n'))
+  expect(said(['Done: the tests pass.', 'Next: run `/reload-plugins`. If it looks right, say "Push and open a PR".'])).toEqual(['Push and open a PR', '/reload-plugins'])
+  expect(said(['Đã merge.', 'Tiếp theo: nói "Xóa nhánh" thì mình xóa nhánh.'])).toEqual(['Xóa nhánh'])
+  expect(said(['Choose one:', '- **"Cho xóa":** you allow the rm -rf', '- **"Không xóa":** keep the folders'])).toEqual(['Cho xóa', 'Không xóa'])
+  expect(said(['Found it.', 'Bạn có muốn mình sửa luôn không?'])).toEqual(['Có', 'Không'])
+  expect(said(['Found it.', 'Want me to fix it now?'])).toEqual(['Yes', 'No'])
+  // a command only named, a bold label, a table row and a plain question suggest nothing
+  expect(said(['The `/usage` page shows it.', '**Checks:** all pass', '| say "x" | y |', 'Why did it fail?'])).toEqual([])
+  // the closing lines only: what an answer said early on is not what it suggests now
+  expect(said(['Say "early"', ...Array.from({ length: 8 }, (_, i) => `line ${i}`)])).toEqual([])
+  expect(said(['say "a"', 'say "b"', 'say "c"', 'say "d"'])).toEqual(['a', 'b', 'c'])
+  // Claude Code's own suggestion first, the same text once
+  expect(suggestionChips('run the tests', ['Run the tests', 'Merge pr', 'x', 'y'])).toEqual(['run the tests', 'Merge pr', 'x'])
+})
+
+test('the band shows the chips once a turn ends; a press sends the chip, a /command runs it', async ($, on) => {
+  engine(on)
+  const submitted: string[] = []
+  const ran: string[] = []
+  on('prompt.submit', (_: unknown, e: any) => (submitted.push(e.text), { text: e.text }))
+  on('command.run', (_: unknown, e: any) => (ran.push(`${e.command} ${e.args}`.trim()), { text: '' }))
+  on('turn.start', () => ({ turnId: 't1' }))
+  on('turn.complete', () => ({ text: 'ok' }))
+  const t = $ as any
+  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await t.turn.start({ text: 'go', turnId: 't1', kind: 'engine' })
+  await t.turn.complete({ text: 'ok', reason: 'answer', answer: 'Done.\nNext: run `/reload-plugins`, then say "Merge pr".' })
+  expect((await band.find({ key: 'chip:0' }))?.text).toBe('‹ Merge pr ›')
+  expect((await band.find({ key: 'chip:1' }))?.text).toBe('‹ /reload-plugins ›')
+  await band.press({ key: 'chip:1' })
+  expect(ran).toEqual(['reload-plugins'])
+  // sent, the chips go; the next answer brings its own
+  expect(await band.find({ key: 'chip:0' })).toBeUndefined()
+  await t.turn.start({ text: 'go', turnId: 't2', kind: 'engine' })
+  await t.turn.complete({ text: 'ok', reason: 'answer', answer: 'Next: say "Merge pr".' })
+  await band.press({ key: 'chip:0' })
+  expect(submitted).toEqual(['Merge pr'])
 })
