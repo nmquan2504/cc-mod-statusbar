@@ -29,12 +29,24 @@ export function registerTools(on: On) {
   // A dangerous Bash command asks the person in Claude Code's own question dialog, in any mode:
   // in auto or bypass no one else would. Where the engine itself will ask the person (manual,
   // accept edits, plan, with no allow rule) its dialog is the one asked; a deny needs no asking.
-  // A dialog that cannot open (dismissed, a -p run) refuses the command.
+  // A dialog that cannot open (dismissed, a -p run) refuses the command. rm -rf on the disk, the
+  // home folder or the project is refused with no question: a press on Run there costs too much.
   on('tool.call', { tool: 'Bash' }, async ($, e: any, next) => {
     const command = String(e.command ?? '')
-    const danger = cfg.dangerConfirm ? dangerOf(command) : null
-    if (!danger) return next(e)
+    if (!cfg.dangerConfirm) return next(e)
+    const where = {
+      home: (await $.env.get('HOME').catch(() => undefined)) ?? undefined,
+      cwd: (await $.session.cwd().catch(() => undefined)) ?? undefined,
+      tmpdir: (await $.env.get('TMPDIR').catch(() => undefined)) ?? undefined,
+    }
+    const found = dangerOf(command, where)
+    if (!found) return next(e)
     await update($, dangers, n => n + 1)
+    const danger = found.name
+    if (found.isBlocked) {
+      await logAudit($, `⚠ ${danger} on ${found.target}: refused, ${oneLine(command, 60)}`, true)
+      return { deny: `Refused: ${danger} on ${found.target} would delete ${found.target === '/' ? 'the whole disk' : 'the home folder, a parent folder or the project itself'}. This check refuses it without asking. Name what to delete inside the folder instead, or ask the person to run it themselves.` }
+    }
     const who = e.agentId ? 'an agent of Claude' : 'Claude'
     const verdict = await $.tool.check({ tool: 'Bash', input: { command } }).catch(() => undefined)
     const isPersonAsked = verdict?.decision === 'ask' && ['manual', 'acceptEdits', 'plan'].includes(rt.drawnMode ?? '')
