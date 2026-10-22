@@ -2,9 +2,9 @@ import { atom, read } from 'claude-code'
 import { oneLine, shortModel } from '../lib/format'
 import { ask, settleAsk } from './ask'
 import { TOP_GROUP, USE_KEY, groupOf } from './commands'
-import { saveTyped } from './vault'
+import { forgetSecret, listSecrets, saveTyped } from './vault'
 import { cfg } from '../state/config'
-import { rt } from '../state/runtime'
+import { ME, rt } from '../state/runtime'
 
 // The atoms this file reads (each file declares its own: the engine reads an atom only where a
 // const of the same file made it; the same plugin and key are the same value).
@@ -61,7 +61,7 @@ export const remote = {
   addedDirs: [] as string[],
   memoryAt: 0,
   // the slash commands and skills, for the phone's list, read on joining and every five minutes
-  commands: [] as { name: string; description: string; group: string; isBuiltin: boolean; isComputerOnly: boolean; needsArgs: boolean }[],
+  commands: [] as { name: string; description: string; group: string; isBuiltin: boolean; isComputerOnly: boolean; needsArgs: boolean; isOwn: boolean }[],
   // the commands the phone sent, each with what it printed or why it did not run, newest last
   cmdLog: [] as { at: number; command: string; text: string; isError: boolean }[],
   commandsAt: 0,
@@ -361,16 +361,18 @@ export function phoneMayRun(name: string, args: string, isBuiltin: boolean): tru
   return `/${name} opens a panel on the computer, and the phone cannot close it; run it at the computer`
 }
 
-// What a text from the phone is: a command to run, a command refused (with why), or a prompt. A
+// What a text from the phone is: a command to run, one of this mod's own (answered here: a plugin's
+// $.command.run never reaches its own command.run hooks), a command refused (with why), or a prompt. A
 // /name that names no command of this session is refused rather than handed to the model as words;
 // a path (/Users/me/file) holds a slash past its first, and goes in as a prompt.
-export function phoneCommand(text: string, commands: readonly { name: string; isBuiltin: boolean }[]):
-  { kind: 'run'; name: string; args: string } | { kind: 'refuse'; text: string } | { kind: 'prompt' } {
+export function phoneCommand(text: string, commands: readonly { name: string; isBuiltin: boolean; isOwn?: boolean }[]):
+  { kind: 'run' | 'own'; name: string; args: string } | { kind: 'refuse'; text: string } | { kind: 'prompt' } {
   const m = /^\/([A-Za-z0-9][\w:.-]*)(?:\s+([\s\S]*))?$/.exec(text.trim())
   if (!m) return { kind: 'prompt' }
   const name = m[1]!, args = (m[2] ?? '').trim()
   const cmd = commands.find(c => c.name === name)
   if (!cmd) return { kind: 'refuse', text: `/${name} is not a command in this session` }
+  if (cmd.isOwn) return { kind: 'own', name, args }
   const verdict = phoneMayRun(name, args, cmd.isBuiltin)
   return verdict === true ? { kind: 'run', name, args } : { kind: 'refuse', text: verdict }
 }
@@ -382,7 +384,7 @@ async function readCommands($: any) {
   const list: any[] = await $.command.list().catch(() => [])
   const rows = list.map(c => {
     const name = String(c.name), isBuiltin = c.source === 'builtin'
-    return { name, description: oneLine(String(c.description ?? ''), 120), group: groupOf(c), isBuiltin, isComputerOnly: isBuiltin && !PHONE_BUILTINS.has(name) && !PHONE_WITH_VALUE.has(name), needsArgs: isBuiltin && PHONE_WITH_VALUE.has(name) }
+    return { name, description: oneLine(String(c.description ?? ''), 120), group: groupOf(c), isBuiltin, isComputerOnly: isBuiltin && !PHONE_BUILTINS.has(name) && !PHONE_WITH_VALUE.has(name), needsArgs: isBuiltin && PHONE_WITH_VALUE.has(name), isOwn: c.plugin === ME }
   })
     .sort((a, b) => a.group.localeCompare(b.group) || a.name.localeCompare(b.name))
   const counts = ((await $.store.get(USE_KEY).catch(() => undefined)) ?? {}) as Record<string, { n: number; last: number }>
@@ -506,6 +508,12 @@ export async function tickRemote($: any) {
     const what = phoneCommand(text, remote.commands)
     const log = (out: string, isError: boolean) => { remote.cmdLog = [...remote.cmdLog, { at: Date.now(), command: text.trim(), text: out, isError }].slice(-10) }
     if (what.kind === 'refuse') return log(what.text, true)
+    // this mod's own commands, answered by the same code their hooks run
+    if (what.kind === 'own') {
+      if (what.name === 'secrets') return log(await listSecrets($).catch(() => 'could not list the secrets'), false)
+      if (what.name === 'secret-forget') return log(await forgetSecret($, what.args).catch(() => 'could not delete the secret'), false)
+      return log(`/${what.name} opens a dialog on the computer; add a secret from the + menu here instead`, true)
+    }
     if (what.kind === 'run') {
       // what the command printed goes back to the phone; a prompt for the model prints nothing
       const r: any = await $.command.run({ command: what.name, args: what.args }).catch((err: unknown) => ({ error: String(err) }))

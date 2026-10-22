@@ -323,4 +323,8 @@ test('a text from the phone: a listed command runs, an unknown /name is refused,
   expect(phoneCommand('/usage', commands)).toMatchObject({ kind: 'refuse' })
   expect(phoneCommand('/Users/me/notes.md read this', commands)).toEqual({ kind: 'prompt' })
   expect(phoneCommand('run the tests', commands)).toEqual({ kind: 'prompt' })
+  // the mod's own commands are answered by the mod: its own $.command.run would reach none of its hooks
+  const own = [...commands, { name: 'secrets', isBuiltin: false, isOwn: true }, { name: 'secret-forget', isBuiltin: false, isOwn: true }]
+  expect(phoneCommand('/secrets', own)).toEqual({ kind: 'own', name: 'secrets', args: '' })
+  expect(phoneCommand('/secret-forget ACME_KEY', own)).toEqual({ kind: 'own', name: 'secret-forget', args: 'ACME_KEY' })
 })
