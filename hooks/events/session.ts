@@ -6,6 +6,7 @@ import { readGuard } from '../features/guard'
 import { readImages } from '../features/images'
 import { readMcp } from '../features/mcp'
 import { probeMode } from '../features/mode'
+import { tickPrompts } from '../features/prompts'
 import { isRemoteWaiting, tickRemote } from '../features/remote'
 import { refreshBar } from '../features/status'
 import { UPDATE_EVERY, checkModUpdate } from '../features/update'
@@ -59,6 +60,8 @@ export function registerSession(on: On) {
       if (ticks % 5 === 0) void scanBackground($).catch(() => undefined)
       // each server, asked over HTTP whether it still answers
       if (ticks % HEALTH_EVERY === 0) void checkServers($).catch(() => undefined)
+      // a permission prompt that has waited for the person: counted, and the phone told
+      void tickPrompts($).catch(() => undefined)
       // what the automation has due: "continue" after a reset, "hi" on its schedule
       if (ticks % 15 === 0) void runAutomation($).catch(() => undefined)
       // the mod's own repository: new commits upstream, a minute in and then every hour

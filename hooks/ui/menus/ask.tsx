@@ -1,4 +1,4 @@
-import { answersOf, ask, pick, settleAsk } from '../../features/ask'
+import { answersOf, ask, isOneTap, pick, settleAsk } from '../../features/ask'
 import type { AskQuestion } from '../../features/ask'
 import type { Entry } from './entry'
 
@@ -21,6 +21,7 @@ export async function drawAskMenu($: any, els: any, _isTerminal: boolean, _entry
       <Box key={`askrow:${i}:${j}`} paddingLeft={2}>
         <Button key={`ask:${i}:${j}`} plain hotkey={hotkey} onPress={() => {
           pick(p.draft, q, i, label)
+          if (isOneTap(p.questions) && p.draft.picks[i]?.length) settleAsk(p.id, { answers: answersOf(p.questions, p.draft) }, 'mac')
           redraw()
         }}>
           <Text color={isOn ? 'claude' : 'inactive'} bold>{mark}</Text>

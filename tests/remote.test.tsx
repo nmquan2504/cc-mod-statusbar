@@ -1,5 +1,6 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 import { contextOf, midTurnsIn, phoneCommand, phoneMayRun, transcriptOf } from '../hooks/features/remote'
+import { isOneTap } from '../hooks/features/ask'
 import { qrMatrix, qrRows } from '../hooks/lib/qr'
 
 // Self remote: the ⇄ chip and its menu. The hooks registered here stand for the engine; the hub
@@ -137,7 +138,7 @@ test('with the hub up: the QR code, a phone asking to pair with its code, Allow 
 
 test('the transcript reads as the terminal: prompts without reminders, text, tool calls with output', () => {
   const items = transcriptOf([
-    { role: 'user', text: 'fix the test<system-reminder>not for the phone</system-reminder>', toolUses: [] },
+    { role: 'user', text: '<browser_instruction># Claude in Chrome browser automation</browser_instruction>\nfix the test<system-reminder>not for the phone</system-reminder>', toolUses: [] },
     { role: 'user', text: '<command-name>/model</command-name>\n<command-args>opus</command-args>', toolUses: [] },
     {
       role: 'assistant',
@@ -168,17 +169,30 @@ const QUESTIONS = [
   { question: 'Which database?', header: 'DB', multiSelect: false, options: [{ label: 'Postgres', description: 'relational', preview: 'CREATE TABLE users (...)' }, { label: 'SQLite', description: 'one file' }] },
   { question: 'Which checks?', header: 'Checks', multiSelect: true, options: [{ label: 'lint', description: '' }, { label: 'types', description: '' }, { label: 'tests', description: '' }] },
 ]
-function asking(on: any, surface = 'terminal') {
-  engine(on)
+// the session on a surface, with the engine's own dialog beneath the mod (it answers only when the
+// band does not); `isLinked`: Self remote switched on and this session joined to a running hub
+async function asking($: any, on: any, surface = 'terminal', isLinked = true) {
+  engine(on, { hub: () => STATUS })
   on('session.surfaces', () => ({ value: [surface] }))
-  // beneath the mod: the engine's own dialog, which answers only when the band does not
   on('tool.call', { tool: 'AskUserQuestion' }, () => ({ result: { answers: { native: 'dialog' } }, text: 'the engine asked' }))
+  on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
+  on('ui.status', () => ({ value: undefined }))
+  on('agent.list', () => ({ value: [] }))
+  on('tool.register', (_: unknown, e: { name: string }) => ({ value: { tool: e.name } }))
+  on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
+  const clock = mock.clock(on)
+  await $.session.start({ cwd: '/work/shop', surface, isInteractive: true })
+  const band = await $.ui.mount({ plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  if (isLinked) {
+    await switchOn(band)
+    await clock.advance(2000) // the remote's tick: this session joins the hub
+  }
+  return band
 }
 const settle = () => new Promise(r => setTimeout(r, 30))
 
 test('a question opens in the band, every one at once; picks and Other go back as the dialog words them', async ($, on) => {
-  asking(on)
-  const band = await $.ui.mount({ plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  const band = await asking($, on)
   const call = ($ as any).tool.call({ tool: 'AskUserQuestion', questions: QUESTIONS })
   await settle()
   const drawn = await textOf(band)
@@ -196,9 +210,24 @@ test('a question opens in the band, every one at once; picks and Other go back a
   expect(await textOf(band)).not.toContain('Which database?') // the menu shut with the answer
 })
 
+test('one question, one choice, no previews: a pick is the answer, with no Submit', async ($, on) => {
+  const band = await asking($, on)
+  const one = [{ question: 'Ship it?', header: 'Ship', multiSelect: false, options: [{ label: 'Yes', description: '' }, { label: 'No', description: '' }] }]
+  const call = ($ as any).tool.call({ tool: 'AskUserQuestion', questions: one })
+  await settle()
+  await band.press({ key: 'ask:0:1' })
+  const r = await call
+  expect(r.result.answers).toEqual({ 'Ship it?': 'No' })
+  // a preview, several questions or several choices: Submit sends them
+  expect(isOneTap(one)).toBe(true)
+  expect(isOneTap(QUESTIONS.slice(0, 1))).toBe(false)
+  expect(isOneTap([...one, ...one])).toBe(false)
+  expect(isOneTap([{ ...one[0]!, multiSelect: true }])).toBe(false)
+  expect(isOneTap([{ question: 'Name?', kind: 'text' }])).toBe(false)
+})
+
 test('Dismiss refuses the call with a reason; shut, the menu leaves a chip that opens it again', async ($, on) => {
-  asking(on)
-  const band = await $.ui.mount({ plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  const band = await asking($, on)
   const call = ($ as any).tool.call({ tool: 'AskUserQuestion', questions: QUESTIONS.slice(0, 1) })
   await settle()
   await band.press({ key: 'close-menu' })
@@ -210,9 +239,37 @@ test('Dismiss refuses the call with a reason; shut, the menu leaves a chip that 
 })
 
 test('where no band draws (VS Code), the engine\'s own dialog asks', async ($, on) => {
-  asking(on, 'vscode')
+  await asking($, on, 'vscode')
   const r = await ($ as any).tool.call({ tool: 'AskUserQuestion', questions: QUESTIONS.slice(0, 1) })
   expect(r.text).toBe('the engine asked')
+})
+
+test('with Self remote off, or on with no hub running, the engine\'s own dialog asks', async ($, on) => {
+  await asking($, on, 'terminal', false)
+  const r = await ($ as any).tool.call({ tool: 'AskUserQuestion', questions: QUESTIONS.slice(0, 1) })
+  expect(r.text).toBe('the engine asked')
+})
+
+test('a session the VS Code extension draws joins the hub; one nothing draws (-p, an SDK run) stays off', async ($, on) => {
+  const posted: string[] = []
+  engine(on, { hub: path => (posted.push(path), STATUS) })
+  let surfaces: string[] = []
+  on('session.surfaces', () => ({ value: surfaces as never }))
+  on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
+  on('ui.status', () => ({ value: undefined }))
+  on('agent.list', () => ({ value: [] }))
+  on('tool.register', (_: unknown, e: { name: string }) => ({ value: { tool: e.name } }))
+  on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
+  const clock = mock.clock(on)
+  await ($ as any).session.start({ cwd: '/work/shop', surface: 'vscode', isInteractive: true })
+  const band = await $.ui.mount({ plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await switchOn(band)
+  posted.length = 0
+  await clock.advance(2000)
+  expect(posted).not.toContain('/session') // nothing draws it yet
+  surfaces = ['vscode'] // the extension attaches
+  await clock.advance(2000)
+  expect(posted).toContain('/session')
 })
 
 test('a question Claude asked reads as Ask, each question with the answer it got', () => {

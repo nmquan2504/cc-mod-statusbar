@@ -1,6 +1,7 @@
 import { MODES } from '../lib/catalog'
 import { rt } from '../state/runtime'
 import { drawBand } from '../ui/band'
+import { noteSpinner } from '../features/prompts'
 import type { On } from 'claude-code'
 
 export function registerUi(on: On) {
@@ -33,5 +34,11 @@ export function registerUi(on: On) {
   //  ╰───────────────────────────────────────────────────────────────────────────╯
   // Chips are square buttons (a label on a colored cell background) and stay Buttons; the gauges
   // are truecolor cells in one color by the percentage, where the surface draws them.
+  // The spinner's step: tool-input while a permission dialog waits, tool-use once the call runs
+  on('ui.render', { component: 'Spinner' }, ($, e, next) => {
+    noteSpinner(String(e.props.mode ?? ''))
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
   on('ui.render', { component: 'AbovePrompt' }, drawBand)
 }

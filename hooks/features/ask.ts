@@ -51,6 +51,14 @@ export function answerText(answers: Record<string, string>) {
   return `Your questions have been answered: ${pairs}. You can now continue with these answers in mind.`
 }
 
+// One question, one choice, no previews (a permission prompt is one): a pick is the answer, sent at
+// once with no Submit. With previews a pick shows one first, and with several questions a pick
+// answers only one of them, so Submit sends those.
+export function isOneTap(questions: readonly AskQuestion[]) {
+  const q = questions.length === 1 ? questions[0]! : undefined
+  return Boolean(q && q.kind !== 'text' && q.kind !== 'number' && !q.multiSelect && q.options?.length && !q.options.some(o => o.preview))
+}
+
 // A pick: one option of a single-choice question, or one more (or one less) of a multi-select.
 export function pick(draft: AskAnswer, q: AskQuestion, i: number, label: string) {
   const now = draft.picks[i] ?? []

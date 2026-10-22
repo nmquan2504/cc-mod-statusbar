@@ -1,15 +1,17 @@
 import { answerText, ask, closeAsk, showAsk, waitForAnswer } from '../features/ask'
-import { notifyRemote } from '../features/remote'
+import { notifyRemote, remote } from '../features/remote'
 import { oneLine } from '../lib/format'
+import { cfg } from '../state/config'
 
 import type { On } from 'claude-code'
 
 export function registerAsk(on: On) {
-  // Claude's questions go in the band (and on the phone with Self remote on), never in the engine's
-  // dialog: the hook answers the call itself. Where no band draws (VS Code, a -p run), or while
-  // another question waits, the engine's dialog asks as before.
+  // With Self remote on and its hub running, Claude's questions go in the band and on the phone,
+  // never in the engine's dialog: the hook answers the call itself. With the remote off, where no
+  // band draws (VS Code, a -p run), or while another question waits, the engine's dialog asks.
   on('tool.call', { tool: 'AskUserQuestion' }, async ($, e: any, next) => {
     const questions = Array.isArray(e.questions) ? e.questions : []
+    if (!cfg.selfRemote || !remote.isJoined) return next(e)
     const surfaces: readonly string[] = await $.session.surfaces().catch(() => [])
     if (!surfaces.includes('terminal') || ask.pending || !questions.length) {
       // say why the engine's dialog asks: no band here, or a question already waits

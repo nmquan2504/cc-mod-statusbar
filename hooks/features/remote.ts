@@ -1,6 +1,7 @@
 import { atom, read } from 'claude-code'
 import { oneLine, shortModel } from '../lib/format'
 import { ask, settleAsk } from './ask'
+import { waitingPrompts } from './prompts'
 import { TOP_GROUP, USE_KEY, groupOf } from './commands'
 import { forgetSecret, listSecrets, saveTyped } from './vault'
 import { cfg } from '../state/config'
@@ -50,8 +51,8 @@ export const remote = {
   // this session stays off the phone's list
   isHidden: false,
   isJoined: false,
-  // whether a terminal draws this session, read once
-  hasTerminal: undefined as boolean | undefined,
+  // whether a surface draws this session (the terminal, VS Code, the desktop app), once one does
+  hasSurface: false,
   // texts the phone sent while Claude was working, sent one at a time between turns
   queue: [] as string[],
   // what the session holds in context, for the phone's Context tab: files @-mentioned in a prompt,
@@ -332,10 +333,11 @@ const cut = (t: string, n: number) => (t.length > n ? `${t.slice(0, n)}\n… ${t
 const lineCount = (t: string) => (t ? t.split('\n').length : 0)
 
 // What the engine adds around a prompt, which the terminal does not show: reminders,
-// notifications, and a slash command's markup put back as /name args.
+// notifications, the Claude in Chrome instructions on a session's first prompt, and a slash
+// command's markup put back as /name args.
 function promptText(text: string) {
   return text
-    .replace(/<(system-reminder|task-notification|local-command-caveat)>[\s\S]*?<\/\1>/g, '')
+    .replace(/<(system-reminder|task-notification|local-command-caveat|browser_instruction)>[\s\S]*?<\/\1>/g, '')
     .replace(/<command-name>([\s\S]*?)<\/command-name>\s*(?:<command-message>[\s\S]*?<\/command-message>)?\s*(?:<command-args>([\s\S]*?)<\/command-args>)?/g, (_m, name: string, args?: string) => `${name.trim()} ${args?.trim() ?? ''}`)
     .replace(/<\/?local-command-[a-z]+>/g, '')
     .trim()
@@ -578,6 +580,8 @@ async function snapshotOf($: any) {
     lastAt: remote.lastAt,
     // the question Claude waits on, for the phone to answer
     ask: ask.pending && !ask.pending.result ? { id: ask.pending.id, questions: ask.pending.questions } : null,
+    // the permission prompts waiting for the person, shown on the phone; answered at the computer
+    permissions: waitingPrompts(Date.now()),
   }
 }
 
@@ -587,9 +591,11 @@ export async function tickRemote($: any) {
   if (!cfg.selfRemote) return
   const id = await $.session.id().catch(() => '')
   if (!id) return
-  // a session no terminal draws (an SDK or -p run, such as claude-mem's observer) stays off the phone
-  remote.hasTerminal ??= ((await $.session.surfaces().catch(() => [])) as readonly string[]).includes('terminal')
-  if (!remote.hasTerminal) return
+  // a session nothing draws (an SDK or -p run, such as claude-mem's observer) stays off the phone;
+  // the terminal, the VS Code extension and the desktop app each draw one. Asked again until one
+  // does: a client may attach a moment after the session starts.
+  remote.hasSurface ||= ((await $.session.surfaces().catch(() => [])) as readonly string[]).length > 0
+  if (!remote.hasSurface) return
   if (remote.isHidden) return void (await readRemote($))
   if (!remote.isJoined && !(await readRemote($))) {
     if (remote.isStarting && Date.now() - remote.startedAt > HUB_START_MS) {
