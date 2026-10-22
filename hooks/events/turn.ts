@@ -47,6 +47,9 @@ export function registerTurn(on: On) {
 
   // the turn's clock: started here, stopped and reported at turn.complete
   on('turn.start', async ($, e, next) => {
+    // a "continue" planned after a limit stop is dropped once the person goes on themselves; a new
+    // stop plans one again at turn.complete
+    if (!(e as any).agentId && !rt.isContinueTurn && (await read($, autoContinue))) await update($, autoContinue, () => null)
     rt.turnStartedAt = await $.clock.now()
     rt.turnEndedAt = 0
     rt.turnTools = []
