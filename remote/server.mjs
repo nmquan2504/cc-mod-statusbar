@@ -252,6 +252,10 @@ const CLOCK_SKEW = 120_000
 
 // each phone: its key, from an ECDH with this hub salted with K; allowed or not by a terminal
 const devices = new Map() // id -> { key, name, at, seenAt, code, isApproved, isDenied, nonces: Map<n, ts> }
+// A request to pair waits a minute for Allow in a terminal; then it is gone, and the phone scans again.
+const PAIR_MS = Number(process.env.QSB_PAIR_MS) || 60_000 // tests shorten it
+const isExpired = d => !d.isApproved && Date.now() - d.at >= PAIR_MS
+const secondsLeft = d => Math.max(0, Math.ceil((d.at + PAIR_MS - Date.now()) / 1000))
 
 async function seal(dev, id, n, s, b) {
   const iv = globalThis.crypto.getRandomValues(new Uint8Array(12))
@@ -413,7 +417,7 @@ const pub = createServer(async (req, res) => {
       const key = await hkdf(secret, ROOT, `qsb/device|${phonePub}|${hubPub}`, 'aes')
       const id = randomBytes(16).toString('base64url')
       const code = Array.from({ length: 4 }, () => CODE_CHARS[randomInt(CODE_CHARS.length)]).join('')
-      for (const [k, d] of devices) if (!d.isApproved && Date.now() - d.at > 5 * 60_000) devices.delete(k)
+      for (const [k, d] of devices) if (isExpired(d)) devices.delete(k)
       devices.set(id, { key, name: deviceName(String(req.headers['user-agent'] ?? '')), at: Date.now(), seenAt: Date.now(), code, isApproved: false, isDenied: false, nonces: new Map() })
       const mac = b64(await subtle.sign('HMAC', AUTH, te.encode(`welcome|${id}|${hubPub}|${phonePub}|${code}`)))
       bump()
@@ -446,7 +450,12 @@ const pub = createServer(async (req, res) => {
         devices.delete(id)
         return send(res, 200, await seal(dev, id, n, 403, { error: 'Refused in the terminal.' }))
       }
-      if (!dev.isApproved) return send(res, 200, await seal(dev, id, n, op === 'paired' ? 202 : 403, { code: dev.code }))
+      if (isExpired(dev)) {
+        devices.delete(id)
+        bump()
+        return send(res, 200, await seal(dev, id, n, 403, { error: 'Nobody allowed this phone within a minute. Scan the QR code again.', isExpired: true }))
+      }
+      if (!dev.isApproved) return send(res, 200, await seal(dev, id, n, op === 'paired' ? 202 : 403, { code: dev.code, secondsLeft: secondsLeft(dev) }))
       dev.seenAt = lastPhoneAt = now
       if (op === 'paired') return send(res, 200, await seal(dev, id, n, 200, { ok: true }))
       const [s, b] = await answerOp(dev, id, op, a, res)
@@ -470,7 +479,7 @@ function statusOf() {
     error: tunnelError,
     sessions: sessions.size,
     devices: [...devices.values()].filter(d => d.isApproved).map(d => ({ name: d.name, seenAt: d.seenAt })),
-    pending: [...devices.entries()].filter(([, d]) => !d.isApproved && !d.isDenied).map(([id, d]) => ({ id, code: d.code, name: d.name, at: d.at })),
+    pending: [...devices.entries()].filter(([, d]) => !d.isApproved && !d.isDenied && !isExpired(d)).map(([id, d]) => ({ id, code: d.code, name: d.name, at: d.at, expiresAt: d.at + PAIR_MS })),
     phones: Date.now() - lastPhoneAt < 40_000 ? [...devices.values()].filter(d => d.isApproved && Date.now() - d.seenAt < 40_000).length : 0,
     isLocked: pairFails >= MAX_PAIR_FAILS,
     subscriptions: subscriptions.size,
@@ -528,6 +537,8 @@ const ctl = createServer(async (req, res) => {
   if (route === 'POST /allow' || route === 'POST /deny') {
     const d = devices.get(String((await readJson(req))?.id ?? ''))
     if (!d || d.isApproved) return send(res, 404, { error: 'no such request' })
+    // allowed too late: the phone was told to scan again
+    if (isExpired(d)) return send(res, 410, { error: 'expired', ...statusOf() })
     if (route === 'POST /allow') {
       d.isApproved = true
       // at most MAX_DEVICES phones stay paired: the oldest goes

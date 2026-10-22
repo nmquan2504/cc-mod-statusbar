@@ -30,7 +30,7 @@ export type RemoteStatus = {
   error: string
   sessions: number
   devices: { name: string; seenAt: number }[]
-  pending: { id: string; code: string; name: string; at: number }[]
+  pending: { id: string; code: string; name: string; at: number; expiresAt?: number }[]
   phones: number
   isLocked: boolean
   subscriptions: number
@@ -218,10 +218,24 @@ export async function stopRemote($: any) {
 }
 
 export async function answerPairing($: any, id: string, isAllowed: boolean) {
-  remote.status = (await hub($, 'POST', isAllowed ? '/allow' : '/deny', { id })) ?? remote.status
-  $.ui.toast(isAllowed ? 'statusbar: remote: the phone is paired' : 'statusbar: remote: refused')
+  const asked = remote.status?.pending.find(p => p.id === id)
+  const status = await hub($, 'POST', isAllowed ? '/allow' : '/deny', { id })
+  // a request a minute old is gone: the phone was told to scan again
+  if (!status || !asked || secondsToPair(asked) === 0) {
+    $.ui.toast('statusbar: remote: that request to pair had expired; scan the QR code on the phone again')
+    remote.status = (await hub($, 'GET', '/status')) ?? remote.status
+  } else {
+    remote.status = status
+    $.ui.toast(isAllowed ? 'statusbar: remote: the phone is paired' : 'statusbar: remote: refused')
+  }
   $.ui.invalidate('ui.render')
 }
+
+// How long a request to pair still waits for Allow, in whole seconds (the hub drops it after a minute)
+export const secondsToPair = (p: { expiresAt?: number }) => (p.expiresAt === undefined ? 60 : Math.max(0, Math.ceil((p.expiresAt - Date.now()) / 1000)))
+// The requests to pair still waiting: one gone at its minute leaves before the hub's next answer
+export const pendingPairs = () => (remote.status?.pending ?? []).filter(p => secondsToPair(p) > 0)
+
 
 export async function forgetDevices($: any) {
   remote.status = (await hub($, 'POST', '/forget-devices')) ?? remote.status
@@ -633,7 +647,7 @@ export async function tickRemote($: any) {
   for (const p of status.pending)
     if (!remote.announced.includes(p.id)) {
       remote.announced = [...remote.announced, p.id].slice(-20)
-      $.ui.toast(`statusbar: remote: ${p.name} asks to pair, code ${p.code}. Open ⇄ to allow it`)
+      $.ui.toast(`statusbar: remote: ${p.name} asks to pair, code ${p.code}. Open ⇄ to allow it within ${secondsToPair(p)} s`)
     }
   if (JSON.stringify(status) !== was) $.ui.invalidate('ui.render')
   const inbox = await hub($, 'GET', `/inbox?id=${encodeURIComponent(id)}`)

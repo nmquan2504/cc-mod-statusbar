@@ -263,6 +263,7 @@
   .paste { display: flex; gap: 8px; margin-top: 16px; }
   .paste input { flex: 1; min-width: 0; height: 42px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 0 12px; font: 13px var(--mono); }
   .gate { max-width: 420px; margin: 20vh auto 0; padding: 0 16px; text-align: center; }
+  .gate .left { color: var(--dim); font: 600 14px var(--mono); margin-top: 6px; } .gate .left.low { color: var(--warn); }
   .code { font: 700 40px var(--mono); letter-spacing: .2em; color: var(--claude); margin-top: 12px; }
 </style>
 </head>
@@ -271,6 +272,7 @@
   <h2>Claude remote</h2>
   <p id="gate-text">Scan the QR code in the terminal (⇄ on the status bar).</p>
   <div id="gate-code" class="code" hidden></div>
+  <div id="gate-left" class="left" hidden></div>
   <div id="gate-paste" class="paste" hidden>
     <input id="gate-link" type="url" placeholder="https://…trycloudflare.com/#k=…" autocomplete="off" aria-label="The remote's link">
     <button id="gate-go" class="primary">Pair</button>
