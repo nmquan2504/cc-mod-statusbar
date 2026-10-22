@@ -2,11 +2,11 @@
 
 A Claude Code mod that draws a clickable status bar in the band above the prompt, in any project.
 
-```
-╭──────────────────────────────────────────────────────────────────────────────╮
-│ [+] [⁄] [● Opus 5.5]  guardrails-hands-on ⎇ main     5h ▓░░░ 15% wk ▓▓░░ 32%  [‖ manual] ◈ 3/3 │
-╰──────────────────────────────────────────────────────────────────────────────╯
-```
+![The bar while Claude works: model, effort, folder and branch, the arena, the turn's clock and cost, usage, MCP, mode and the shield](docs/bar.png)
+
+![The + menu: add context, rewrite the prompt, Settings](docs/plus.png)
+
+The screenshots are from the VS Code terminal, dark theme. Paths that pointed at a private folder are blanked out in the tasks menu.
 
 | Item | Shows | Its menu |
 |---|---|---|
@@ -20,6 +20,8 @@ A Claude Code mod that draws a clickable status bar in the band above the prompt
 | `⌁ n` | the MCP servers connected now, read from the tool list; red with `✘n` when the last check found servers that failed | The connected servers with their tool counts and this session's calls and failed calls, the claude.ai connectors that need a sign-in, and the servers that failed at the last check with the reason. `c` runs `claude mcp list` (about 12 seconds, it dials every server); it keeps a stdio server's executable name and drops the rest of its command line, which may carry a key. `m` opens `/mcp` to sign in, reconnect or turn a server off |
 | `mode` | the permission mode with Claude Code's icon color, read every second from the permission checks (`$.tool.check` on a dry Edit and Bash; nothing runs, no dialog opens), because the hint line can be a frame behind | A pick of plan runs `/plan`. A mod has no call that sets the other modes, so a pick shows a toast with the number of shift+tab presses (the cycle is manual, accept edits, plan, auto) |
 | `◈ n/3` | how many of three checks pass: deny rules exist, settings hooks exist, the mode is not bypass; with all three passing, `◈` alone. It follows the settings with its menu shut: read again as soon as Claude Code reports a settings file changed, and every 5 seconds besides. The sandbox is advised but optional: the menu shows it off as a yellow warning and the score leaves it out. The menu opens with the same score, then, under "To fix", what would make each failing check pass: `d` adds the suggested deny rules (`.env`, `.env.*`, `secrets/`, `exports/`, `*.pem`, `*.key`, `~/.ssh`, `~/.aws`), `h` adds an audit hook (PreToolUse on Bash, each call appended to `.claude/audit.jsonl`; it records and blocks nothing), `k` opens `/hooks` to write your own, `m` opens the mode menu when the mode is bypass, and `x` opens `/sandbox` while the sandbox is off. A fix that writes `.claude/settings.local.json` takes a second press within 5 seconds. Below, it marks only the three scored checks pass or fail, and draws the other figures (ask and allow rules, plugins, saved secrets) with a dim dot. Under "Asked most" it lists the three rules that would have skipped the permission prompts you answered most (the engine's own suggestion, counted across sessions); pressing one twice within 5 seconds adds it to `permissions.allow` in this project's `.claude/settings.local.json`. Its last part lists this session's guardrail events, newest five: secrets saved, used or deleted, and in red what was blocked or masked | The deny, ask and allow rules, the sandbox, the hooks and the enabled plugins as the merged settings have them, the saved secret names, and a button for `/permissions` Its Network list shows every host the session reached, the main loop's and its agents': the host of a WebFetch or `secret_fetch` URL, the URLs and `user@host` (ssh, scp, git) in a Bash command, a remote MCP server by name, and WebSearch as one row, each with its call count, the calls a guard refused, and the tools that made them |
+
+![The usage menu: rate limits, the automation, this session, and what fills the context window](docs/usage.png)
 
 While Claude works, the empty middle of the bar plays a small arcade: monsters (each in a random color). Every tool call sends its own monster: Bash `ᗣ`, Edit and Write `Ѫ` (two hits), Read, Grep and Glob `⍤`, an MCP tool `Ӝ`, an agent `Ѯ`, a web tool `ᘛ`, anything else `⍨`; with no tool call for 4 seconds, monsters of the arena's own walk in at random intervals (0.5 to 3 seconds apart), each at its own random speed, and every 10 kills a slow boss (`Ѭ`, five hits) that bursts three cells wide. Claude (`¬✻`) at the right end fires `-` bullets at the monsters it has seen for a moment, and each kill bursts as `✺`. The number at the left counts the kills of this turn. The turn's clock and what it has cost so far (`◷ 1:12 $0.08`) head the right group, before the gauges. A turn of 10 seconds or more ends with a toast of its time and cost. The arena sizes itself to the gap, and when the prompt goes idle the monsters left burst, Claude stays on the field for 3 seconds, then the monsters and the count clear. Claude itself always stays at the right end of the gap (grey while idle), so its menu opens at any time; when the gap is under 16 cells Claude moves to the head of the right group. A number after Claude (`¬✻2`) counts the agents and the servers running for it, read every 5 and 10 seconds with the menu shut. A click on Claude opens what it is working on: after a turn of 60 seconds or more, a Last turn block first, where Haiku sums up what was done and how it came out (Did, Result) from the request, the tools run, the files changed and Claude's last message; then the tool it runs now, its task list (from `TaskCreate`, `TaskUpdate` and `TodoWrite`, and `TaskList` when the engine answers it) marked done, in progress or pending, the files the main loop wrote this turn with the lines added and removed (a pick puts one into the prompt, `o` opens the last one in VS Code or the default app), the agents still running, and the servers Claude started: every TCP port in LISTEN held by a process under this Claude Code process (a dev server from a background Bash, an MCP server), read with `ps` and `lsof` every 5 seconds while the menu is open. A click on a server opens `http://localhost:<port>`; a server started outside Claude stays out. The menu refreshes every second while it is open. A failed tool call sends a red boss `Ж` (the orange `Ѭ` is the boss that comes every 10 kills, and bullets do bring that one down) that bullets do not touch: it waits in front of Claude until the next call succeeds, and then bursts. A task marked done fires a volley that clears the field. A monster that gets through to Claude bursts on the gun as a hit: Claude shows red for about a second and the count reads `12 ✝ · 2 ✗`; the error boss never gets that close.
 
@@ -35,6 +37,8 @@ When the full bar would leave the arena fewer than 16 cells, the bar switches to
 
 ## The tasks menu
 
+![The tasks menu: the last turn's summary, what runs now, tasks, edited files, agents, servers and background commands](docs/tasks.png)
+
 Claude's `¬✻` opens it: the last long turn's summary, what runs now, the task list, the files edited this turn, then:
 
 - **Agents**: those running, then the last three that finished. A press opens one: the tools it called, in order (the last eight), and its answer once it ends. The mod keeps these from the agent's own tool calls and turn end, for this session (a reload starts the record over).
@@ -45,7 +49,9 @@ A background command that fails, or whose log shows an error line (`Error`, `Exc
 
 ## Settings
 
-`+` then `5` (Settings) opens these rows. A digit or a click flips a switch, `−` and `+` step a number, `r` puts every row back to its default. Every change keeps the settings it replaced (the last 20, across sessions); `u` (Undo the last change) puts the one before back. The values are kept in this mod's store, for every session. `c` (Copy the settings) puts them on the clipboard as JSON, the bar's order included; secrets stay in the keychain and never go with them. On another machine, copy that JSON and press `p` (Paste settings): it replaces the settings in force, a key it lacks gets its default, and `u` brings the earlier ones back. Text that holds no settings changes nothing.
+![The Settings menu: bar presets, the items on the bar with their order, switches and numbers, output style](docs/settings.png)
+
+`+` then `s` (Settings) opens these rows. A digit or a click flips a switch, `−` and `+` step a number, `r` puts every row back to its default. Every change keeps the settings it replaced (the last 20, across sessions); `u` (Undo the last change) puts the one before back. The values are kept in this mod's store, for every session. `c` (Copy the settings) puts them on the clipboard as JSON, the bar's order included; secrets stay in the keychain and never go with them. On another machine, copy that JSON and press `p` (Paste settings): it replaces the settings in force, a key it lacks gets its default, and `u` brings the earlier ones back. Text that holds no settings changes nothing.
 
 **Bar preset** heads the menu: three presets set every item at once, Full (all of them), Focus (all but the arena) and Minimal (model, usage, shield); the one the switches match is marked. **On the bar** follows: one chip per bar item (model, effort, folder, git, arena, usage, images, mcp, mode, guardrails), all on by default. A press hides the item and gives its cells to the arena; `+`, `⁄` and Claude's `¬✻` always stay. With the arena off, Claude stands at the head of the right group. The chips are listed in bar order, and the `‹` and `›` beside each one move it a place left or right. The arena chip divides the two groups, so an item moved past it changes sides. The folder and the branch share one button while nothing shown stands between them, and split into two once something does. Presets switch items on and off but keep your order.
 
@@ -126,6 +132,7 @@ hooks/state/                    runtime.ts (the values the hooks share), config.
 types/index.d.ts                the state contract
 tests/statusbar.test.tsx        the bar, its menus and settings, both surfaces
 tests/vault.test.ts             the vault, the Bash guard, the mode menu
+docs/                           the README's screenshots
 ```
 
 Two rules of the engine shape the split. `read($, x)` and `update($, x)` take only an atom a const of the same file made, so each file declares the atoms it uses (the same plugin and key are the same value). And `$` passes from file to file only as an argument to a function declaration, never inside an object or through a function held in a const.
