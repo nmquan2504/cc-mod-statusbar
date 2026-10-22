@@ -55,29 +55,55 @@ try { picked = localStorage.getItem('qsb-session') || '' } catch {}
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 // ---- pairing --------------------------------------------------------------------------------
+// The link's #k= stays on this phone: e2e.js pairs with an HMAC of it and an ECDH, then the phone
+// waits for Allow in a terminal, asking with sealed calls.
 async function pair() {
-  const params = new URLSearchParams(location.hash.slice(1))
-  const k = params.get('k'), d = params.get('d')
-  if (!k && !d) return
-  history.replaceState(null, '', '/')
-  let r = await fetch('/api/pair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(k ? { k } : { d }) })
-  let body = await r.json().catch(() => ({}))
-  // held until a terminal allows it: the same code shows there
-  while (r.status === 202) {
-    gate('Check the code in the terminal and press Allow there.', body.code)
-    await sleep(2000)
-    r = await fetch(`/api/pair?id=${encodeURIComponent(body.pending)}`)
-    body = await r.json().catch(() => ({}))
+  if (!E2E.isSupported()) {
+    gate('This browser cannot encrypt, so it cannot open the remote. Open the link in a current Safari or Chrome.')
+    throw new Error('e2e')
   }
-  if (!r.ok) {
-    gate(body.error || 'This link no longer works. Scan the QR code again.')
-    throw new Error('pair')
+  const k = new URLSearchParams(location.hash.slice(1)).get('k')
+  if (k) {
+    history.replaceState(null, '', '/')
+    await E2E.forget()
+    try {
+      const { code } = await E2E.pair(k)
+      gate('Check the code in the terminal and press Allow there.', code)
+    } catch (err) {
+      gate(err.message)
+      throw err
+    }
+  } else if (!(await E2E.load())) {
+    gate('Scan the QR code in the terminal, or paste its link here.', '', true)
+    throw new Error('unpaired')
+  }
+  for (;;) {
+    const r = await E2E.call('paired').catch(err => err)
+    if (r instanceof E2E.Unpaired) {
+      await E2E.forget()
+      gate('Not paired. Scan the QR code in the terminal again.', '', true)
+      throw r
+    }
+    if (r instanceof Error) {
+      await sleep(2000)
+      continue
+    }
+    if (r.s === 200) return
+    if (r.s === 202) {
+      gate('Check the code in the terminal and press Allow there.', r.b.code)
+      await sleep(2000)
+      continue
+    }
+    await E2E.forget()
+    gate(r.b.error || 'Refused in the terminal.', '', true)
+    throw new Error('refused')
   }
 }
-function gate(text, code) {
+function gate(text, code, canPaste) {
   $('gate-text').textContent = text
   $('gate-code').textContent = code || ''
   $('gate-code').hidden = !code
+  $('gate-paste').hidden = !canPaste
   $('gate').hidden = false
   $('app').hidden = true
 }
@@ -86,13 +112,13 @@ function gate(text, code) {
 async function follow() {
   let since = -1
   for (;;) {
-    const r = await fetch(`/api/state?since=${since}`).catch(() => undefined)
-    if (r && r.status === 401) return gate('Not paired. Scan the QR code in the terminal again.')
-    if (!r || !r.ok) {
+    const r = await E2E.call('state', { since }).catch(err => err)
+    if (r instanceof E2E.Unpaired) return gate('Not paired. Scan the QR code in the terminal again.', '', true)
+    if (r instanceof Error || r.s !== 200) {
       await sleep(3000)
       continue
     }
-    state = await r.json()
+    state = r.b
     since = state.version
     if (state.notice.at > lastNotice) {
       if (lastNotice) toast(state.notice)
@@ -103,7 +129,18 @@ async function follow() {
     render()
   }
 }
-const q = (path, extra = '') => `${path}?s=${encodeURIComponent(snap ? snap.id : '')}${extra}`
+// a sealed call about the session shown: { s, b }, or { s: 0, b: { error } } when it did not go
+const api = (op, a = {}) => E2E.call(op, { session: snap ? snap.id : '', ...a }).catch(err => ({ s: 0, b: { error: err.message } }))
+// an image the hub sends sealed, as a URL the page can show; kept per session and image
+const imageUrls = new Map()
+async function imageUrl(op, a, cacheKey) {
+  if (cacheKey && imageUrls.has(cacheKey)) return imageUrls.get(cacheKey)
+  const r = await api(op, a)
+  if (r.s !== 200 || !r.b.b64) return ''
+  const url = URL.createObjectURL(new Blob([E2E.b64.dec(r.b.b64)], { type: r.b.type }))
+  if (cacheKey) imageUrls.set(cacheKey, url)
+  return url
+}
 const clock = ms => {
   const s = Math.max(0, Math.floor(ms / 1000))
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
@@ -448,10 +485,10 @@ async function renderFolder(root) {
   })
   const list = root.appendChild(el('div', 'card tree'))
   list.append(el('div', 'meta', 'Loading…'))
-  const r = await fetch(q('/api/tree', `&path=${encodeURIComponent(browse.path)}`)).catch(() => undefined)
-  const data = r ? await r.json().catch(() => ({})) : {}
+  const r = await api('tree', { path: browse.path })
+  const data = r.b || {}
   list.replaceChildren()
-  if (!r || !r.ok) return list.append(el('div', 'none', data.error || 'Could not read the folder.'))
+  if (r.s !== 200) return list.append(el('div', 'none', data.error || 'Could not read the folder.'))
   if (!data.rows.length) return list.append(el('div', 'none', 'Empty folder.'))
   for (const row of data.rows) {
     const item = list.appendChild(el('button', `trow-file${row.isLocked ? ' locked' : ''}`))
@@ -516,7 +553,7 @@ function renderImages(root) {
     const node = grid.appendChild(el('img'))
     node.loading = 'lazy'
     node.alt = `Image #${img.n}`
-    node.src = q('/api/image', `&n=${img.n}`)
+    void imageUrl('image', { n: img.n }, `${snap.id}:${img.n}`).then(url => { node.src = url })
     node.onclick = () => {
       const body = openViewer(`Image #${img.n}`)
       body.appendChild(el('img')).src = node.src
@@ -544,11 +581,15 @@ function loadHighlighter() {
 async function showFile(path) {
   const body = openViewer(shortPath(path))
   body.append(el('div', 'meta pad', 'Loading…'))
-  const r = await fetch(q('/api/file', `&path=${encodeURIComponent(path)}`)).catch(() => undefined)
-  const data = r ? await r.json().catch(() => ({})) : {}
+  const r = await api('file', { path })
+  const data = r.b || {}
   body.replaceChildren()
-  if (!r || !r.ok) return body.append(el('div', 'none', data.error || 'Could not open the file.'))
-  if (data.kind === 'image') return void (body.appendChild(el('img')).src = q('/api/file', `&path=${encodeURIComponent(path)}&raw=1`))
+  if (r.s !== 200) return body.append(el('div', 'none', data.error || 'Could not open the file.'))
+  if (data.kind === 'image') {
+    const img = body.appendChild(el('img'))
+    img.src = await imageUrl('file', { path, raw: true })
+    return
+  }
   if (data.kind === 'binary') return body.append(el('div', 'none', `A binary file, ${size(data.size)}.`))
   const lines = data.text.replace(/\n$/, '').split('\n')
   body.append(el('div', 'meta pad', `${lines.length} lines · ${size(data.size)}${data.isCut ? ' · the first 512 KB' : ''}`))
@@ -575,10 +616,10 @@ function openViewer(title) {
 }
 async function showDiff(path) {
   const body = openViewer(path)
-  const r = await fetch(q('/api/diff', `&path=${encodeURIComponent(path)}`))
-  const data = await r.json().catch(() => ({}))
+  const r = await api('diff', { path })
+  const data = r.b || {}
   const diff = body.appendChild(el('div', 'diff'))
-  const text = r.ok ? data.diff || '(no changes against HEAD)' : data.error || 'Could not read the diff.'
+  const text = r.s === 200 ? data.diff || '(no changes against HEAD)' : data.error || 'Could not read the diff.'
   for (const line of text.split('\n')) {
     const cls = line.startsWith('+++') || line.startsWith('---') ? 'ctx' : line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : line.startsWith('@@') ? 'hunk' : ''
     diff.append(el('div', cls, line || ' '))
@@ -670,9 +711,9 @@ async function sendAnswer(isDismissed) {
   if (!a) return
   const answers = isDismissed ? {} : answersOf(a.questions, askDraft)
   $('ask-submit').disabled = true
-  const r = await fetch('/api/answer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session: snap.id, id: a.id, answers, isDismissed }) }).catch(() => undefined)
-  const body = r ? await r.json().catch(() => ({})) : {}
-  if (!r || !r.ok) {
+  const r = await api('answer', { id: a.id, answers, isDismissed })
+  const body = r.b || {}
+  if (r.s !== 200) {
     $('ask-submit').disabled = false
     return toast({ title: 'Not sent', body: body.error || 'The session did not answer. Try again.' })
   }
@@ -760,7 +801,8 @@ $('unpair').onclick = async () => {
     }, 4000)
     return
   }
-  await fetch('/api/forget', { method: 'POST' }).catch(() => undefined)
+  await E2E.call('forget').catch(() => undefined)
+  await E2E.forget()
   closeLayers()
   gate('This phone is unpaired. Scan the QR code in the terminal to pair it again.')
 }
@@ -796,10 +838,10 @@ $('send').onclick = async () => {
   const value = text.value.trim()
   if (!value || !snap) return
   $('send').disabled = true
-  const r = await fetch('/api/reply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: value, session: snap.id }) }).catch(() => undefined)
+  const r = await api('reply', { text: value })
   $('send').disabled = false
-  const body = r ? await r.json().catch(() => ({})) : {}
-  if (!r || !r.ok) return toast({ title: 'Not sent', body: body.error || 'The session did not answer. Try again.' })
+  const body = r.b || {}
+  if (r.s !== 200) return toast({ title: 'Not sent', body: body.error || 'The session did not answer. Try again.' })
   text.value = ''
   fitText()
   toBottom()
@@ -828,22 +870,32 @@ function setupNotify() {
 async function subscribe() {
   if ((await Notification.requestPermission()) !== 'granted') return toast({ title: 'Notifications off', body: 'Allow them in the browser settings to hear when Claude finishes.' })
   const reg = await navigator.serviceWorker.ready
-  const { key } = await (await fetch('/api/vapid')).json()
+  const { key } = (await E2E.call('vapid')).b
   const raw = Uint8Array.from(atob(key.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))
   const old = await reg.pushManager.getSubscription()
   if (old) await old.unsubscribe()
   const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: raw })
-  const r = await fetch('/api/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sub) })
-  if (r.ok) {
+  const r = await E2E.call('subscribe', { sub: sub.toJSON() })
+  if (r.s === 200) {
     try { localStorage.setItem('qsb-sub', location.host) } catch {}
     $('notify').hidden = true
     toast({ title: 'Notifications on', body: 'You will hear when Claude finishes or needs you.' })
   }
 }
 
-pair()
-  .then(() => {
-    void follow()
-    setupNotify()
-  })
-  .catch(() => undefined)
+function boot() {
+  pair()
+    .then(() => {
+      void follow()
+      setupNotify()
+    })
+    .catch(() => undefined)
+}
+// a home-screen app has storage of its own and no camera on the link: its link is pasted here
+$('gate-go').onclick = () => {
+  const hash = /#k=[\w-]+/.exec($('gate-link').value)?.[0]
+  if (!hash) return toast({ title: 'Not a link', body: 'Paste the whole link the terminal shows (⇄, then c).' })
+  location.hash = hash
+  boot()
+}
+boot()

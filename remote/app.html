@@ -180,6 +180,8 @@
   .b.ask { cursor: pointer; border-color: var(--claude); }
   .b.ask .qt { font-weight: 700; } .b.ask .go { color: var(--link); font-size: 13px; margin-top: 4px; }
   .toast { position: fixed; left: 12px; right: 12px; top: calc(var(--top) + 8px); z-index: 40; background: var(--panel); border: 1px solid var(--claude); border-radius: 12px; padding: 10px 12px; }
+  .paste { display: flex; gap: 8px; margin-top: 16px; }
+  .paste input { flex: 1; min-width: 0; height: 42px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 0 12px; font: 13px var(--mono); }
   .gate { max-width: 420px; margin: 20vh auto 0; padding: 0 16px; text-align: center; }
   .code { font: 700 40px var(--mono); letter-spacing: .2em; color: var(--claude); margin-top: 12px; }
 </style>
@@ -189,6 +191,11 @@
   <h2>Claude remote</h2>
   <p id="gate-text">Scan the QR code in the terminal (⇄ on the status bar).</p>
   <div id="gate-code" class="code" hidden></div>
+  <div id="gate-paste" class="paste" hidden>
+    <input id="gate-link" type="url" placeholder="https://…trycloudflare.com/#k=…" autocomplete="off" aria-label="The remote's link">
+    <button id="gate-go" class="primary">Pair</button>
+  </div>
+  <p class="meta">Everything between this phone and your Mac is encrypted end to end: Cloudflare carries it but cannot read it.</p>
 </div>
 
 <div id="app" hidden>
@@ -249,6 +256,7 @@
   </div>
   <div id="viewer-body"></div>
 </div>
+<script src="/e2e.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

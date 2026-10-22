@@ -7,13 +7,15 @@
 //                        POST /notify, POST /allow, POST /deny, POST /stop
 //   the public server    127.0.0.1:<random>, reached only through the tunnel
 //
-// Pairing: the QR link carries a random token in its #fragment (never sent to Cloudflare or this
-// server's logs as a URL). A phone that shows it is held as pending with a 4-character code until the
-// person presses Allow in a terminal; only then does it get a session cookie. Started detached by
+// Pairing and every call after it are end-to-end encrypted (e2e.js holds the phone's half): the QR
+// link's #fragment is a 256-bit key K that never leaves the phone. A phone proves it holds K with an
+// HMAC, the hub answers with its half of an ECDH and an HMAC of its own, and both derive the phone's
+// AES-GCM key from the ECDH secret salted with K; the phone then waits, with a 4-character code, until
+// the person presses Allow in a terminal. Cloudflare sees sizes and times, never content. Started detached by
 // the first mod (`node server.mjs <dir> <idleMinutes>`); it stops itself when no session has
 // called in for two minutes, or no phone has for idleMinutes. Node 18 or newer; no packages.
 import { execFile, spawn } from 'node:child_process'
-import { createHash, generateKeyPairSync, randomBytes, randomInt, sign, timingSafeEqual } from 'node:crypto'
+import { generateKeyPairSync, randomBytes, randomInt, sign } from 'node:crypto'
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { connect } from 'node:net'
@@ -46,9 +48,7 @@ let tunnelUrl = ''
 let tunnelError = ''
 let version = 0 // moves on every change a phone should see
 const sessions = new Map() // session id -> { snapshot, seenAt, inbox: string[] }
-const devices = new Map() // cookie -> { name, at, seenAt }
-const pending = new Map() // pair id -> { code, name, at, cookie? }
-const subscriptions = new Map() // endpoint -> subscription
+const subscriptions = new Map() // endpoint -> { sub, device }
 const waiters = new Set() // long-poll responses waiting for the next version
 let pairFails = 0
 let notice = { title: 'Claude', body: 'Nothing yet.', at: 0, session: '' }
@@ -60,7 +60,6 @@ const jwk = privateKey.export({ format: 'jwk' })
 const VAPID_PUBLIC = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, 'base64url'), Buffer.from(jwk.y, 'base64url')]).toString('base64url')
 
 // ---- helpers ------------------------------------------------------------------------------
-const sameText = (a, b) => timingSafeEqual(createHash('sha256').update(a).digest(), createHash('sha256').update(b).digest())
 
 function readBody(req, limit = MAX_BODY) {
   return new Promise((resolve, reject) => {
@@ -91,14 +90,6 @@ function send(res, status, body, type = 'application/json; charset=utf-8', extra
   res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store', ...SECURITY_HEADERS, ...extra })
   res.end(data)
 }
-function cookieOf(req) {
-  for (const part of String(req.headers.cookie ?? '').split(';')) {
-    const [k, ...v] = part.trim().split('=')
-    if (k === 'qsb') return v.join('=')
-  }
-  return ''
-}
-const SET_COOKIE = c => ({ 'Set-Cookie': `qsb=${c}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=604800` })
 
 function run(argv, cwd) {
   return new Promise(resolve => {
@@ -241,16 +232,127 @@ function imageOf(session, n) {
   return { data: readFileSync(row.path), type: IMAGE_TYPES[extname(row.path).toLowerCase()] }
 }
 
+// ---- end-to-end encryption: Cloudflare carries the tunnel and ends its TLS, so every request
+// and answer is sealed between the phone and this hub (e2e.js holds the phone's half) ---------
+const subtle = globalThis.crypto.subtle
+const te = new TextEncoder(), td = new TextDecoder()
+const ROOT = Buffer.from(TOKEN, 'base64url') // K, in the QR link's #fragment; it never crosses the wire
+async function hkdf(ikm, salt, info, usage) {
+  const base = await subtle.importKey('raw', ikm, 'HKDF', false, ['deriveKey'])
+  const algo = usage === 'hmac' ? { name: 'HMAC', hash: 'SHA-256', length: 256 } : { name: 'AES-GCM', length: 256 }
+  return subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt, info: te.encode(info) }, base, algo, false, usage === 'hmac' ? ['sign', 'verify'] : ['encrypt', 'decrypt'])
+}
+const AUTH = await hkdf(ROOT, new Uint8Array(0), 'qsb/auth', 'hmac')
+const b64 = buf => Buffer.from(buf).toString('base64url')
+const unb64 = str => new Uint8Array(Buffer.from(String(str), 'base64url'))
+const CLOCK_SKEW = 120_000
+
+// each phone: its key, from an ECDH with this hub salted with K; allowed or not by a terminal
+const devices = new Map() // id -> { key, name, at, seenAt, code, isApproved, isDenied, nonces: Map<n, ts> }
+
+async function seal(dev, id, n, s, b) {
+  const iv = globalThis.crypto.getRandomValues(new Uint8Array(12))
+  const c = await subtle.encrypt({ name: 'AES-GCM', iv, additionalData: te.encode(`res|${id}|${n}`) }, dev.key, te.encode(JSON.stringify({ s, b })))
+  return { iv: b64(iv), c: b64(c) }
+}
+
+// the next version, or POLL_WAIT, or the phone hanging up (a long poll: quick tunnels carry no
+// server-sent events)
+// (`res`, not `req`: a request reads as closed once its body is read)
+function nextVersion(since, res) {
+  if (since !== version) return Promise.resolve()
+  return new Promise(resolve => {
+    const done = () => {
+      clearTimeout(t)
+      waiters.delete(done)
+      resolve()
+    }
+    const t = setTimeout(done, POLL_WAIT)
+    waiters.add(done)
+    res.on('close', done)
+  })
+}
+
+// One sealed call from an allowed phone: what it asks, answered as [status, body].
+async function answerOp(dev, id, op, a, res) {
+  const session = String(a.session ?? '')
+  switch (op) {
+    case 'state':
+      await nextVersion(Number(a.since ?? -1), res)
+      return [200, stateOf()]
+    case 'reply': {
+      const text = typeof a.text === 'string' ? a.text.trim().slice(0, 8000) : ''
+      const s = sessions.get(session)
+      if (!text || !s) return [400, { error: text ? 'That session is gone.' : 'empty' }]
+      s.inbox.push(text)
+      bump()
+      return [200, { ok: true, queued: Boolean(s.snapshot.busy) }]
+    }
+    // the answer to the question Claude waits on; the session takes it at its next call
+    case 'answer': {
+      const s = sessions.get(session)
+      const askId = String(a.id ?? '')
+      if (!s || !s.snapshot.ask || s.snapshot.ask.id !== askId) return [409, { error: 'That question is already answered.' }]
+      const answers = {}
+      for (const [q, v] of Object.entries(a.answers ?? {})) if (typeof v === 'string') answers[String(q).slice(0, 2000)] = v.slice(0, 4000)
+      s.answer = { id: askId, answers, isDismissed: a.isDismissed === true }
+      bump()
+      return [200, { ok: true }]
+    }
+    case 'diff': {
+      const diff = await diffOf(session, String(a.path ?? ''))
+      return diff === undefined ? [404, { error: 'Not a file of this session.' }] : [200, { diff }]
+    }
+    case 'image': {
+      const img = imageOf(session, String(a.n ?? ''))
+      return img ? [200, { type: img.type, b64: img.data.toString('base64') }] : [404, { error: 'no such image' }]
+    }
+    case 'tree': {
+      const r = treeOf(session, String(a.path ?? ''))
+      return [r.status, r.body]
+    }
+    case 'file': {
+      const r = fileOf(session, String(a.path ?? ''))
+      if (r.image && a.raw) return [200, { type: r.image.type, b64: readFileSync(r.image.file).toString('base64') }]
+      return [r.status, r.body]
+    }
+    case 'vapid':
+      return [200, { key: VAPID_PUBLIC }]
+    case 'subscribe': {
+      const endpoint = String(a.sub?.endpoint ?? '')
+      let host = ''
+      try {
+        const u = new URL(endpoint)
+        host = u.protocol === 'https:' ? u.hostname : ''
+      } catch {}
+      if (!PUSH_HOSTS.some(re => re.test(host))) return [400, { error: 'not a known push service' }]
+      subscriptions.set(endpoint, { sub: a.sub, device: id })
+      while (subscriptions.size > MAX_DEVICES) subscriptions.delete(subscriptions.keys().next().value)
+      return [200, { ok: true }]
+    }
+    case 'notice':
+      return [200, notice]
+    case 'forget':
+      devices.delete(id)
+      for (const [endpoint, v] of subscriptions) if (v.device === id) subscriptions.delete(endpoint)
+      return [200, { ok: true }]
+    default:
+      return [404, { error: 'not found' }]
+  }
+}
+
 // ---- the public server, reached through the tunnel ----------------------------------------
 const STATIC = {
   '/': ['app.html', 'text/html; charset=utf-8'],
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
+  '/e2e.js': ['e2e.js', 'text/javascript; charset=utf-8'],
   '/sw.js': ['sw.js', 'text/javascript; charset=utf-8'],
   '/icon.svg': ['icon.svg', 'image/svg+xml'],
   '/vendor/highlight.min.js': ['vendor/highlight.min.js', 'text/javascript; charset=utf-8'],
   '/vendor/hljs-dark.css': ['vendor/hljs-dark.css', 'text/css; charset=utf-8'],
   '/vendor/hljs-light.css': ['vendor/hljs-light.css', 'text/css; charset=utf-8'],
 }
+const MANIFEST = { name: 'Claude remote', short_name: 'Claude', start_url: '/', display: 'standalone', background_color: '#1a1a18', theme_color: '#1a1a18', icons: [{ src: '/icon.svg', sizes: 'any', type: 'image/svg+xml' }] }
 
 const pub = createServer(async (req, res) => {
   try {
@@ -258,143 +360,73 @@ const pub = createServer(async (req, res) => {
     const route = `${req.method} ${url.pathname}`
     const file = STATIC[url.pathname]
     if (req.method === 'GET' && file) return send(res, 200, readFileSync(join(HERE, file[0])), file[1], url.pathname === '/sw.js' ? { 'Service-Worker-Allowed': '/' } : {})
-    const cookie = cookieOf(req)
-    const device = cookie && devices.get(cookie)
+    if (route === 'GET /manifest.webmanifest') return send(res, 200, MANIFEST, 'application/manifest+json')
 
-    // the manifest: a paired phone's home-screen app starts with a one-time code of its own, as
-    // iOS gives the app its own cookie jar
-    if (route === 'GET /manifest.webmanifest') {
-      let start = '/'
-      if (device) {
-        const id = randomBytes(16).toString('base64url')
-        pending.set(id, { code: '', name: device.name, at: Date.now(), cookie: randomBytes(32).toString('base64url'), isPreApproved: true })
-        start = `/#d=${id}`
-      }
-      return send(res, 200, { name: 'Claude remote', short_name: 'Claude', start_url: start, display: 'standalone', background_color: '#1a1a18', theme_color: '#1a1a18', icons: [{ src: '/icon.svg', sizes: 'any', type: 'image/svg+xml' }] }, 'application/manifest+json')
-    }
-
-    // pairing, step 1: the token from the QR code; the phone then waits for Allow in a terminal
-    if (route === 'POST /api/pair') {
+    // pairing: the phone shows it holds K (an HMAC, K itself never sent), the hub answers with its
+    // half of the ECDH and an HMAC of its own; the phone then waits for Allow in a terminal
+    if (route === 'POST /hello') {
       if (pairFails >= MAX_PAIR_FAILS) return send(res, 423, { error: 'Pairing is locked after too many wrong links. Stop and start the remote again.' })
       const body = await readJson(req)
-      const d = typeof body?.d === 'string' ? pending.get(body.d) : undefined
-      if (d?.isPreApproved && Date.now() - d.at < 10 * 60_000) {
-        pending.delete(body.d)
-        devices.set(d.cookie, { name: d.name, at: Date.now(), seenAt: Date.now() })
-        return send(res, 200, { ok: true }, undefined, SET_COOKIE(d.cookie))
-      }
-      if (typeof body?.k !== 'string' || !sameText(body.k, TOKEN)) {
+      const phonePub = String(body?.pub ?? '')
+      const isK = phonePub && (await subtle.verify('HMAC', AUTH, unb64(body?.mac ?? ''), te.encode(`hello|${phonePub}`)).catch(() => false))
+      if (!isK) {
         pairFails++
         return send(res, 403, { error: 'This link is not the one the terminal shows now. Scan the QR code again.' })
       }
+      let theirs
+      try {
+        theirs = await subtle.importKey('raw', unb64(phonePub), { name: 'ECDH', namedCurve: 'P-256' }, false, [])
+      } catch {
+        return send(res, 400, { error: 'bad key' })
+      }
+      const mine = await subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits'])
+      const hubPub = b64(await subtle.exportKey('raw', mine.publicKey))
+      const secret = await subtle.deriveBits({ name: 'ECDH', public: theirs }, mine.privateKey, 256)
+      const key = await hkdf(secret, ROOT, `qsb/device|${phonePub}|${hubPub}`, 'aes')
       const id = randomBytes(16).toString('base64url')
       const code = Array.from({ length: 4 }, () => CODE_CHARS[randomInt(CODE_CHARS.length)]).join('')
-      for (const [k, p] of pending) if (!p.isPreApproved && Date.now() - p.at > 5 * 60_000) pending.delete(k)
-      pending.set(id, { code, name: deviceName(String(req.headers['user-agent'] ?? '')), at: Date.now() })
+      for (const [k, d] of devices) if (!d.isApproved && Date.now() - d.at > 5 * 60_000) devices.delete(k)
+      devices.set(id, { key, name: deviceName(String(req.headers['user-agent'] ?? '')), at: Date.now(), seenAt: Date.now(), code, isApproved: false, isDenied: false, nonces: new Map() })
+      const mac = b64(await subtle.sign('HMAC', AUTH, te.encode(`welcome|${id}|${hubPub}|${phonePub}|${code}`)))
       bump()
       log(`pair asked: ${code}`)
-      return send(res, 202, { pending: id, code })
-    }
-    // pairing, step 2: asked again until a terminal allows or denies it
-    if (route === 'GET /api/pair') {
-      const id = url.searchParams.get('id') ?? ''
-      const p = pending.get(id)
-      if (!p || p.isPreApproved) return send(res, 404, { error: 'This request ended. Scan the QR code again.' })
-      if (p.isDenied) {
-        pending.delete(id)
-        return send(res, 403, { error: 'Refused in the terminal.' })
-      }
-      if (!p.cookie) return send(res, 202, { pending: id, code: p.code })
-      pending.delete(id)
-      devices.set(p.cookie, { name: p.name, at: Date.now(), seenAt: Date.now() })
-      while (devices.size > MAX_DEVICES) devices.delete(devices.keys().next().value)
-      return send(res, 200, { ok: true }, undefined, SET_COOKIE(p.cookie))
+      return send(res, 200, { id, pub: hubPub, code, mac })
     }
 
-    if (!url.pathname.startsWith('/api/')) return send(res, 404, { error: 'not found' })
-    if (!device) return send(res, 401, { error: 'Not paired. Scan the QR code in the terminal again.' })
-    device.seenAt = lastPhoneAt = Date.now()
-    const session = url.searchParams.get('s') ?? ''
-
-    switch (route) {
-      // the sessions, at once or when the version moves past `since` (a long poll: quick tunnels
-      // carry no server-sent events)
-      case 'GET /api/state': {
-        const since = Number(url.searchParams.get('since') ?? -1)
-        if (since !== version) return send(res, 200, stateOf())
-        const done = () => send(res, 200, stateOf())
-        waiters.add(done)
-        const t = setTimeout(() => {
-          waiters.delete(done)
-          done()
-        }, POLL_WAIT)
-        req.on('close', () => {
-          clearTimeout(t)
-          waiters.delete(done)
-        })
-        return
+    // every other call: sealed with the phone's key, fresh (its time within two minutes), and
+    // never seen before (its nonce); the answer is sealed to that nonce
+    if (route === 'POST /x') {
+      const body = await readJson(req)
+      const id = String(body?.d ?? '')
+      const dev = devices.get(id)
+      if (!dev) return send(res, 401, { error: 'Not paired. Scan the QR code in the terminal again.' })
+      let call
+      try {
+        const open = await subtle.decrypt({ name: 'AES-GCM', iv: unb64(body.iv), additionalData: te.encode(`req|${id}`) }, dev.key, unb64(body.c))
+        call = JSON.parse(td.decode(open))
+      } catch {
+        return send(res, 400, { error: 'unreadable' })
       }
-      case 'POST /api/reply': {
-        const body = await readJson(req)
-        const text = typeof body?.text === 'string' ? body.text.trim().slice(0, 8000) : ''
-        const s = sessions.get(String(body?.session ?? ''))
-        if (!text || !s) return send(res, 400, { error: text ? 'That session is gone.' : 'empty' })
-        s.inbox.push(text)
-        bump()
-        return send(res, 200, { ok: true, queued: Boolean(s.snapshot.busy) })
+      const now = Date.now()
+      const n = String(call?.n ?? '')
+      if (!n || Math.abs(now - Number(call.ts)) > CLOCK_SKEW) return send(res, 400, { error: 'stale' })
+      for (const [k, t] of dev.nonces) if (now - t > 2 * CLOCK_SKEW) dev.nonces.delete(k)
+      if (dev.nonces.has(n)) return send(res, 409, { error: 'replayed' })
+      dev.nonces.set(n, now)
+      const op = String(call.op ?? ''), a = call.a && typeof call.a === 'object' ? call.a : {}
+      if (dev.isDenied) {
+        devices.delete(id)
+        return send(res, 200, await seal(dev, id, n, 403, { error: 'Refused in the terminal.' }))
       }
-      // the phone's answer to the question Claude waits on; the session takes it at its next call
-      case 'POST /api/answer': {
-        const body = await readJson(req)
-        const s = sessions.get(String(body?.session ?? ''))
-        const askId = String(body?.id ?? '')
-        if (!s || !s.snapshot.ask || s.snapshot.ask.id !== askId) return send(res, 409, { error: 'That question is already answered.' })
-        const answers = {}
-        for (const [q, v] of Object.entries(body?.answers ?? {})) if (typeof v === 'string') answers[String(q).slice(0, 2000)] = v.slice(0, 4000)
-        s.answer = { id: askId, answers, isDismissed: body?.isDismissed === true }
-        bump()
-        return send(res, 200, { ok: true })
-      }
-      case 'GET /api/diff': {
-        const diff = await diffOf(session, url.searchParams.get('path') ?? '')
-        return diff === undefined ? send(res, 404, { error: 'Not a file of this session.' }) : send(res, 200, { diff })
-      }
-      case 'GET /api/image': {
-        const img = imageOf(session, url.searchParams.get('n') ?? '')
-        return img ? send(res, 200, img.data, img.type) : send(res, 404, { error: 'no such image' })
-      }
-      case 'GET /api/tree': {
-        const r = treeOf(session, url.searchParams.get('path') ?? '')
-        return send(res, r.status, r.body)
-      }
-      case 'GET /api/file': {
-        const r = fileOf(session, url.searchParams.get('path') ?? '')
-        if (r.image && url.searchParams.get('raw') === '1') return send(res, 200, readFileSync(r.image.file), r.image.type, r.image.type === 'image/svg+xml' ? { 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox" } : {})
-        return send(res, r.status, r.body)
-      }
-      case 'GET /api/vapid':
-        return send(res, 200, { key: VAPID_PUBLIC })
-      case 'POST /api/subscribe': {
-        const body = await readJson(req)
-        const endpoint = String(body?.endpoint ?? '')
-        let host = ''
-        try {
-          const u = new URL(endpoint)
-          host = u.protocol === 'https:' ? u.hostname : ''
-        } catch {}
-        if (!PUSH_HOSTS.some(re => re.test(host))) return send(res, 400, { error: 'not a known push service' })
-        subscriptions.set(endpoint, body)
-        while (subscriptions.size > MAX_DEVICES) subscriptions.delete(subscriptions.keys().next().value)
-        return send(res, 200, { ok: true })
-      }
-      case 'GET /api/notice':
-        return send(res, 200, notice)
-      case 'POST /api/forget':
-        devices.delete(cookie)
-        return send(res, 200, { ok: true }, undefined, { 'Set-Cookie': 'qsb=; Path=/; Max-Age=0' })
-      default:
-        return send(res, 404, { error: 'not found' })
+      if (!dev.isApproved) return send(res, 200, await seal(dev, id, n, op === 'paired' ? 202 : 403, { code: dev.code }))
+      dev.seenAt = lastPhoneAt = now
+      if (op === 'paired') return send(res, 200, await seal(dev, id, n, 200, { ok: true }))
+      const [s, b] = await answerOp(dev, id, op, a, res)
+      // the phone hung up while the long poll waited
+      if (res.writableEnded || res.destroyed) return
+      return send(res, 200, await seal(dev, id, n, s, b))
     }
+    return send(res, 404, { error: 'not found' })
   } catch (err) {
     send(res, 500, { error: 'server error' })
     log(String(err?.stack ?? err))
@@ -409,9 +441,9 @@ function statusOf() {
     link: tunnelUrl ? `${tunnelUrl}/#k=${TOKEN}` : '',
     error: tunnelError,
     sessions: sessions.size,
-    devices: [...devices.values()].map(d => ({ name: d.name, seenAt: d.seenAt })),
-    pending: [...pending.entries()].filter(([, p]) => !p.isPreApproved && !p.cookie && !p.isDenied).map(([id, p]) => ({ id, code: p.code, name: p.name, at: p.at })),
-    phones: Date.now() - lastPhoneAt < 40_000 ? [...devices.values()].filter(d => Date.now() - d.seenAt < 40_000).length : 0,
+    devices: [...devices.values()].filter(d => d.isApproved).map(d => ({ name: d.name, seenAt: d.seenAt })),
+    pending: [...devices.entries()].filter(([, d]) => !d.isApproved && !d.isDenied).map(([id, d]) => ({ id, code: d.code, name: d.name, at: d.at })),
+    phones: Date.now() - lastPhoneAt < 40_000 ? [...devices.values()].filter(d => d.isApproved && Date.now() - d.seenAt < 40_000).length : 0,
     isLocked: pairFails >= MAX_PAIR_FAILS,
     subscriptions: subscriptions.size,
   }
@@ -460,10 +492,14 @@ const ctl = createServer(async (req, res) => {
     return send(res, 200, { ok: true, subscriptions: subscriptions.size })
   }
   if (route === 'POST /allow' || route === 'POST /deny') {
-    const p = pending.get(String((await readJson(req))?.id ?? ''))
-    if (!p) return send(res, 404, { error: 'no such request' })
-    if (route === 'POST /allow') p.cookie = randomBytes(32).toString('base64url')
-    else p.isDenied = true
+    const d = devices.get(String((await readJson(req))?.id ?? ''))
+    if (!d || d.isApproved) return send(res, 404, { error: 'no such request' })
+    if (route === 'POST /allow') {
+      d.isApproved = true
+      // at most MAX_DEVICES phones stay paired: the oldest goes
+      const paired = [...devices.entries()].filter(([, x]) => x.isApproved).sort((x, y) => x[1].at - y[1].at)
+      while (paired.length > MAX_DEVICES) devices.delete(paired.shift()[0])
+    } else d.isDenied = true
     return send(res, 200, statusOf())
   }
   if (route === 'POST /forget-devices') {
