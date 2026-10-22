@@ -323,6 +323,11 @@ function renderChat() {
     if (t.k === 'user') root.append(inline(t.text, el('div', 'b me')))
     else root.appendChild(el('div', 'b claude')).append(markdown(t.text))
   }
+  // the commands sent from here: each with what it printed, or why it did not run
+  for (const c of snap.cmdLog || []) {
+    root.append(inline(c.command, el('div', 'b me')))
+    root.append(el('pre', `cmdout${c.isError ? ' bad' : ''}`, c.text))
+  }
   // sent as the prompt, not in the transcript yet: drawn as the bubble it will be
   for (const text of snap.sending || []) root.append(inline(text, el('div', 'b me')))
   // waiting for a turn to end, dimmed; with none running it goes in at the next tick, a bubble as any
@@ -856,6 +861,12 @@ text.addEventListener('input', fitText)
 $('send').onclick = async () => {
   const value = text.value.trim()
   if (!value || !snap) return
+  // /usage shows here, from what the session reports; nothing opens on the Mac
+  if (/^\/usage\b/.test(value)) {
+    text.value = ''
+    fitText()
+    return openUsage()
+  }
   $('send').disabled = true
   const r = await api('reply', { text: value })
   $('send').disabled = false
@@ -1000,9 +1011,18 @@ function renderCommands() {
     const card = root.appendChild(el('div', 'card'))
     card.append(el('h3', '', group.replace(/^\d+ · /, '')))
     for (const c of list.filter(x => x.group === group)) {
-      const b = card.appendChild(el('button', 'cmd'))
-      b.append(el('div', 'n', `/${c.name}`), el('div', 'd', c.description))
+      const b = card.appendChild(el('button', `cmd${c.isMacOnly ? ' maconly' : ''}`))
+      const head = b.appendChild(el('div', 'n', `/${c.name}`))
+      if (c.isMacOnly) head.append(el('span', 'tag', 'Mac only'))
+      if (c.needsArgs) head.append(el('span', 'tag', 'give a value'))
+      b.append(el('div', 'd', c.description))
       b.onclick = () => {
+        // a panel would open on the Mac, where nothing from here can close it; /usage shows here
+        if (c.name === 'usage') {
+          $('cmds').hidden = true
+          return openUsage()
+        }
+        if (c.isMacOnly) return toast({ title: `/${c.name} is Mac only`, body: 'It opens a panel on the Mac, which the phone cannot close.' })
         text.value = `/${c.name} ${text.value.replace(/^\/\S+\s*/, '')}`
         fitText()
         $('cmds').hidden = true
@@ -1018,6 +1038,40 @@ function openCommands() {
 }
 $('cmd-search').addEventListener('input', renderCommands)
 $('close-cmds').onclick = () => { $('cmds').hidden = true }
+
+// ---- /usage, drawn here from the session's figures ----------------------------------------------
+const WINDOW_NAMES = { five_hour: '5-hour', seven_day: 'Week', seven_day_opus: 'Week, Opus', seven_day_sonnet: 'Week, Sonnet' }
+function until(iso) {
+  const ms = Date.parse(iso || '') - Date.now()
+  if (!Number.isFinite(ms)) return ''
+  if (ms <= 0) return 'resets now'
+  const m = Math.round(ms / 60000)
+  return m < 60 ? `resets in ${m} min` : m < 1440 ? `resets in ${Math.floor(m / 60)} h ${m % 60} min` : `resets in ${Math.floor(m / 1440)} d ${Math.floor((m % 1440) / 60)} h`
+}
+function meterRow(label, percent, note) {
+  const row = el('div', 'meter')
+  const head = row.appendChild(el('div', 'mh'))
+  head.append(el('span', '', label), el('strong', '', percent === null || percent === undefined ? '–' : `${Math.round(percent)}%`))
+  const bar = row.appendChild(el('div', 'track'))
+  const fill = bar.appendChild(el('div', `fill${percent >= 80 ? ' bad' : percent >= 50 ? ' warn' : ''}`))
+  fill.style.width = `${Math.max(0, Math.min(100, percent || 0))}%`
+  if (note) row.append(el('div', 'meta', note))
+  return row
+}
+function openUsage() {
+  if (!snap) return
+  const body = openViewer(`Usage · ${titleOf(snap)}`)
+  const u = snap.usage || {}
+  const limits = u.limits || []
+  const card = body.appendChild(el('div', 'card usage'))
+  card.append(el('h3', '', 'Rate limits'))
+  if (!limits.length) card.append(el('div', 'meta pad', 'No reading yet: the figures come with the next answer from the API.'))
+  for (const r of limits) card.append(meterRow(WINDOW_NAMES[r.kind] || r.kind, r.percentUsed, until(r.resetsAt)))
+  const ctx = body.appendChild(el('div', 'card usage'))
+  ctx.append(el('h3', '', 'This session'))
+  ctx.append(meterRow('Context', u.ctx, u.tokens ? `${Math.round(u.tokens / 1000)}k of ${Math.round((u.window || 0) / 1000)}k tokens` : ''))
+  if (typeof u.cost === 'number') ctx.append(el('div', 'meta pad', `Cost so far $${u.cost.toFixed(2)}${u.startedAt ? `, over ${clock(Date.now() - u.startedAt)}` : ''}`))
+}
 
 // ---- push -----------------------------------------------------------------------------------
 const isIos = /iPhone|iPad|iPod/.test(navigator.userAgent)

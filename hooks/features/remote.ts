@@ -61,7 +61,9 @@ export const remote = {
   addedDirs: [] as string[],
   memoryAt: 0,
   // the slash commands and skills, for the phone's list, read on joining and every five minutes
-  commands: [] as { name: string; description: string; group: string }[],
+  commands: [] as { name: string; description: string; group: string; isBuiltin: boolean; isMacOnly: boolean; needsArgs: boolean }[],
+  // the commands the phone sent, each with what it printed or why it did not run, newest last
+  cmdLog: [] as { at: number; command: string; text: string; isError: boolean }[],
   commandsAt: 0,
   // Claude Code's own suggestion for the next prompt (the dim line, Tab to take); '' with none
   suggestion: '',
@@ -339,12 +341,27 @@ async function readMemory($: any) {
   if (Array.isArray(files)) remote.context.memory = files.map((f: any) => ({ path: String(f.path), type: String(f.type ?? ''), tokens: Number(f.tokens ?? 0) }))
 }
 
+// The built-in commands the phone may run: those that print text or hand the model a prompt, and
+// those that take a value (with one; bare, they open a picker). Every other built-in opens a
+// panel on the Mac, which nothing can close from the phone, so it runs only there.
+const PHONE_BUILTINS = new Set(['cost', 'compact', 'clear', 'init', 'review', 'security-review', 'pr-comments', 'plan', 'fast'])
+const PHONE_WITH_VALUE = new Set(['model', 'effort', 'output-style', 'add-dir'])
+// true when the phone may run it; else why not
+export function phoneMayRun(name: string, args: string, isBuiltin: boolean): true | string {
+  if (!isBuiltin || PHONE_BUILTINS.has(name)) return true
+  if (PHONE_WITH_VALUE.has(name)) return args ? true : `/${name} with no value opens a picker on the Mac; give it one, as /${name} <value>`
+  return `/${name} opens a panel on the Mac, and the phone cannot close it; run it at the Mac`
+}
+
 // The commands the phone lists, as the ⁄ menu has them: the ones typed most first, then by group.
 async function readCommands($: any) {
   if (Date.now() - remote.commandsAt < 300_000) return
   remote.commandsAt = Date.now()
   const list: any[] = await $.command.list().catch(() => [])
-  const rows = list.map(c => ({ name: String(c.name), description: oneLine(String(c.description ?? ''), 120), group: groupOf(c) }))
+  const rows = list.map(c => {
+    const name = String(c.name), isBuiltin = c.source === 'builtin'
+    return { name, description: oneLine(String(c.description ?? ''), 120), group: groupOf(c), isBuiltin, isMacOnly: isBuiltin && !PHONE_BUILTINS.has(name) && !PHONE_WITH_VALUE.has(name), needsArgs: isBuiltin && PHONE_WITH_VALUE.has(name) }
+  })
     .sort((a, b) => a.group.localeCompare(b.group) || a.name.localeCompare(b.name))
   const counts = ((await $.store.get(USE_KEY).catch(() => undefined)) ?? {}) as Record<string, { n: number; last: number }>
   const top = Object.entries(counts).filter(([name]) => rows.some(r => r.name === name)).sort(([, a], [, b]) => b.n - a.n || b.last - a.last).slice(0, cfg.topCommands)
@@ -388,7 +405,8 @@ async function snapshotOf($: any) {
     edited: await read($, edited),
     changes: await read($, changes),
     images: (await read($, images)).map(i => ({ n: i.n, path: i.path, bytes: i.bytes })),
-    usage: { five: b.five, week: b.week, ctx: u?.ctxPercent ?? null, cost: u?.costUsd ?? null },
+    usage: { five: b.five, week: b.week, ctx: u?.ctxPercent ?? null, cost: u?.costUsd ?? null, limits: u?.rateLimits ?? [], tokens: u?.tokens ?? null, window: u?.window ?? 0, startedAt: u?.startedAt ?? 0 },
+    cmdLog: remote.cmdLog,
     transcript: remote.transcript,
     queued: remote.queue,
     sending: remote.sending.map(s => s.text),
@@ -464,9 +482,18 @@ export async function tickRemote($: any) {
   if (remote.queue.length && !rt.isBusy) {
     const text = remote.queue.shift()!
     const slash = /^\/(\S+)\s*([\s\S]*)$/.exec(text)
-    if (slash && remote.commands.some(c => c.name === slash[1])) {
-      const isRun = await $.command.run({ command: slash[1], args: slash[2]!.trim() }).then(() => true, () => false)
-      if (isRun) return void $.ui.toast(`statusbar: remote: ran /${slash[1]} from the phone`)
+    const cmd = slash ? remote.commands.find(c => c.name === slash[1]) : undefined
+    if (slash && cmd) {
+      const args = slash[2]!.trim()
+      const log = (out: string, isError: boolean) => { remote.cmdLog = [...remote.cmdLog, { at: Date.now(), command: text.trim(), text: out, isError }].slice(-10) }
+      const verdict = phoneMayRun(cmd.name, args, cmd.isBuiltin)
+      if (verdict !== true) return log(verdict, true)
+      // what the command printed goes back to the phone; a panel or a prompt prints nothing
+      const r: any = await $.command.run({ command: cmd.name, args }).catch((err: unknown) => ({ error: String(err) }))
+      if (r?.error) return log(`/${cmd.name} did not run: ${oneLine(r.error, 200)}`, true)
+      $.ui.toast(`statusbar: remote: ran /${cmd.name} from the phone`)
+      if (typeof r?.text === 'string' && r.text.trim()) log(r.text.length > 8000 ? `${r.text.slice(0, 8000)}…` : r.text, false)
+      return
     }
     const isSent = await $.prompt.submit({ text, asUser: true }).then(() => true, () => false)
     if (isSent) {

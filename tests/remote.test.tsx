@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { contextOf, transcriptOf } from '../hooks/features/remote'
+import { contextOf, phoneMayRun, transcriptOf } from '../hooks/features/remote'
 import { qrMatrix, qrRows } from '../hooks/lib/qr'
 
 // Self remote: the ⇄ chip and its menu. The hooks registered here stand for the engine; the hub
@@ -301,4 +301,14 @@ test('the QR code shows on the first opening after Start; once the menu shut, q 
   expect(shut).toContain('Show the QR code')
   await band.press({ key: 'remote-qr' })
   expect(await textOf(band)).toContain('█▀')
+})
+
+test('from the phone a built-in runs only when it prints text or takes a value; a panel stays on the Mac', () => {
+  expect(phoneMayRun('humanizer', '', false)).toBe(true) // a skill hands the model a prompt
+  expect(phoneMayRun('cost', '', true)).toBe(true)
+  expect(phoneMayRun('model', 'opus', true)).toBe(true)
+  expect(phoneMayRun('model', '', true)).toContain('opens a picker on the Mac')
+  expect(phoneMayRun('usage', '', true)).toContain('opens a panel on the Mac')
+  expect(phoneMayRun('config', '', true)).toContain('the phone cannot close it')
+  expect(phoneMayRun('exit', '', true)).toContain('run it at the Mac')
 })
