@@ -65,6 +65,13 @@ export const remote = {
   // the commands the phone sent, each with what it printed or why it did not run, newest last
   // `anchor`: how many messages the session held when it ran, which places it in the transcript
   cmdLog: [] as { at: number; anchor: number; command: string; text: string; isError: boolean }[],
+  // prompts typed while Claude worked, which no message of the session holds (see midTurnOf),
+  // and how many messages there were when the request form was last read for them, and when
+  midTurn: [] as MidTurn[],
+  midTurnCount: -1,
+  midTurnAt: 0,
+  // the session's transcript file, found once (see transcriptFile)
+  transcriptFile: '',
   commandsAt: 0,
   // Claude Code's own suggestion for the next prompt (the dim line, Tab to take); '' with none
   suggestion: '',
@@ -237,6 +244,86 @@ export type TranscriptItem =
   // a command sent from the phone, with what it printed or why it did not run
   | { k: 'cmd'; command: string; text: string; isError: boolean }
 
+// A prompt typed while Claude works reaches the model as an attachment (queued_command), in no
+// message of the session, not even of their request form. `after`: the id of the tool call it
+// came in with, which places it in the transcript.
+export type MidTurn = { after: string; text: string; at: number }
+const MID_TURN_MAX = 50
+const midTurnKey = (id: string) => `midturn:${id}`
+
+// Only the session's transcript file holds them. It may be tens of MB, so grep reads it, in two
+// passes of one pattern each (macOS grep is slow with many): where each tool result and each
+// queued_command row is, then those rows. Read again only when the messages changed: at most
+// every MID_TURN_SCAN_MS while a turn runs, and always when it ends. Kept in the plugin's store
+// by session, so a reload shows them at once.
+const MID_TURN_SCAN_MS = 5_000
+const QUEUED = '"type":"queued_command"'
+const MARKS = `${QUEUED}|"tool_use_id":"[A-Za-z0-9_]+","type":"tool_result"|"type":"tool_result","tool_use_id":"[A-Za-z0-9_]+"`
+async function midTurnOf($: any, count: number, isFinal: boolean): Promise<MidTurn[]> {
+  const isDue = remote.midTurnCount < 0 || (count !== remote.midTurnCount && (isFinal || Date.now() - remote.midTurnAt >= MID_TURN_SCAN_MS))
+  if (!isDue) return remote.midTurn
+  const id: string = await $.session.id().catch(() => '')
+  const kept: MidTurn[] = remote.midTurnCount >= 0 ? remote.midTurn : await storedMidTurn($, id)
+  remote.midTurnCount = count
+  remote.midTurnAt = Date.now()
+  const file = id ? await transcriptFile($, id) : ''
+  if (!file) return (remote.midTurn = kept)
+  const grep = async (args: string[]) => {
+    const r = await $.process.run(['grep', '-n', ...args, file]).catch(() => undefined)
+    return String(r?.stdout ?? '').split('\n').filter(Boolean)
+  }
+  const isNew = (t: MidTurn) => !kept.some(k => k.after === t.after && k.text === t.text)
+  const found = midTurnsIn(await grep(['-o', '-E', MARKS]), await grep(['-F', QUEUED])).filter(isNew).map(t => ({ ...t, at: Date.now() }))
+  remote.midTurn = [...kept, ...found].slice(-MID_TURN_MAX)
+  if (found.length) await $.store.set(midTurnKey(id), remote.midTurn).catch(() => undefined)
+  return remote.midTurn
+}
+
+async function storedMidTurn($: any, id: string): Promise<MidTurn[]> {
+  const stored = id ? await $.store.get(midTurnKey(id)).catch(() => undefined) : undefined
+  return Array.isArray(stored) ? stored : []
+}
+
+// <config>/projects/<the folder the session started in, each other character a ->/<id>.jsonl;
+// a session moved since (/cd) is looked for in each project folder, once.
+async function transcriptFile($: any, id: string) {
+  if (remote.transcriptFile.endsWith(`/${id}.jsonl`)) return remote.transcriptFile
+  const home: string = (await $.env.get('HOME').catch(() => '')) ?? ''
+  const base = `${(await $.env.get('CLAUDE_CONFIG_DIR').catch(() => '')) || `${home}/.claude`}/projects`
+  const starts = [await $.session.root().catch(() => ''), await $.session.cwd().catch(() => '')].filter(Boolean)
+  const guesses = starts.map(d => `${base}/${String(d).replace(/[^a-zA-Z0-9]/g, '-')}/${id}.jsonl`)
+  for (const f of guesses) if (await $.fs.exists(f).catch(() => false)) return (remote.transcriptFile = f)
+  const dirs: any[] = await $.fs.list(base).catch(() => [])
+  for (const d of dirs) {
+    const f = `${base}/${d.name}/${id}.jsonl`
+    if (d.kind === 'directory' && (await $.fs.exists(f).catch(() => false))) return (remote.transcriptFile = f)
+  }
+  return ''
+}
+
+// The prompts people typed mid-turn, from grep -n of the transcript: `marks`, the tool results
+// and queued_command rows by line (-o), and `queued`, those rows whole. Each prompt goes after the
+// last tool result written before it: the one it came in with.
+export function midTurnsIn(marks: readonly string[], queued: readonly string[]): MidTurn[] {
+  const resultBefore = new Map<number, string>()
+  let last = ''
+  for (const m of marks) {
+    const line = Number.parseInt(m, 10)
+    if (m.includes(QUEUED)) resultBefore.set(line, last)
+    else last = /"tool_use_id":"([A-Za-z0-9_]+)"/.exec(m)?.[1] ?? last
+  }
+  const found: MidTurn[] = []
+  for (const q of queued) {
+    const at = q.indexOf(':')
+    let row: any
+    try { row = JSON.parse(q.slice(at + 1)) } catch { continue }
+    const a = row?.attachment, after = resultBefore.get(Number.parseInt(q, 10)) ?? ''
+    if (row?.isSidechain || a?.type !== 'queued_command' || a.origin?.kind !== 'human' || typeof a.prompt !== 'string' || !a.prompt.trim() || !after) continue
+    found.push({ after, text: a.prompt.trim(), at: 0 })
+  }
+  return found
+}
+
 // The phone keeps whole turns, each from your prompt, so no answer loses its question: the last
 // TURNS_MAX, and in each the last TOOLS_PER_TURN tool calls (the earlier ones counted, not shown).
 const TURNS_MAX = 20
@@ -248,7 +335,7 @@ const lineCount = (t: string) => (t ? t.split('\n').length : 0)
 // notifications, and a slash command's markup put back as /name args.
 function promptText(text: string) {
   return text
-    .replace(/<(system-reminder|task-notification)>[\s\S]*?<\/\1>/g, '')
+    .replace(/<(system-reminder|task-notification|local-command-caveat)>[\s\S]*?<\/\1>/g, '')
     .replace(/<command-name>([\s\S]*?)<\/command-name>\s*(?:<command-message>[\s\S]*?<\/command-message>)?\s*(?:<command-args>([\s\S]*?)<\/command-args>)?/g, (_m, name: string, args?: string) => `${name.trim()} ${args?.trim() ?? ''}`)
     .replace(/<\/?local-command-[a-z]+>/g, '')
     .trim()
@@ -293,7 +380,7 @@ function toolItem(u: any, cwd: string): TranscriptItem {
 }
 
 // The session's messages as the terminal draws them: the last TURNS_MAX turns, long ones trimmed.
-export function transcriptOf(list: readonly any[], cwd: string, cmds: readonly { anchor: number; command: string; text: string; isError: boolean }[] = []) {
+export function transcriptOf(list: readonly any[], cwd: string, cmds: readonly { anchor: number; command: string; text: string; isError: boolean }[] = [], mids: readonly MidTurn[] = []) {
   const items: TranscriptItem[] = []
   // a command run from the phone is in no message: it goes where the session stood when it ran
   const cmdsAt = (from: number, to: number) => {
@@ -302,12 +389,23 @@ export function transcriptOf(list: readonly any[], cwd: string, cmds: readonly {
   for (const [i, m] of list.entries()) {
     cmdsAt(i, i + 1)
     if (m.role === 'user') {
+      // what a command typed in the terminal printed goes under the command, as a phone command's does
+      const out = /^\s*<local-command-(stdout|stderr)>([\s\S]*?)<\/local-command-\1>\s*$/.exec(String(m.text ?? ''))
+      if (out) {
+        const last = items[items.length - 1]
+        // eslint-disable-next-line no-control-regex -- strips ANSI styles the terminal drew it with
+        const text = out[2]!.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '').trim()
+        if (last?.k === 'user' && last.text.startsWith('/')) items[items.length - 1] = { k: 'cmd', command: last.text, text: cut(text, 4000), isError: out[1] === 'stderr' }
+        continue
+      }
       const text = promptText(String(m.text ?? ''))
       if (text) items.push({ k: 'user', text: cut(text, 8000) })
       continue
     }
     if (typeof m.text === 'string' && m.text.trim()) items.push({ k: 'text', text: cut(m.text.trim(), 12000) })
     for (const u of m.toolUses ?? []) items.push(toolItem(u, cwd))
+    // a prompt typed while Claude worked: after the tool call it came in on
+    for (const u of m.toolUses ?? []) for (const t of mids) if (t.after === u.tool_use_id) items.push({ k: 'user', text: cut(t.text, 8000) })
   }
   cmdsAt(list.length, Infinity)
   const turns: TranscriptItem[][] = []
@@ -431,7 +529,8 @@ async function readCommands($: any) {
 }
 
 // The conversation for the phone, read again, and what it put in context.
-export async function readRemoteMessages($: any) {
+// `isFinal`: a turn ended, so prompts typed during it are looked for whatever the time.
+export async function readRemoteMessages($: any, isFinal = false) {
   if (!cfg.selfRemote || !remote.status) return
   const list: any[] = await $.session.messages().catch(() => [])
   const { cwd, dirs } = await rootsOf($)
@@ -439,7 +538,7 @@ export async function readRemoteMessages($: any) {
   remote.context = { ...remote.context, ...contextOf(list, cwd, home), dirs }
   await readMemory($)
   await readCommands($)
-  remote.transcript = transcriptOf(list, cwd, remote.cmdLog)
+  remote.transcript = transcriptOf(list, cwd, remote.cmdLog, await midTurnOf($, list.length, isFinal))
   remote.lastAt = Date.now()
   // a sent text the transcript now shows, or one two minutes old, leaves the sending list
   const shown = new Set(remote.transcript.filter(t => t.k === 'user').map(t => (t as { text: string }).text.trim()))

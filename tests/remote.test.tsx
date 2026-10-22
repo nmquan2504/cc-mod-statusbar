@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { contextOf, phoneCommand, phoneMayRun, transcriptOf } from '../hooks/features/remote'
+import { contextOf, midTurnsIn, phoneCommand, phoneMayRun, transcriptOf } from '../hooks/features/remote'
 import { qrMatrix, qrRows } from '../hooks/lib/qr'
 
 // Self remote: the ⇄ chip and its menu. The hooks registered here stand for the engine; the hub
@@ -358,4 +358,38 @@ test('a command sent from the phone takes its place in the transcript, where the
     { anchor: 4, command: '/compact', text: 'ran', isError: false },
   ])
   expect(items.map(t => (t.k === 'cmd' ? t.command : t.k === 'user' || t.k === 'text' ? t.text : t.k))).toEqual(['first', 'one', '/secrets', 'second', 'two', '/compact'])
+})
+
+test('a command typed in the terminal: what it printed goes under it, not in a bubble of yours', () => {
+  const items = transcriptOf([
+    { role: 'user', text: '<local-command-caveat>The command below was run directly in Claude Code.</local-command-caveat>', toolUses: [] },
+    { role: 'user', text: '<command-name>/compact</command-name>\n<command-message>compact</command-message>\n<command-args></command-args>', toolUses: [] },
+    { role: 'user', text: '<local-command-stdout>\x1b[2mCompacted (ctrl+o to see full summary)\x1b[22m</local-command-stdout>', toolUses: [] },
+    { role: 'user', text: '<local-command-stderr>nothing to do</local-command-stderr>', toolUses: [] },
+    { role: 'user', text: '[Image #3] fix this', toolUses: [] },
+  ], '/w')
+  expect(items).toEqual([
+    { k: 'cmd', command: '/compact', text: 'Compacted (ctrl+o to see full summary)', isError: false },
+    { k: 'user', text: '[Image #3] fix this' },
+  ])
+})
+
+test('a prompt typed while Claude worked shows after the tool call it came in on', () => {
+  // grep -n -o of the tool results and queued rows, and grep -n of those rows whole
+  const row = (r: object) => JSON.stringify(r)
+  const marks = ['3:"tool_use_id":"a","type":"tool_result"', '5:"type":"tool_result","tool_use_id":"b"', '7:"type":"queued_command"', '8:"type":"queued_command"', '9:"type":"queued_command"', '10:"type":"queued_command"']
+  const queued = [
+    `7:${row({ attachment: { type: 'queued_command', prompt: '[Image #4] the bubble is gone', origin: { kind: 'human' } } })}`,
+    `8:${row({ attachment: { type: 'queued_command', prompt: '<task-notification>done</task-notification>' } })}`,
+    `9:${row({ isSidechain: true, attachment: { type: 'queued_command', prompt: 'an agent', origin: { kind: 'human' } } })}`,
+    '10:not json',
+  ]
+  const mids = midTurnsIn(marks, queued)
+  expect(mids).toEqual([{ after: 'b', text: '[Image #4] the bubble is gone', at: 0 }])
+  const items = transcriptOf([
+    { role: 'user', text: 'fix it', toolUses: [] },
+    { role: 'assistant', text: '', toolUses: [{ tool_use_id: 'a', tool: 'Bash', input: { command: 'ls' }, text: 'x' }, { tool_use_id: 'b', tool: 'Bash', input: { command: 'pwd' }, text: '/w' }] },
+    { role: 'assistant', text: 'Done.', toolUses: [] },
+  ], '/w', [], [...mids, { after: 'gone', text: 'compacted away', at: 2 }])
+  expect(items.map(i => (i.k === 'tool' ? `tool:${i.id}` : `${i.k}:${(i as any).text}`))).toEqual(['user:fix it', 'tool:a', 'tool:b', 'user:[Image #4] the bubble is gone', 'text:Done.'])
 })
