@@ -14,10 +14,10 @@
 // called in for two minutes, or no phone has for idleMinutes. Node 18 or newer; no packages.
 import { execFile, spawn } from 'node:child_process'
 import { createHash, generateKeyPairSync, randomBytes, randomInt, sign, timingSafeEqual } from 'node:crypto'
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { connect } from 'node:net'
-import { dirname, extname, isAbsolute, join } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -164,7 +164,77 @@ async function diffOf(session, path) {
   if (!existsSync(abs) || statSync(abs).size > 512 * 1024) return ''
   return run(['git', 'diff', '--no-color', '--no-index', '--', '/dev/null', abs], s.cwd)
 }
-const IMAGE_TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' }
+const IMAGE_TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml' }
+
+// ---- browsing a session's folders: its own, those added, and the files it holds in context ----
+// The same paths the mod's file menu shows locked: the project's secrets, never shown on a phone.
+const SENSITIVE = /(^|\/)(\.env(\..*)?|secrets|exports|id_(rsa|ed25519)[^/]*|[^/]*\.(pem|key|p12))(\/|$)/i
+const SKIP_DIRS = new Set(['.git', 'node_modules', '.baseline'])
+const TEXT_MAX = 512 * 1024
+const real = p => { try { return realpathSync(p) } catch { return '' } }
+const isUnder = (p, root) => p === root || p.startsWith(root.endsWith(sep) ? root : root + sep)
+
+// Where a path may be opened from: the root it lies under (real paths both), or a file the session
+// lists in context; undefined when neither. `rel` is what the secrets rule is tested on.
+function placeOf(s, path) {
+  const target = real(path)
+  if (!target) return undefined
+  for (const root of (s.roots ?? []).map(real).filter(Boolean))
+    if (isUnder(target, root)) return { target, rel: relative(root, target).split(sep).join('/'), root }
+  const c = s.context ?? {}
+  const listed = [...(c.mentions ?? []), ...(c.reads ?? []), ...(c.memory ?? []).map(m => m.path)]
+  if (listed.some(p => real(p) === target)) return { target, rel: target, root: '' }
+  return undefined
+}
+
+function treeOf(session, path) {
+  const s = sessions.get(session)?.snapshot
+  if (!s) return { status: 404, body: { error: 'That session is gone.' } }
+  const place = placeOf(s, path)
+  if (!place || !place.root) return { status: 403, body: { error: 'Outside the folders this session works in.' } }
+  if (SENSITIVE.test(place.rel)) return { status: 403, body: { error: 'Locked: secrets are not shown on the phone.', isLocked: true } }
+  let entries = []
+  try {
+    entries = readdirSync(place.target, { withFileTypes: true })
+  } catch {
+    return { status: 404, body: { error: 'Not a folder.' } }
+  }
+  const rows = []
+  for (const d of entries.slice(0, 2000)) {
+    if (SKIP_DIRS.has(d.name)) continue
+    const abs = join(place.target, d.name)
+    let st
+    try { st = statSync(abs) } catch { continue }
+    const relPath = place.rel ? `${place.rel}/${d.name}` : d.name
+    // a link that leads out of the folder opens nothing
+    const isOutside = d.isSymbolicLink() && !isUnder(real(abs), place.root)
+    rows.push({ name: d.name, path: abs, isDir: st.isDirectory(), size: st.isFile() ? st.size : 0, isLocked: SENSITIVE.test(relPath) || isOutside })
+  }
+  rows.sort((a, b) => Number(b.isDir) - Number(a.isDir) || a.name.localeCompare(b.name))
+  return { status: 200, body: { path: place.target, root: place.root, rows } }
+}
+
+function fileOf(session, path) {
+  const s = sessions.get(session)?.snapshot
+  if (!s) return { status: 404, body: { error: 'That session is gone.' } }
+  const place = placeOf(s, path)
+  if (!place) return { status: 403, body: { error: 'Outside the folders and the context of this session.' } }
+  if (SENSITIVE.test(place.rel) || SENSITIVE.test(place.target)) return { status: 403, body: { error: 'Locked: secrets are not shown on the phone.', isLocked: true } }
+  let st
+  try { st = statSync(place.target) } catch { return { status: 404, body: { error: 'No such file.' } } }
+  if (!st.isFile()) return { status: 400, body: { error: 'Not a file.' } }
+  const ext = extname(place.target).toLowerCase()
+  if (IMAGE_TYPES[ext]) return { status: 200, body: { kind: 'image', size: st.size, name: basename(place.target) }, image: { file: place.target, type: IMAGE_TYPES[ext] } }
+  // a file with a NUL byte in its first 8 KB is binary: its size alone
+  const head = Buffer.alloc(Math.min(8192, st.size))
+  const fd = openSync(place.target, 'r')
+  try { readSync(fd, head, 0, head.length, 0) } finally { closeSync(fd) }
+  if (head.includes(0)) return { status: 200, body: { kind: 'binary', size: st.size, name: basename(place.target) } }
+  const buf = Buffer.alloc(Math.min(TEXT_MAX, st.size))
+  const fd2 = openSync(place.target, 'r')
+  try { readSync(fd2, buf, 0, buf.length, 0) } finally { closeSync(fd2) }
+  return { status: 200, body: { kind: 'text', text: buf.toString('utf8'), size: st.size, isCut: st.size > TEXT_MAX, name: basename(place.target), ext: ext.slice(1) } }
+}
 function imageOf(session, n) {
   const row = (sessions.get(session)?.snapshot.images ?? []).find(i => String(i.n) === String(n))
   if (!row || !/\/images\/\d+\.(png|jpe?g|gif|webp)$/i.test(row.path) || !existsSync(row.path)) return undefined
@@ -177,6 +247,9 @@ const STATIC = {
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/sw.js': ['sw.js', 'text/javascript; charset=utf-8'],
   '/icon.svg': ['icon.svg', 'image/svg+xml'],
+  '/vendor/highlight.min.js': ['vendor/highlight.min.js', 'text/javascript; charset=utf-8'],
+  '/vendor/hljs-dark.css': ['vendor/hljs-dark.css', 'text/css; charset=utf-8'],
+  '/vendor/hljs-light.css': ['vendor/hljs-light.css', 'text/css; charset=utf-8'],
 }
 
 const pub = createServer(async (req, res) => {
@@ -289,6 +362,15 @@ const pub = createServer(async (req, res) => {
       case 'GET /api/image': {
         const img = imageOf(session, url.searchParams.get('n') ?? '')
         return img ? send(res, 200, img.data, img.type) : send(res, 404, { error: 'no such image' })
+      }
+      case 'GET /api/tree': {
+        const r = treeOf(session, url.searchParams.get('path') ?? '')
+        return send(res, r.status, r.body)
+      }
+      case 'GET /api/file': {
+        const r = fileOf(session, url.searchParams.get('path') ?? '')
+        if (r.image && url.searchParams.get('raw') === '1') return send(res, 200, readFileSync(r.image.file), r.image.type, r.image.type === 'image/svg+xml' ? { 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox" } : {})
+        return send(res, r.status, r.body)
       }
       case 'GET /api/vapid':
         return send(res, 200, { key: VAPID_PUBLIC })

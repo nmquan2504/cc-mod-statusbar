@@ -3,6 +3,7 @@ import { registerAsk } from './events/ask'
 import { registerCommands } from './events/commands'
 import { registerPermissionCounts } from './events/permissions'
 import { registerPrompt } from './events/prompt'
+import { registerRemote } from './events/remote'
 import { registerSecretTools } from './events/secret-tools'
 import { registerSession } from './events/session'
 import { registerSettingsHooks } from './events/settings-hooks'
@@ -35,4 +36,5 @@ export const register: Register = on => {
   registerTurn(on)
   registerSettingsHooks(on)
   registerUi(on)
+  registerRemote(on)
 }

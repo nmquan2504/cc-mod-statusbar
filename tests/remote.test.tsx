@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { transcriptOf } from '../hooks/features/remote'
+import { contextOf, transcriptOf } from '../hooks/features/remote'
 import { qrMatrix, qrRows } from '../hooks/lib/qr'
 
 // Self remote: the ⇄ chip and its menu. The hooks registered here stand for the engine; the hub
@@ -276,4 +276,14 @@ test('without cloudflared or Homebrew, the menu gives the download link and look
   expect(await band.find({ key: 'remote-install' })).toBeUndefined()
   await band.press({ key: 'remote-recheck' })
   expect(toasts.join()).toContain('cloudflared is still not found')
+})
+
+test('what a session holds in context: files @-mentioned in a prompt, and files Claude read', () => {
+  const c = contextOf([
+    { role: 'user', text: 'look at @src/qr.ts and @"docs/my notes.md", ask @team; also @~/.zshrc.', toolUses: [] },
+    { role: 'assistant', text: '', toolUses: [{ tool: 'Read', input: { file_path: '/work/shop/README.md' } }, { tool: 'Bash', input: { command: 'cat x' } }] },
+    { role: 'user', text: 'again @src/qr.ts', toolUses: [] },
+  ], '/work/shop', '/Users/me')
+  expect(c.mentions).toEqual(['/work/shop/docs/my notes.md', '/Users/me/.zshrc', '/work/shop/src/qr.ts'])
+  expect(c.reads).toEqual(['/work/shop/README.md'])
 })

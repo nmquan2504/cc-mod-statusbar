@@ -21,6 +21,8 @@ const ICONS = {
   chevronDown: 'M6 9l6 6 6-6',
   chevronRight: 'M9 6l6 6-6 6',
   spark: 'M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4',
+  file: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5',
+  lock: 'M7 11V7a5 5 0 0 1 10 0v4M6 11h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1z',
   box: 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z',
   branch: 'M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9',
   help: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM9.5 9.3a2.6 2.6 0 1 1 3.6 2.4c-.7.3-1.1.9-1.1 1.6v.4M12 16.8v.2',
@@ -44,7 +46,7 @@ let picked = ''
 let lastNotice = 0
 let isFirstDraw = true
 let shownId = ''
-let filesTab = 'files'
+let filesTab = 'folder'
 const opened = new Set() // the tool rows opened to their output
 // the question Claude waits on: what this phone picked and typed so far, and whether it was put away
 let askDraft = { id: '', picks: {}, other: {} }
@@ -388,28 +390,109 @@ function fileRow(path, note, cls) {
   row.onclick = () => showDiff(path)
   return row
 }
+// The files page: the session's folders to browse, what it holds in context, what changed, images.
+const TABS = ['folder', 'context', 'changes', 'images']
+let browse = { root: '', path: '' } // the folder shown in the Folder tab
+const inContext = path => {
+  const c = snap.context || {}
+  return (c.mentions || []).includes(path) || (c.reads || []).includes(path)
+}
+// a path as the person knows it: from the folder it lies in
+function shortPath(path) {
+  for (const root of snap.roots || []) if (path.startsWith(`${root}/`)) return path.slice(root.length + 1)
+  return path.replace(/^\/Users\/[^/]+/, '~')
+}
 function renderFiles() {
-  $('seg-files').classList.toggle('on', filesTab === 'files')
-  $('seg-images').classList.toggle('on', filesTab === 'images')
-  $('seg-files').textContent = `Files ${snap.edited.length + snap.changes.length || ''}`.trim()
-  $('seg-images').textContent = `Images ${snap.images.length || ''}`.trim()
+  const counts = {
+    folder: '',
+    context: ((snap.context?.mentions?.length || 0) + (snap.context?.reads?.length || 0) + (snap.context?.dirs?.length || 0) + (snap.context?.memory?.length || 0)) || '',
+    changes: snap.edited.length + snap.changes.length || '',
+    images: snap.images.length || '',
+  }
+  for (const t of TABS) {
+    const b = $(`seg-${t}`)
+    b.classList.toggle('on', filesTab === t)
+    b.textContent = `${t[0].toUpperCase()}${t.slice(1)} ${counts[t]}`.trim()
+  }
   const root = $('files-body')
   root.replaceChildren()
-  if (filesTab === 'images') {
-    if (!snap.images.length) return root.append(el('div', 'none', 'No images pasted in this session.'))
-    const grid = root.appendChild(el('div', 'grid'))
-    for (const img of snap.images) {
-      const node = grid.appendChild(el('img'))
-      node.loading = 'lazy'
-      node.alt = `Image #${img.n}`
-      node.src = q('/api/image', `&n=${img.n}`)
-      node.onclick = () => {
-        const body = openViewer(`Image #${img.n}`)
-        body.appendChild(el('img')).src = node.src
-      }
+  if (filesTab === 'folder') return renderFolder(root)
+  if (filesTab === 'context') return renderContext(root)
+  if (filesTab === 'images') return renderImages(root)
+  renderChanges(root)
+}
+
+async function renderFolder(root) {
+  const roots = snap.roots || []
+  if (!roots.length) return root.append(el('div', 'none', 'This session names no folder.'))
+  if (!roots.includes(browse.root)) browse = { root: roots[0], path: roots[0] }
+  // the folders this session works in, when it has more than one
+  if (roots.length > 1) {
+    const chips = root.appendChild(el('div', 'roots'))
+    for (const r of roots) {
+      const b = chips.appendChild(el('button', `pick${r === browse.root ? ' on' : ''}`, r.split('/').pop() || r))
+      b.onclick = () => { browse = { root: r, path: r }; renderFiles() }
     }
-    return
   }
+  // the path from the root, each part a step back up
+  const crumbs = root.appendChild(el('div', 'crumbs'))
+  const parts = browse.path.slice(browse.root.length).split('/').filter(Boolean)
+  const step = (label, path) => {
+    const b = crumbs.appendChild(el('button', '', label))
+    b.onclick = () => { browse.path = path; renderFiles() }
+  }
+  step(`/${browse.root.split('/').pop()}`, browse.root)
+  parts.forEach((p, i) => {
+    crumbs.append(icon('chevronRight'))
+    step(p, `${browse.root}/${parts.slice(0, i + 1).join('/')}`)
+  })
+  const list = root.appendChild(el('div', 'card tree'))
+  list.append(el('div', 'meta', 'Loading…'))
+  const r = await fetch(q('/api/tree', `&path=${encodeURIComponent(browse.path)}`)).catch(() => undefined)
+  const data = r ? await r.json().catch(() => ({})) : {}
+  list.replaceChildren()
+  if (!r || !r.ok) return list.append(el('div', 'none', data.error || 'Could not read the folder.'))
+  if (!data.rows.length) return list.append(el('div', 'none', 'Empty folder.'))
+  for (const row of data.rows) {
+    const item = list.appendChild(el('button', `trow-file${row.isLocked ? ' locked' : ''}`))
+    item.append(icon(row.isLocked ? 'lock' : row.isDir ? 'folder' : 'file'), el('span', 'fname', row.name))
+    if (inContext(row.path)) item.append(el('span', 'ctxdot', 'in context'))
+    if (!row.isDir) item.append(el('span', 'fsize', size(row.size)))
+    item.onclick = () => {
+      if (row.isLocked) return toast({ title: 'Locked', body: 'Secrets are not shown on the phone.' })
+      if (row.isDir) {
+        browse.path = row.path
+        renderFiles()
+      } else showFile(row.path)
+    }
+  }
+}
+
+function renderContext(root) {
+  const c = snap.context || {}
+  const group = (title, note, rows) => {
+    const card = root.appendChild(el('div', 'card'))
+    card.append(el('h3', '', title))
+    if (!rows.length) card.append(el('div', 'meta pad', note))
+    for (const row of rows) card.append(row)
+  }
+  const fileLine = (path, side, onclick) => {
+    const row = el('div', 'file')
+    row.append(el('span', 'path', shortPath(path)), el('span', 'ctx', side || ''))
+    row.onclick = onclick || (() => showFile(path))
+    return row
+  }
+  group('Mentioned with @', 'No file @-mentioned in a prompt yet.', [...(c.mentions || [])].reverse().map(p => fileLine(p)))
+  group('Read by Claude', 'Claude has read no file yet.', [...(c.reads || [])].reverse().map(p => fileLine(p)))
+  group('Folders added', 'No folder added with /add-dir.', (c.dirs || []).map(d => fileLine(d, 'browse', () => {
+    browse = { root: d, path: d }
+    filesTab = 'folder'
+    renderFiles()
+  })))
+  group('Memory files', 'No memory file loaded.', (c.memory || []).map(m => fileLine(m.path, `${m.tokens} tok`)))
+}
+
+function renderChanges(root) {
   if (snap.edited.length) {
     const card = root.appendChild(el('div', 'card'))
     card.append(el('h3', '', 'Edited this turn'))
@@ -424,6 +507,62 @@ function renderFiles() {
     for (const f of snap.changes) card.append(fileRow(f.path, f.code, 'ctx'))
   }
   if (!root.childElementCount) root.append(el('div', 'none', 'No changed files.'))
+}
+
+function renderImages(root) {
+  if (!snap.images.length) return root.append(el('div', 'none', 'No images pasted in this session.'))
+  const grid = root.appendChild(el('div', 'grid'))
+  for (const img of snap.images) {
+    const node = grid.appendChild(el('img'))
+    node.loading = 'lazy'
+    node.alt = `Image #${img.n}`
+    node.src = q('/api/image', `&n=${img.n}`)
+    node.onclick = () => {
+      const body = openViewer(`Image #${img.n}`)
+      body.appendChild(el('img')).src = node.src
+    }
+  }
+}
+
+const size = n => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`)
+
+// ---- one file: text with line numbers and syntax colors, an image, or a binary's size ----------
+const LANGS = { js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'javascript', ts: 'typescript', tsx: 'typescript', mts: 'typescript', py: 'python', rb: 'ruby', go: 'go', rs: 'rust', java: 'java', kt: 'kotlin', swift: 'swift', c: 'c', h: 'c', cpp: 'cpp', cc: 'cpp', hpp: 'cpp', cs: 'csharp', php: 'php', sh: 'bash', bash: 'bash', zsh: 'bash', json: 'json', yml: 'yaml', yaml: 'yaml', toml: 'ini', ini: 'ini', md: 'markdown', html: 'xml', xml: 'xml', svg: 'xml', css: 'css', scss: 'scss', sql: 'sql', dockerfile: 'dockerfile', makefile: 'makefile', lua: 'lua', diff: 'diff' }
+const HIGHLIGHT_MAX = 200 * 1024
+let hljsLoading = null
+// the highlighter is loaded the first time a file opens, from the hub
+function loadHighlighter() {
+  hljsLoading ??= new Promise(resolve => {
+    const s = document.createElement('script')
+    s.src = '/vendor/highlight.min.js'
+    s.onload = () => resolve(window.hljs)
+    s.onerror = () => resolve(null)
+    document.head.append(s)
+  })
+  return hljsLoading
+}
+async function showFile(path) {
+  const body = openViewer(shortPath(path))
+  body.append(el('div', 'meta pad', 'Loading…'))
+  const r = await fetch(q('/api/file', `&path=${encodeURIComponent(path)}`)).catch(() => undefined)
+  const data = r ? await r.json().catch(() => ({})) : {}
+  body.replaceChildren()
+  if (!r || !r.ok) return body.append(el('div', 'none', data.error || 'Could not open the file.'))
+  if (data.kind === 'image') return void (body.appendChild(el('img')).src = q('/api/file', `&path=${encodeURIComponent(path)}&raw=1`))
+  if (data.kind === 'binary') return body.append(el('div', 'none', `A binary file, ${size(data.size)}.`))
+  const lines = data.text.replace(/\n$/, '').split('\n')
+  body.append(el('div', 'meta pad', `${lines.length} lines · ${size(data.size)}${data.isCut ? ' · the first 512 KB' : ''}`))
+  const code = body.appendChild(el('div', 'codeview'))
+  code.append(el('pre', 'gutter', lines.map((_, i) => i + 1).join('\n')))
+  const src = code.appendChild(el('pre', 'src'))
+  const block = src.appendChild(el('code', 'hljs', lines.join('\n')))
+  const name = data.name.toLowerCase()
+  const lang = LANGS[data.ext] || LANGS[name]
+  if (!lang || data.text.length > HIGHLIGHT_MAX) return
+  const hljs = await loadHighlighter()
+  if (!hljs || !hljs.getLanguage(lang)) return
+  // highlight.js escapes the text it is given; its output holds only its own spans
+  block.innerHTML = hljs.highlight(lines.join('\n'), { language: lang, ignoreIllegals: true }).value
 }
 
 function openViewer(title) {
@@ -559,7 +698,8 @@ function render() {
   shownId = snap.id
   renderHeader()
   renderChat()
-  if (!$('files').hidden) renderFiles()
+  // the folder tab stays as it is (no listing read again under the reader); the others follow the session
+  if (!$('files').hidden && filesTab !== 'folder') renderFiles()
   // a new question opens its page; one answered elsewhere closes it
   if (snap.ask && snap.ask.id !== askHiddenId && $('ask').hidden) openAsk(false)
   else if (snap.ask && !$('ask').hidden && askDraft.id !== snap.ask.id) renderAsk()
@@ -596,8 +736,11 @@ $('close-ask').onclick = () => {
 }
 $('ask-submit').onclick = () => sendAnswer(false)
 $('ask-dismiss').onclick = () => sendAnswer(true)
-$('seg-files').onclick = () => { filesTab = 'files'; renderFiles() }
-$('seg-images').onclick = () => { filesTab = 'images'; renderFiles() }
+for (const t of TABS)
+  $(`seg-${t}`).onclick = () => {
+    filesTab = t
+    renderFiles()
+  }
 window.addEventListener('scroll', () => { if (atBottom()) $('jump').hidden = true }, { passive: true })
 $('jump').onclick = () => {
   toBottom()

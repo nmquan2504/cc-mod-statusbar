@@ -9,6 +9,8 @@
 <title>Claude remote</title>
 <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/vendor/hljs-dark.css" media="(prefers-color-scheme: dark)">
+<link rel="stylesheet" href="/vendor/hljs-light.css" media="(prefers-color-scheme: light)">
 <style>
   :root {
     --bg: #1a1a18; --panel: #24241f; --line: #34342d; --text: #ecebe4; --dim: #9b9a90;
@@ -135,6 +137,25 @@
   .diff div { min-height: 1.45em; }
   .viewer img { max-width: 100%; margin-top: 12px; }
   .none { color: var(--dim); text-align: center; padding: 40px 0; }
+  .seg button { padding: 8px 2px; font-size: 13px; }
+  .roots { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  .crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; margin: 0 0 8px; font: 13px var(--mono); color: var(--dim); }
+  .crumbs button { border: 0; background: none; color: var(--link); padding: 4px 2px; font: inherit; }
+  .crumbs svg.ic { width: 12px; height: 12px; }
+  .card.tree { padding: 2px 4px; }
+  .trow-file { width: 100%; display: flex; align-items: center; gap: 10px; padding: 9px 8px; border: 0; border-top: 1px solid var(--line); background: none; text-align: left; font: 14px var(--mono); }
+  .trow-file:first-child { border-top: 0; }
+  .trow-file svg.ic { width: 17px; height: 17px; color: var(--dim); }
+  .trow-file .fname { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .trow-file .fsize { color: var(--dim); font-size: 12px; }
+  .trow-file .ctxdot { color: var(--claude); font-size: 11px; }
+  .trow-file.locked { opacity: .55; }
+  .meta.pad { padding: 8px 0; }
+  .codeview { display: flex; margin: 0 -12px; border-top: 1px solid var(--line); font: 12px/1.5 var(--mono); }
+  .codeview pre { margin: 0; border: 0; border-radius: 0; padding: 8px; font: inherit; background: none; }
+  .codeview .gutter { color: var(--dim); text-align: right; user-select: none; border-right: 1px solid var(--line); flex: none; }
+  .codeview .src { flex: 1; min-width: 0; overflow-x: auto; }
+  .codeview .src code.hljs { background: none; padding: 0; font: inherit; }
 
   /* Claude's questions */
   .q { margin: 16px 0 20px; }
@@ -201,7 +222,9 @@
     <strong>Files &amp; images</strong>
   </div>
   <div class="seg">
-    <button id="seg-files" class="on">Files</button>
+    <button id="seg-folder" class="on">Folder</button>
+    <button id="seg-context">Context</button>
+    <button id="seg-changes">Changes</button>
     <button id="seg-images">Images</button>
   </div>
   <div id="files-body"></div>

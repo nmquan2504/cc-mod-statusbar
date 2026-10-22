@@ -48,6 +48,12 @@ export const remote = {
   hasTerminal: undefined as boolean | undefined,
   // texts the phone sent while Claude was working, sent one at a time between turns
   queue: [] as string[],
+  // what the session holds in context, for the phone's Context tab: files @-mentioned in a prompt,
+  // files Claude read, folders added (/add-dir, additionalDirectories), memory files
+  context: { mentions: [] as string[], reads: [] as string[], dirs: [] as string[], memory: [] as { path: string; type: string; tokens: number }[] },
+  // folders /add-dir added this session (the DirectoryAdded hook), and when the memory files were read
+  addedDirs: [] as string[],
+  memoryAt: 0,
   // texts sent as the prompt that the transcript does not show yet: the phone keeps their bubbles
   sending: [] as { text: string; at: number }[],
   // the conversation as the phone shows it, as the terminal draws it: read at a turn's start and
@@ -277,11 +283,57 @@ export function transcriptOf(list: readonly any[], cwd: string) {
   return items.slice(-TRANSCRIPT_MAX)
 }
 
-// The conversation for the phone, read again.
+// The files a session's messages put in context: those @-mentioned in a prompt (as typed, made
+// absolute against the folder; ~ is HOME), and those Claude read. Newest last, each once, 50 at most.
+export function contextOf(list: readonly any[], cwd: string, home: string) {
+  const mentions: string[] = [], reads: string[] = []
+  const absolute = (p: string) => (p.startsWith('/') ? p : p.startsWith('~/') && home ? `${home}${p.slice(1)}` : `${cwd.replace(/\/$/, '')}/${p.replace(/^\.\//, '')}`)
+  const keep = (into: string[], p: string) => {
+    const at = into.indexOf(p)
+    if (at >= 0) into.splice(at, 1)
+    into.push(p)
+  }
+  for (const m of list) {
+    if (m.role === 'user') {
+      for (const hit of promptText(String(m.text ?? '')).matchAll(/(?:^|\s)@("[^"]+"|[^\s,;!?)\]]+)/g)) {
+        const raw = hit[1]!.replace(/^"|"$/g, '').replace(/[.:]$/, '')
+        // a path, not a handle: it holds a slash or a dot
+        if (/[/.]/.test(raw)) keep(mentions, absolute(raw))
+      }
+    }
+    for (const u of m.toolUses ?? []) if ((u.tool === 'Read' || u.tool === 'NotebookRead') && typeof (u.input?.file_path ?? u.input?.notebook_path) === 'string') keep(reads, String(u.input.file_path ?? u.input.notebook_path))
+  }
+  return { mentions: mentions.slice(-50), reads: reads.slice(-50) }
+}
+
+// The folders the session works in: its own, then those added; each absolute, each once.
+export async function rootsOf($: any) {
+  const cwd: string = await $.session.cwd().catch(() => '')
+  const perms = (await $.settings.read({ key: 'permissions' }).catch(() => undefined)) as { additionalDirectories?: unknown } | undefined
+  const fromSettings = Array.isArray(perms?.additionalDirectories) ? perms!.additionalDirectories.filter((d): d is string => typeof d === 'string') : []
+  const added = [...fromSettings, ...remote.addedDirs].map(d => (d.startsWith('/') ? d : `${cwd}/${d}`).replace(/\/+$/, ''))
+  return { cwd, dirs: [...new Set(added)].filter(d => d && d !== cwd) }
+}
+
+// The memory files the session loads (CLAUDE.md, rules), from the engine's local estimate of the
+// context; read on joining and then at most once a minute.
+async function readMemory($: any) {
+  if (Date.now() - remote.memoryAt < 60_000) return
+  remote.memoryAt = Date.now()
+  const u = await $.session.usage({ breakdown: 'summary', columns: 80 }).catch(() => undefined)
+  const files = u?.context?.breakdown?.memoryFiles
+  if (Array.isArray(files)) remote.context.memory = files.map((f: any) => ({ path: String(f.path), type: String(f.type ?? ''), tokens: Number(f.tokens ?? 0) }))
+}
+
+// The conversation for the phone, read again, and what it put in context.
 export async function readRemoteMessages($: any) {
   if (!cfg.selfRemote || !remote.status) return
   const list: any[] = await $.session.messages().catch(() => [])
-  remote.transcript = transcriptOf(list, await $.session.cwd().catch(() => ''))
+  const { cwd, dirs } = await rootsOf($)
+  const home: string = (await $.env.get('HOME').catch(() => '')) ?? ''
+  remote.context = { ...remote.context, ...contextOf(list, cwd, home), dirs }
+  await readMemory($)
+  remote.transcript = transcriptOf(list, cwd)
   remote.lastAt = Date.now()
   // a sent text the transcript now shows, or one two minutes old, leaves the sending list
   const shown = new Set(remote.transcript.filter(t => t.k === 'user').map(t => (t as { text: string }).text.trim()))
@@ -312,6 +364,9 @@ async function snapshotOf($: any) {
     transcript: remote.transcript,
     queued: remote.queue,
     sending: remote.sending.map(s => s.text),
+    // what the phone may browse: the session's folder and the folders added; what is in context
+    roots: [await $.session.cwd().catch(() => ''), ...remote.context.dirs].filter(Boolean),
+    context: remote.context,
     lastAt: remote.lastAt,
     // the question Claude waits on, for the phone to answer
     ask: ask.pending && !ask.pending.result ? { id: ask.pending.id, questions: ask.pending.questions } : null,
