@@ -197,6 +197,17 @@
   .cmd { width: 100%; display: block; text-align: left; border: 0; border-top: 1px solid var(--line); background: none; padding: 9px 2px; }
   .card h3 + .cmd { border-top: 0; }
   .cmd .n { font: 600 14px var(--mono); color: var(--claude); } .cmd .d { color: var(--dim); font-size: 12px; overflow-wrap: anywhere; }
+  /* what a command sent from here printed, or why it did not run */
+  pre.cmdout { margin: 0 0 10px 4px; max-width: 92%; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--dim); }
+  pre.cmdout.bad { color: var(--bad); border-color: var(--bad); white-space: normal; font: 13px/1.45 -apple-system, sans-serif; }
+  .cmd.computeronly .n { color: var(--dim); }
+  .cmd .tag { margin-left: 8px; font: 600 10px -apple-system, sans-serif; text-transform: uppercase; letter-spacing: .05em; color: var(--dim); border: 1px solid var(--line); border-radius: 6px; padding: 1px 5px; vertical-align: 2px; }
+  /* /usage */
+  .card.usage { padding: 4px 12px 10px; margin-top: 12px; }
+  .meter { margin: 10px 0 4px; }
+  .meter .mh { display: flex; justify-content: space-between; font-size: 14px; }
+  .meter .track { height: 8px; border-radius: 4px; background: var(--bg); border: 1px solid var(--line); margin: 6px 0 4px; overflow: hidden; }
+  .meter .fill { height: 100%; background: var(--ok); } .meter .fill.warn { background: var(--warn); } .meter .fill.bad { background: var(--bad); }
   .toast { position: fixed; left: 12px; right: 12px; top: calc(var(--top) + 8px); z-index: 40; background: var(--panel); border: 1px solid var(--claude); border-radius: 12px; padding: 10px 12px; }
   .paste { display: flex; gap: 8px; margin-top: 16px; }
   .paste input { flex: 1; min-width: 0; height: 42px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 0 12px; font: 13px var(--mono); }
