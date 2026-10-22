@@ -36,6 +36,11 @@ export const remote = {
   status: null as RemoteStatus | null,
   isStarting: false,
   startedAt: 0,
+  // cloudflared was not found at Start: where Homebrew is ('' with none), for the menu's install
+  missing: null as { brew: string } | null,
+  // brew install cloudflared runs, since when; and the last lines it failed with
+  installingAt: 0,
+  installError: '',
   // this session stays off the phone's list
   isHidden: false,
   isJoined: false,
@@ -56,12 +61,26 @@ export const remote = {
 const HUB_START_MS = 30_000
 
 // Waiting on the hub or on the tunnel's address: the band shows a spinner, redrawn every 120 ms.
-export const isRemoteWaiting = () => cfg.selfRemote && (remote.isStarting || (remote.status !== null && !remote.status.url && !remote.status.error))
+export const isRemoteWaiting = () => cfg.selfRemote && (remote.isStarting || remote.installingAt > 0 || (remote.status !== null && !remote.status.url && !remote.status.error))
 // The spinner Claude Code turns while it works, one frame per 120 ms.
 const SPINNER = ['·', '✢', '✳', '✶', '✻', '✽', '✻', '✶', '✳', '✢']
 export const spinnerFrame = () => SPINNER[Math.floor(Date.now() / 120) % SPINNER.length]!
-// How long the wait has run, when this session started it: "12 s"
-export const waitedFor = () => (remote.startedAt ? `${Math.max(0, Math.round((Date.now() - remote.startedAt) / 1000))} s` : '')
+// How long a wait has run, when this session started it: "12 s"
+export const waitedFor = (since = remote.startedAt) => (since ? `${Math.max(0, Math.round((Date.now() - since) / 1000))} s` : '')
+
+// Where cloudflared releases are, for a Mac without Homebrew.
+export const CLOUDFLARED_DOWNLOAD = 'https://github.com/cloudflare/cloudflared/releases/latest'
+// Each tool's path: on the PATH Claude Code was started with, or where Homebrew puts it.
+async function whereAre($: any, names: string[]) {
+  const script = 'for n in "$@"; do p=$(command -v "$n" 2>/dev/null) || p=$(for d in /opt/homebrew/bin /usr/local/bin; do [ -x "$d/$n" ] && echo "$d/$n" && break; done); echo "$n=$p"; done'
+  const r = await $.process.run(['/bin/sh', '-c', script, 'sh', ...names]).catch(() => undefined)
+  const found: Record<string, string> = {}
+  for (const line of String(r?.stdout ?? '').split('\n')) {
+    const m = /^([\w-]+)=(.*)$/.exec(line.trim())
+    if (m) found[m[1]!] = m[2]!.trim()
+  }
+  return found
+}
 const sockOf = () => `${remote.dir}/hub.sock`
 
 async function hubDir($: any) {
@@ -98,9 +117,17 @@ export async function readRemote($: any) {
 
 // Starts the hub, detached: node runs it in the background and the shell returns at once.
 export async function startRemote($: any) {
-  if (remote.isStarting || (await readRemote($))) return
+  if (remote.isStarting || remote.installingAt || (await readRemote($))) return
   const dir = await hubDir($)
   if (!dir) return $.ui.toast('statusbar: remote: could not read the user id')
+  // no tunnel without cloudflared: the menu offers to install it instead of starting a hub
+  const found = await whereAre($, ['cloudflared', 'brew'])
+  if (!found.cloudflared) {
+    remote.missing = { brew: found.brew ?? '' }
+    $.ui.invalidate('ui.render')
+    return
+  }
+  remote.missing = null
   remote.isStarting = true
   remote.startedAt = Date.now()
   remote.isHidden = false
@@ -113,6 +140,38 @@ export async function startRemote($: any) {
     $.ui.toast(`statusbar: remote: could not start the hub${r?.stderr ? `: ${oneLine(r.stderr, 80)}` : ''}`)
   }
   $.ui.invalidate('ui.render')
+}
+
+// brew install cloudflared, in the background with the spinner turning; once it is in, Start.
+export async function installCloudflared($: any) {
+  const brew = remote.missing?.brew
+  if (!brew || remote.installingAt) return
+  remote.installingAt = Date.now()
+  remote.installError = ''
+  $.ui.invalidate('ui.render')
+  const r = await $.process.run([brew, 'install', 'cloudflared'], { env: { HOMEBREW_NO_AUTO_UPDATE: '1' }, timeoutMs: 600_000 }).catch((err: unknown) => ({ exitCode: -1, stdout: '', stderr: String(err) }))
+  remote.installingAt = 0
+  if (r.exitCode !== 0) {
+    remote.installError = oneLine(String(r.stderr || r.stdout).trim().split('\n').slice(-3).join(' '), 200) || `brew exited ${r.exitCode}`
+    $.ui.toast('statusbar: remote: cloudflared did not install; the menu says why')
+    $.ui.invalidate('ui.render')
+    return
+  }
+  $.ui.toast('statusbar: remote: cloudflared installed; starting the remote')
+  await startRemote($)
+}
+
+// After installing it some other way: look again, and start once it is there.
+export async function checkCloudflared($: any) {
+  const found = await whereAre($, ['cloudflared', 'brew'])
+  if (!found.cloudflared) {
+    remote.missing = { brew: found.brew ?? '' }
+    $.ui.toast('statusbar: remote: cloudflared is still not found')
+    $.ui.invalidate('ui.render')
+    return
+  }
+  remote.missing = null
+  await startRemote($)
 }
 
 export async function stopRemote($: any) {

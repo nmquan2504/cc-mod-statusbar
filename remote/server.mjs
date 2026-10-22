@@ -428,9 +428,11 @@ function findCloudflared() {
 function startTunnel(port) {
   if (process.env.QSB_REMOTE_LOCAL) return void (tunnelUrl = `http://127.0.0.1:${port}`) // tests: no tunnel
   const bin = findCloudflared()
+  // the mod looks before it starts a hub; one started anyway stops rather than run with no tunnel
   if (!bin) {
     tunnelError = 'cloudflared is not installed: brew install cloudflared'
-    return
+    log(tunnelError)
+    return shutdown(3)
   }
   tunnel = spawn(bin, ['tunnel', '--no-autoupdate', '--url', `http://127.0.0.1:${port}`], { stdio: ['ignore', 'pipe', 'pipe'] })
   const scan = chunk => {

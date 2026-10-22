@@ -1,5 +1,5 @@
 import { ARM_MS } from '../../features/permissions'
-import { answerPairing, forgetDevices, hideSession, remote, spinnerFrame, startRemote, stopRemote, waitedFor } from '../../features/remote'
+import { CLOUDFLARED_DOWNLOAD, answerPairing, checkCloudflared, forgetDevices, hideSession, installCloudflared, remote, spinnerFrame, startRemote, stopRemote, waitedFor } from '../../features/remote'
 import { oneLine } from '../../lib/format'
 import { qrMatrix, qrRows } from '../../lib/qr'
 import { rt } from '../../state/runtime'
@@ -24,13 +24,35 @@ export async function drawRemoteMenu($: any, els: any, _isTerminal: boolean, ent
   }
 
   // a turning spinner, the seconds waited, and how long it usually takes
-  const waiting = (what: string) => (
+  const waiting = (what: string, note = 'usually 10 to 20 s; the QR code shows once the address resolves', since = remote.startedAt) => (
     <Text>
       <Text color="claude" bold>{spinnerFrame()}</Text>
       <Text color="claude">{` ${what}…`}</Text>
-      <Text dimColor>{`  ${waitedFor() ? `${waitedFor()}, ` : ''}usually 10 to 20 s; the QR code shows once the address resolves`}</Text>
+      <Text dimColor>{`  ${waitedFor(since) ? `${waitedFor(since)}, ` : ''}${note}`}</Text>
     </Text>
   )
+  const copy = async (text: string, what: string) => {
+    const r = await $.ui.copy({ text }).catch(() => ({ isCopied: false }))
+    $.ui.toast(r?.isCopied ? `statusbar: remote: ${what} copied` : 'statusbar: remote: could not copy')
+  }
+
+  // cloudflared is missing: install it with Homebrew, or get it another way and look again
+  if (!s && (remote.missing || remote.installingAt)) {
+    const brew = remote.missing?.brew ?? ''
+    return (
+      <Box flexDirection="column">
+        {remote.installingAt ? waiting('Installing cloudflared with Homebrew', 'usually 30 to 60 s; the remote starts when it is in', remote.installingAt) : (
+          <Text color="warning">cloudflared is not installed on this Mac. The remote needs it for the tunnel to your phone.</Text>
+        )}
+        {remote.installError ? <Text color="error">{`brew install failed: ${remote.installError}`}</Text> : null}
+        {!remote.installingAt && brew ? entry('remote-install', 'i', '⇩', isArmed('remote-install') ? 'Press again to install' : 'Install with Homebrew', 'runs brew install cloudflared, then starts the remote', twice('remote-install', 'install cloudflared with Homebrew', () => installCloudflared($)), isArmed('remote-install') ? 'warning' : 'text') : null}
+        {!remote.installingAt && !brew ? <Text dimColor>{`Homebrew is not installed either. Get cloudflared from ${CLOUDFLARED_DOWNLOAD} (the darwin .tgz), put it on your PATH, then check again.`}</Text> : null}
+        {!remote.installingAt && !brew ? entry('remote-copy-url', 'c', '⧉', 'Copy the download link', 'Cloudflare\'s releases on GitHub', () => copy(CLOUDFLARED_DOWNLOAD, 'download link')) : null}
+        {!remote.installingAt && brew ? entry('remote-copy-cmd', 'c', '⧉', 'Copy the command', 'brew install cloudflared, to run it yourself', () => copy('brew install cloudflared', 'command')) : null}
+        {!remote.installingAt ? entry('remote-recheck', 'r', '↻', 'Check again', 'after installing it yourself; starts the remote once it is there', () => checkCloudflared($)) : null}
+      </Box>
+    )
+  }
 
   if (!s) {
     return (

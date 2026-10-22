@@ -22,7 +22,10 @@ const STATUS = {
 }
 const ran = (stdout = '') => ({ exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false })
 
-function engine(on: any, opts: { argvs?: string[][]; hub?: (path: string, body: string) => unknown; toasts?: string[] } = {}) {
+// where the tools are, as the lookup script answers: a test takes one away by setting it to ''
+type Tools = { cloudflared: string; brew: string }
+function engine(on: any, opts: { argvs?: string[][]; hub?: (path: string, body: string) => unknown; toasts?: string[]; tools?: Tools } = {}) {
+  const tools = opts.tools ?? { cloudflared: '/opt/homebrew/bin/cloudflared', brew: '/opt/homebrew/bin/brew' }
   const store = new Map<string, unknown>()
   on('store.get', (_: unknown, e: any) => ({ value: store.get(e.key) }))
   on('store.set', (_: unknown, e: any) => (store.set(e.key, e.value), { value: undefined }))
@@ -37,6 +40,12 @@ function engine(on: any, opts: { argvs?: string[][]; hub?: (path: string, body: 
     opts.argvs?.push(e.argv)
     // a question's hook sleeps in process.run while it waits: a short real wait, as the shell's
     if (e.argv[0] === 'sleep') await new Promise(r => setTimeout(r, 5))
+    if (e.argv[0] === '/bin/sh' && e.argv[2]?.includes('command -v'))
+      return { value: ran(e.argv.slice(4).map(n => `${n}=${tools[n as keyof Tools] ?? ''}`).join('\n')) }
+    if (e.argv[1] === 'install' && e.argv[2] === 'cloudflared') {
+      tools.cloudflared = '/opt/homebrew/bin/cloudflared'
+      return { value: ran('==> Pouring cloudflared') }
+    }
     return { value: e.argv[0] === 'id' ? ran('501\n') : e.argv[0] === '/bin/sh' || e.argv[0] === 'sleep' ? ran() : { ...ran(), exitCode: 1 } }
   })
   on('http.fetch', (_: unknown, e: any) => {
@@ -99,7 +108,7 @@ test('switched on, ⇄ opens the menu; Start takes two presses and starts the hu
   expect(argvs.some(a => a[0] === '/bin/sh')).toBe(false)
   expect(toasts.join()).toContain('press again within 5 s to start the remote')
   await band.press({ key: 'remote-start' })
-  const sh = argvs.find(a => a[0] === '/bin/sh')!
+  const sh = argvs.find(a => a[0] === '/bin/sh' && a[2]!.includes('nohup'))!
   expect(sh[2]).toContain('nohup node "$0" "$1" "$2"')
   expect(sh[3]).toMatch(/\/remote\/server\.mjs$/)
   expect(sh.slice(4)).toEqual(['/tmp/qsb-remote-501', '30'])
@@ -231,4 +240,40 @@ test('while the tunnel waits for its address, the menu and the chip turn a spinn
   expect(drawn).toContain('usually 10 to 20 s')
   expect(drawn).not.toContain('█▀') // no QR code before the address
   expect((await band.find({ key: 'remote' }))?.text).toMatch(/^ ⇄ [·✢✳✶✻✽] $/)
+})
+
+test('without cloudflared, Start starts no hub: Install with Homebrew takes two presses, then starts', async ($, on) => {
+  const argvs: string[][] = []
+  engine(on, { argvs, tools: { cloudflared: '', brew: '/opt/homebrew/bin/brew' } })
+  const band = await $.ui.mount({ plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await switchOn(band)
+  await band.press({ key: 'remote' })
+  await band.press({ key: 'remote-start' })
+  await band.press({ key: 'remote-start' })
+  const isHubStarted = () => argvs.some(a => a[0] === '/bin/sh' && a[2]!.includes('nohup'))
+  expect(isHubStarted()).toBe(false)
+  const drawn = await textOf(band)
+  expect(drawn).toContain('cloudflared is not installed on this Mac')
+  expect(drawn).toContain('Install with Homebrew')
+  await band.press({ key: 'remote-install' })
+  expect(argvs.some(a => a[1] === 'install')).toBe(false)
+  await band.press({ key: 'remote-install' })
+  expect(argvs.find(a => a[1] === 'install')).toEqual(['/opt/homebrew/bin/brew', 'install', 'cloudflared'])
+  expect(isHubStarted()).toBe(true)
+})
+
+test('without cloudflared or Homebrew, the menu gives the download link and looks again', async ($, on) => {
+  const toasts: string[] = []
+  engine(on, { toasts, tools: { cloudflared: '', brew: '' } })
+  const band = await $.ui.mount({ plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await switchOn(band)
+  await band.press({ key: 'remote' })
+  await band.press({ key: 'remote-start' })
+  await band.press({ key: 'remote-start' })
+  const drawn = await textOf(band)
+  expect(drawn).toContain('Homebrew is not installed either')
+  expect(drawn).toContain('https://github.com/cloudflare/cloudflared/releases/latest')
+  expect(await band.find({ key: 'remote-install' })).toBeUndefined()
+  await band.press({ key: 'remote-recheck' })
+  expect(toasts.join()).toContain('cloudflared is still not found')
 })
