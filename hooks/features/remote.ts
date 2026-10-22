@@ -54,6 +54,14 @@ export const remote = {
 }
 
 const HUB_START_MS = 30_000
+
+// Waiting on the hub or on the tunnel's address: the band shows a spinner, redrawn every 120 ms.
+export const isRemoteWaiting = () => cfg.selfRemote && (remote.isStarting || (remote.status !== null && !remote.status.url && !remote.status.error))
+// The spinner Claude Code turns while it works, one frame per 120 ms.
+const SPINNER = ['·', '✢', '✳', '✶', '✻', '✽', '✻', '✶', '✳', '✢']
+export const spinnerFrame = () => SPINNER[Math.floor(Date.now() / 120) % SPINNER.length]!
+// How long the wait has run, when this session started it: "12 s"
+export const waitedFor = () => (remote.startedAt ? `${Math.max(0, Math.round((Date.now() - remote.startedAt) / 1000))} s` : '')
 const sockOf = () => `${remote.dir}/hub.sock`
 
 async function hubDir($: any) {

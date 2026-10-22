@@ -6,7 +6,7 @@ import { readGuard } from '../features/guard'
 import { readImages } from '../features/images'
 import { readMcp } from '../features/mcp'
 import { probeMode } from '../features/mode'
-import { tickRemote } from '../features/remote'
+import { isRemoteWaiting, tickRemote } from '../features/remote'
 import { refreshBar } from '../features/status'
 import { UPDATE_EVERY, checkModUpdate } from '../features/update'
 import { cache, vaultSessionStart } from '../features/vault'
@@ -38,7 +38,7 @@ export function registerSession(on: On) {
     $.clock.every(120, () => {
       if (rt.isBusy && cfg.arcade) stepArena()
       else if (rt.lingerUntil) stepLinger()
-      else return // idle and cleared: nothing to draw
+      else if (!isRemoteWaiting()) return // idle and cleared: nothing to draw (a waiting remote turns its spinner)
       $.ui.invalidate('ui.render')
     })
     // shift+tab changes the mode between turns: only the hint line shows it then

@@ -220,3 +220,15 @@ test('a question Claude asked reads as Ask, each question with the answer it got
     ['Ask', 'Now?', [{ q: 'Now?', a: '' }]],
   ])
 })
+
+test('while the tunnel waits for its address, the menu and the chip turn a spinner', async ($, on) => {
+  engine(on, { hub: () => ({ ...STATUS, url: '', link: '', pending: [], phones: 0 }) })
+  const band = await $.ui.mount({ plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await switchOn(band)
+  await band.press({ key: 'remote' })
+  const drawn = await textOf(band)
+  expect(drawn).toContain("Waiting for the tunnel's address…")
+  expect(drawn).toContain('usually 10 to 20 s')
+  expect(drawn).not.toContain('█▀') // no QR code before the address
+  expect((await band.find({ key: 'remote' }))?.text).toMatch(/^ ⇄ [·✢✳✶✻✽] $/)
+})

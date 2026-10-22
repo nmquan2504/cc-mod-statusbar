@@ -1,5 +1,5 @@
 import { ARM_MS } from '../../features/permissions'
-import { answerPairing, forgetDevices, hideSession, remote, startRemote, stopRemote } from '../../features/remote'
+import { answerPairing, forgetDevices, hideSession, remote, spinnerFrame, startRemote, stopRemote, waitedFor } from '../../features/remote'
 import { oneLine } from '../../lib/format'
 import { qrMatrix, qrRows } from '../../lib/qr'
 import { rt } from '../../state/runtime'
@@ -23,6 +23,15 @@ export async function drawRemoteMenu($: any, els: any, _isTerminal: boolean, ent
     await run()
   }
 
+  // a turning spinner, the seconds waited, and how long it usually takes
+  const waiting = (what: string) => (
+    <Text>
+      <Text color="claude" bold>{spinnerFrame()}</Text>
+      <Text color="claude">{` ${what}…`}</Text>
+      <Text dimColor>{`  ${waitedFor() ? `${waitedFor()}, ` : ''}usually 10 to 20 s; the QR code shows once the address resolves`}</Text>
+    </Text>
+  )
+
   if (!s) {
     return (
       <Box flexDirection="column">
@@ -30,7 +39,7 @@ export async function drawRemoteMenu($: any, els: any, _isTerminal: boolean, ent
         <Text dimColor>A phone that scans the code still waits for you to press Allow here, with the code it shows.</Text>
         <Text dimColor>Needs node and cloudflared (brew install cloudflared).</Text>
         {remote.isStarting
-          ? <Text color="claude">Starting the hub and the tunnel…</Text>
+          ? waiting('Starting the hub and the tunnel')
           : entry('remote-start', 's', '▶', isArmed('remote-start') ? 'Press again to start' : 'Start the remote', 'one link for every session; it stops after the idle time in Settings', twice('remote-start', 'start the remote', () => startRemote($)), isArmed('remote-start') ? 'warning' : 'text')}
       </Box>
     )
@@ -49,7 +58,7 @@ export async function drawRemoteMenu($: any, els: any, _isTerminal: boolean, ent
   return (
     <Box flexDirection="column">
       {s.error ? <Text color="error">{s.error}</Text> : null}
-      {!s.url && !s.error ? <Text color="claude">Waiting for the tunnel's address…</Text> : null}
+      {!s.url && !s.error ? waiting("Waiting for the tunnel's address") : null}
       {s.isLocked ? <Text color="error">Pairing is locked after 10 wrong links. Stop and start again.</Text> : null}
       {s.pending.map(p => (
         <Box key={`pend:${p.id}`} flexDirection="row" gap={1}>
