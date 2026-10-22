@@ -1,6 +1,5 @@
-import { logAudit } from '../features/audit'
 import { countCommand } from '../features/commands'
-import { NAME_RE, acquire, cache, kcDelete, listSecrets, meta, normName, readVault } from '../features/vault'
+import { acquire, forgetSecret, listSecrets } from '../features/vault'
 
 import type { On } from 'claude-code'
 
@@ -20,14 +19,6 @@ export function registerCommands(on: On) {
   on('command.run', { command: 'secrets' }, async $ => ({ text: await listSecrets($) }))
     .catch(() => ({ text: 'statusbar vault: could not list secrets.' }))
 
-  on('command.run', { command: 'secret-forget' }, async ($, e) => {
-    const name = normName(e.args)
-    if (!NAME_RE.test(name)) return { text: 'Usage: /secret-forget NAME' }
-    await kcDelete($, name)
-    await $.store.delete(meta(name))
-    cache.delete(name)
-    await readVault($)
-    await logAudit($, `vault: deleted ${name}`)
-    return { text: `${name} deleted.` }
-  }).catch(() => ({ text: 'statusbar vault: could not delete the secret.' }))
+  on('command.run', { command: 'secret-forget' }, async ($, e) => ({ text: await forgetSecret($, e.args) }))
+    .catch(() => ({ text: 'statusbar vault: could not delete the secret.' }))
 }

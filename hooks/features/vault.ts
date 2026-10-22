@@ -175,6 +175,18 @@ export async function saveTyped($: any, given: Typed) {
   return { name: plan.name, host: plan.binding.host, where }
 }
 
+// /secret-forget NAME: the keychain entry, its binding and its cached value go; the answer to show.
+export async function forgetSecret($: any, args: string) {
+  const name = normName(args)
+  if (!NAME_RE.test(name)) return 'Usage: /secret-forget NAME'
+  await kcDelete($, name)
+  await $.store.delete(meta(name))
+  cache.delete(name)
+  await readVault($)
+  await logAudit($, `vault: deleted ${name}`)
+  return `${name} deleted.`
+}
+
 export async function listSecrets($: any) {
   const keys = ((await $.store.keys()) as string[]).filter(k => k.startsWith('secret:'))
   const rows = await Promise.all(

@@ -2,9 +2,9 @@ import { atom, read } from 'claude-code'
 import { oneLine, shortModel } from '../lib/format'
 import { ask, settleAsk } from './ask'
 import { TOP_GROUP, USE_KEY, groupOf } from './commands'
-import { saveTyped } from './vault'
+import { forgetSecret, listSecrets, saveTyped } from './vault'
 import { cfg } from '../state/config'
-import { rt } from '../state/runtime'
+import { ME, rt } from '../state/runtime'
 
 // The atoms this file reads (each file declares its own: the engine reads an atom only where a
 // const of the same file made it; the same plugin and key are the same value).
@@ -61,7 +61,7 @@ export const remote = {
   addedDirs: [] as string[],
   memoryAt: 0,
   // the slash commands and skills, for the phone's list, read on joining and every five minutes
-  commands: [] as { name: string; description: string; group: string; isBuiltin: boolean; isComputerOnly: boolean; needsArgs: boolean }[],
+  commands: [] as { name: string; description: string; group: string; isBuiltin: boolean; isComputerOnly: boolean; needsArgs: boolean; isOwn: boolean }[],
   // the commands the phone sent, each with what it printed or why it did not run, newest last
   cmdLog: [] as { at: number; command: string; text: string; isError: boolean }[],
   commandsAt: 0,
@@ -344,13 +344,37 @@ async function readMemory($: any) {
 // The built-in commands the phone may run: those that print text or hand the model a prompt, and
 // those that take a value (with one; bare, they open a picker). Every other built-in opens a
 // panel in the terminal on the computer, which nothing can close from the phone, so it runs only there.
-const PHONE_BUILTINS = new Set(['cost', 'compact', 'clear', 'init', 'review', 'security-review', 'pr-comments', 'plan', 'fast'])
+// Names as this Claude Code lists them (it has no /cost: the cost is in /usage, which the phone
+// draws itself): commands that print or switch a mode, and the skills it bundles, which hand the
+// model a prompt. A name not here and not given a value is computer only.
+const PHONE_BUILTINS = new Set([
+  'clear', 'compact', 'plan', 'fast',
+  'init', 'security-review', 'code-review', 'simplify', 'fewer-permission-prompts', 'loop', 'schedule', 'claude-api', 'update-config',
+  'keybindings-help', 'dataviz', 'artifact-design', 'artifact-diagramming', 'artifact-capabilities', 'workflow-authoring', 'plugin-authoring',
+  'claude-in-chrome', 'run',
+])
 const PHONE_WITH_VALUE = new Set(['model', 'effort', 'output-style', 'add-dir'])
 // true when the phone may run it; else why not
 export function phoneMayRun(name: string, args: string, isBuiltin: boolean): true | string {
   if (!isBuiltin || PHONE_BUILTINS.has(name)) return true
   if (PHONE_WITH_VALUE.has(name)) return args ? true : `/${name} with no value opens a picker on the computer; give it one, as /${name} <value>`
   return `/${name} opens a panel on the computer, and the phone cannot close it; run it at the computer`
+}
+
+// What a text from the phone is: a command to run, one of this mod's own (answered here: a plugin's
+// $.command.run never reaches its own command.run hooks), a command refused (with why), or a prompt. A
+// /name that names no command of this session is refused rather than handed to the model as words;
+// a path (/Users/me/file) holds a slash past its first, and goes in as a prompt.
+export function phoneCommand(text: string, commands: readonly { name: string; isBuiltin: boolean; isOwn?: boolean }[]):
+  { kind: 'run' | 'own'; name: string; args: string } | { kind: 'refuse'; text: string } | { kind: 'prompt' } {
+  const m = /^\/([A-Za-z0-9][\w:.-]*)(?:\s+([\s\S]*))?$/.exec(text.trim())
+  if (!m) return { kind: 'prompt' }
+  const name = m[1]!, args = (m[2] ?? '').trim()
+  const cmd = commands.find(c => c.name === name)
+  if (!cmd) return { kind: 'refuse', text: `/${name} is not a command in this session` }
+  if (cmd.isOwn) return { kind: 'own', name, args }
+  const verdict = phoneMayRun(name, args, cmd.isBuiltin)
+  return verdict === true ? { kind: 'run', name, args } : { kind: 'refuse', text: verdict }
 }
 
 // The commands the phone lists, as the ⁄ menu has them: the ones typed most first, then by group.
@@ -360,7 +384,7 @@ async function readCommands($: any) {
   const list: any[] = await $.command.list().catch(() => [])
   const rows = list.map(c => {
     const name = String(c.name), isBuiltin = c.source === 'builtin'
-    return { name, description: oneLine(String(c.description ?? ''), 120), group: groupOf(c), isBuiltin, isComputerOnly: isBuiltin && !PHONE_BUILTINS.has(name) && !PHONE_WITH_VALUE.has(name), needsArgs: isBuiltin && PHONE_WITH_VALUE.has(name) }
+    return { name, description: oneLine(String(c.description ?? ''), 120), group: groupOf(c), isBuiltin, isComputerOnly: isBuiltin && !PHONE_BUILTINS.has(name) && !PHONE_WITH_VALUE.has(name), needsArgs: isBuiltin && PHONE_WITH_VALUE.has(name), isOwn: c.plugin === ME }
   })
     .sort((a, b) => a.group.localeCompare(b.group) || a.name.localeCompare(b.name))
   const counts = ((await $.store.get(USE_KEY).catch(() => undefined)) ?? {}) as Record<string, { n: number; last: number }>
@@ -481,18 +505,21 @@ export async function tickRemote($: any) {
   // one text a turn, and never into a running one; "/name args" runs that command, as typed
   if (remote.queue.length && !rt.isBusy) {
     const text = remote.queue.shift()!
-    const slash = /^\/(\S+)\s*([\s\S]*)$/.exec(text)
-    const cmd = slash ? remote.commands.find(c => c.name === slash[1]) : undefined
-    if (slash && cmd) {
-      const args = slash[2]!.trim()
-      const log = (out: string, isError: boolean) => { remote.cmdLog = [...remote.cmdLog, { at: Date.now(), command: text.trim(), text: out, isError }].slice(-10) }
-      const verdict = phoneMayRun(cmd.name, args, cmd.isBuiltin)
-      if (verdict !== true) return log(verdict, true)
-      // what the command printed goes back to the phone; a panel or a prompt prints nothing
-      const r: any = await $.command.run({ command: cmd.name, args }).catch((err: unknown) => ({ error: String(err) }))
-      if (r?.error) return log(`/${cmd.name} did not run: ${oneLine(r.error, 200)}`, true)
-      $.ui.toast(`statusbar: remote: ran /${cmd.name} from the phone`)
-      if (typeof r?.text === 'string' && r.text.trim()) log(r.text.length > 8000 ? `${r.text.slice(0, 8000)}…` : r.text, false)
+    const what = phoneCommand(text, remote.commands)
+    const log = (out: string, isError: boolean) => { remote.cmdLog = [...remote.cmdLog, { at: Date.now(), command: text.trim(), text: out, isError }].slice(-10) }
+    if (what.kind === 'refuse') return log(what.text, true)
+    // this mod's own commands, answered by the same code their hooks run
+    if (what.kind === 'own') {
+      if (what.name === 'secrets') return log(await listSecrets($).catch(() => 'could not list the secrets'), false)
+      if (what.name === 'secret-forget') return log(await forgetSecret($, what.args).catch(() => 'could not delete the secret'), false)
+      return log(`/${what.name} opens a dialog on the computer; add a secret from the + menu here instead`, true)
+    }
+    if (what.kind === 'run') {
+      // what the command printed goes back to the phone; a prompt for the model prints nothing
+      const r: any = await $.command.run({ command: what.name, args: what.args }).catch((err: unknown) => ({ error: String(err) }))
+      if (r?.error) return log(`/${what.name} did not run: ${oneLine(r.error, 200)}`, true)
+      $.ui.toast(`statusbar: remote: ran /${what.name} from the phone`)
+      log(typeof r?.text === 'string' && r.text.trim() ? (r.text.length > 8000 ? `${r.text.slice(0, 8000)}…` : r.text) : 'ran', false)
       return
     }
     const isSent = await $.prompt.submit({ text, asUser: true }).then(() => true, () => false)

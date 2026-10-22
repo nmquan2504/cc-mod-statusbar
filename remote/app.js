@@ -862,7 +862,13 @@ $('send').onclick = async () => {
   const value = text.value.trim()
   if (!value || !snap) return
   // /usage shows here, from what the session reports; nothing opens on the computer
-  if (/^\/usage\b/.test(value)) {
+  // /secret opens a dialog on the computer: here, the phone's own sheet takes the secret
+  if (/^\/secret$/.test(value)) {
+    text.value = ''
+    fitText()
+    return openSecretSheet()
+  }
+  if (/^\/(usage|cost)\b/.test(value)) {
     text.value = ''
     fitText()
     return openUsage()
@@ -1018,7 +1024,11 @@ function renderCommands() {
       b.append(el('div', 'd', c.description))
       b.onclick = () => {
         // a panel would open on the computer, where nothing from here can close it; /usage shows here
-        if (c.name === 'usage') {
+        if (c.name === 'secret') {
+          $('cmds').hidden = true
+          return openSecretSheet()
+        }
+        if (c.name === 'usage' || c.name === 'cost') {
           $('cmds').hidden = true
           return openUsage()
         }
