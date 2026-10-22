@@ -335,6 +335,16 @@ function renderChat() {
     if (t.k === 'user') root.append(inline(t.text, el('div', 'b me')))
     else root.appendChild(el('div', 'b claude')).append(markdown(t.text))
   }
+  // Claude Code's guess at your next prompt, under its last answer: a press puts it in the box
+  if (snap.suggestion && !snap.busy) {
+    const chip = root.appendChild(el('button', 'suggest'))
+    chip.append(icon('spark'), el('span', '', snap.suggestion))
+    chip.onclick = () => {
+      text.value = snap.suggestion
+      fitText()
+      text.focus()
+    }
+  }
   // sent as the prompt, not in the transcript yet: drawn as the bubble it will be
   for (const text of snap.sending || []) root.append(inline(text, el('div', 'b me')))
   // waiting for a turn to end, dimmed; with none running it goes in at the next tick, a bubble as any
@@ -925,14 +935,6 @@ function openPlus() {
   item('globe', 'Add a web page', 'Claude reads it as context', openWebSheet)
   item('key', 'Add a secret', 'saved to the Mac\'s keychain, never to the chat', openSecretSheet)
   item('slash', 'Slash commands', 'commands and skills, the ones you type most first', openCommands)
-  if (snap?.suggestion) {
-    menu.append(el('h4', '', 'Suggested next'))
-    item('spark', snap.suggestion, 'Claude Code\'s guess; a press puts it in the box', () => {
-      text.value = snap.suggestion
-      fitText()
-      text.focus()
-    })
-  }
   menu.hidden = false
   $('plus').classList.add('on')
 }
