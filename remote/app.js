@@ -25,11 +25,18 @@ const prefs = (() => {
 })()
 function savePrefs() {
   try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)) } catch {}
+  shareLang()
 }
-// A text the page shows, in the language picked (i18n.mjs), its {names} filled from `values`. A hub
-// older than this page serves no i18n.mjs, and the page stays English.
+// The language, where the service worker reads it to word a push (sw.js)
+function shareLang() {
+  globalThis.caches?.open('qsb-prefs').then(c => c.put('/lang', new Response(prefs.lang))).catch(() => undefined)
+}
+// A text the page shows, in the language picked (i18n.js), its {names} filled from `values`. A hub
+// older than this page serves no i18n.js, and the page stays English.
 const fill = (text, values) => (values ? text.replace(/\{(\w+)\}/g, (m, k) => (k in values ? String(values[k]) : m)) : text)
 const tx = (text, values) => (globalThis.I18N ? I18N.translate(prefs.lang, text, values) : fill(text, values))
+// What the hub or the mod sent in words (an error, a refusal, a note), in the language picked
+const txSent = text => (text && globalThis.I18N ? I18N.localText(prefs.lang, text) : text)
 const linesShown = (from, to) => (from === to ? tx('line {n}', { n: from }) : tx('lines {from}-{to}', { from, to }))
 
 // The icons, drawn as SVG strokes in the text's color: a 24-unit box, one path each.
@@ -115,7 +122,7 @@ async function pair() {
       const { code } = await E2E.pair(k)
       gate(tx('In the terminal, pick this code.'), code)
     } catch (err) {
-      gate(tx(err.message))
+      gate(txSent(err.message))
       throw err
     }
   } else if (!(await E2E.load())) {
@@ -140,7 +147,7 @@ async function pair() {
       continue
     }
     await E2E.forget()
-    gate(r.b.error || tx('Refused in the terminal.'), '', true)
+    gate(txSent(r.b.error) || tx('Refused in the terminal.'), '', true)
     throw new Error('refused')
   }
 }
@@ -201,7 +208,7 @@ async function follow() {
     if (state.notice.at > lastNotice) {
       const from = state.notice.session
       if (lastNotice) {
-        toast(state.notice, from ? () => openSession(from) : undefined)
+        toast(localNotice(state.notice), from ? () => openSession(from) : undefined)
         readNotice(state.notice)
       }
       lastNotice = state.notice.at
@@ -445,7 +452,7 @@ function renderChat() {
         earlierAsked = ''
         keepFromBottom = 0
         hideEarlierLoading()
-        toast({ title: tx('Not loaded'), body: r.b?.error || tx('The session did not answer. Try again.') })
+        toast({ title: tx('Not loaded'), body: txSent(r.b?.error) || tx('The session did not answer. Try again.') })
       }
     }
   }
@@ -455,7 +462,7 @@ function renderChat() {
     if (t.k === 'cmd') {
       tools = null
       root.append(prompted(t.command, el('div', 'b me')))
-      root.append(el('pre', `cmdout${t.isError ? ' bad' : ''}`, t.text))
+      root.append(el('pre', `cmdout${t.isError ? ' bad' : ''}`, t.isError ? txSent(t.text) : t.text))
       continue
     }
     if (t.k === 'more') {
@@ -507,7 +514,7 @@ function renderChat() {
       e.stopPropagation()
       b.remove()
       const r = await api('unqueue', { text })
-      if (r.s !== 200) toast({ title: tx('Not taken back'), body: r.b?.error || tx('The session did not answer. Try again.') })
+      if (r.s !== 200) toast({ title: tx('Not taken back'), body: txSent(r.b?.error) || tx('The session did not answer. Try again.') })
     }
   }
   if (snap.ask) {
@@ -545,7 +552,7 @@ function renderChat() {
     stop.onclick = async () => {
       stop.disabled = true
       const r = await api('stop', { session: snap.id })
-      toast(r.s === 200 ? { title: tx('Stopping'), body: tx('The session ends its turn in a moment.') } : { title: tx('Not stopped'), body: r.b?.error || tx('The session did not answer. Try again.') })
+      toast(r.s === 200 ? { title: tx('Stopping'), body: tx('The session ends its turn in a moment.') } : { title: tx('Not stopped'), body: txSent(r.b?.error) || tx('The session did not answer. Try again.') })
     }
     tickElapsed()
   }
@@ -777,15 +784,18 @@ function speak(text) {
 function readNotice(n) {
   if (!prefs.readNotices || !canSpeak || !globalThis.Speak) return
   // the title a line of its own, so the answer's markdown starts its own lines
-  const text = prefs.noticeWords === 'status' ? noticeStatus(n) : [n.title, noticeBody(n)].filter(Boolean).join('.\n').replace(/\s·\s/g, ', ').replace(/(^|\s)\/(?=\w)/g, '$1')
+  const text = prefs.noticeWords === 'status' ? noticeStatus(n) : [localNotice(n).title, noticeBody(n)].filter(Boolean).join('.\n').replace(/\s·\s/g, ', ').replace(/(^|\s)\/(?=\w)/g, '$1')
   // a speech the browser left paused (the page was in the background) goes on first
-  speechSynthesis.resume()
+  speechSynthesis.resume?.()
   Speak.segments(Speak.speechText(text)).forEach((part, i) => {
     const said = utterance(part.text, part.lang)
     if (i === 0) said.onerror = e => { if (e.error === 'not-allowed') noteSpeechBlocked() }
     speechSynthesis.speak(said)
   })
 }
+
+// A notice in the language picked: the words of its title and the mod's lines in its body
+const localNotice = n => (globalThis.I18N ? I18N.localNotice(prefs.lang, n) : n)
 
 // A notice as a few words in the language picked: Claude has responded, or needs you (a permission
 // prompt, a question), and the session's folder
@@ -800,10 +810,10 @@ function noticeStatus(n) {
 // session sent it (the notice carries its first 200 characters), for a question, the question
 function noticeBody(n) {
   const body = n.body || ''
-  if (prefs.noticeWords === 'short') return body.split(/(?<=[.!?…])\s/)[0].slice(0, 160)
+  if (prefs.noticeWords === 'short') return (localNotice(n).body || '').split(/(?<=[.!?…])\s/)[0].slice(0, 160)
   if (prefs.noticeWords !== 'full') return ''
   const last = state?.sessions.find(x => x.id === n.session)?.transcript?.at(-1)
-  return /^Done\b/.test(n.title) && last?.k === 'claude' ? last.text : body
+  return /^Done\b/.test(n.title) && last?.k === 'claude' ? last.text : localNotice(n).body
 }
 
 // A page may speak only after a tap: Chrome asks for one since the page opened, Safari for a first
@@ -1021,7 +1031,7 @@ async function renderSearch(root) {
   if (round !== searchRound) return
   root.replaceChildren()
   const data = r.b || {}
-  if (r.s !== 200) return root.append(el('div', 'none', data.error || tx('Could not search.')))
+  if (r.s !== 200) return root.append(el('div', 'none', txSent(data.error) || tx('Could not search.')))
   if (!data.names.length && !data.hits.length) return root.append(el('div', 'none', tx('Nothing holds "{q}".', { q: filesQuery })))
   const group = (title, rows) => {
     if (!rows.length) return
@@ -1074,7 +1084,7 @@ async function renderFolder(root) {
   const r = await api('tree', { path: browse.path })
   const data = r.b || {}
   list.replaceChildren()
-  if (r.s !== 200) return list.append(el('div', 'none', data.error || tx('Could not read the folder.')))
+  if (r.s !== 200) return list.append(el('div', 'none', txSent(data.error) || tx('Could not read the folder.')))
   // a folder in a git repository: its branch after the path
   if (data.branch) crumbs.appendChild(el('span', 'fbranch')).append(icon('branch'), document.createTextNode(` ${data.branch}`))
   if (!data.rows.length) return list.append(el('div', 'none', tx('Empty folder.')))
@@ -1174,7 +1184,7 @@ async function showFile(path, atLine) {
   const r = await api('file', { path })
   const data = r.b || {}
   body.replaceChildren()
-  if (r.s !== 200) return body.append(el('div', 'none', data.error || tx('Could not open the file.')))
+  if (r.s !== 200) return body.append(el('div', 'none', txSent(data.error) || tx('Could not open the file.')))
   if (data.kind === 'image') {
     const img = body.appendChild(el('img'))
     img.src = await imageUrl('file', { path, raw: true })
@@ -1326,7 +1336,7 @@ function openAskBox(body, { what, hint = '', placeholder, compose }) {
       go.disabled = false
       if (r.s !== 200) {
         lineAsk = null
-        bar.querySelector('.status').replaceChildren(el('span', 'err', r.b?.error || tx('Not sent: the session did not answer. Try again.')))
+        bar.querySelector('.status').replaceChildren(el('span', 'err', txSent(r.b?.error) || tx('Not sent: the session did not answer. Try again.')))
         return
       }
       box.value = ''
@@ -1392,7 +1402,7 @@ async function showDiff(path) {
   const r = await api('diff', { path })
   const data = r.b || {}
   const diff = body.appendChild(el('div', 'diff'))
-  const text = r.s === 200 ? data.diff || tx('(no changes against HEAD)') : data.error || tx('Could not read the diff.')
+  const text = r.s === 200 ? data.diff || tx('(no changes against HEAD)') : txSent(data.error) || tx('Could not read the diff.')
   // each hunk, from its @@ header to the next, a block: a tap marks it and opens the box to ask
   // Claude about that change
   let block = diff
@@ -1514,7 +1524,7 @@ async function sendAnswer(isDismissed) {
   const body = r.b || {}
   if (r.s !== 200) {
     $('ask-submit').disabled = false
-    return toast({ title: tx('Not sent'), body: body.error || tx('The session did not answer. Try again.') })
+    return toast({ title: tx('Not sent'), body: txSent(body.error) || tx('The session did not answer. Try again.') })
   }
   askHiddenId = a.id
   $('ask').hidden = true
@@ -1541,7 +1551,7 @@ function render() {
   const note = snap.vaultNote
   if (!lastVaultAt) lastVaultAt = note?.at || 1
   else if (note && note.at > lastVaultAt) {
-    toast({ title: note.isError ? tx('Secret not saved') : tx('Secret saved'), body: note.text })
+    toast({ title: note.isError ? tx('Secret not saved') : tx('Secret saved'), body: txSent(note.text) })
     lastVaultAt = note.at
   }
   renderHeader()
@@ -1837,7 +1847,7 @@ async function sendText(raw, isBox = false) {
   const r = await api('reply', { text: isQuoting ? withQuote(value) : value })
   $('send').disabled = false
   const body = r.b || {}
-  if (r.s !== 200) return toast({ title: tx('Not sent'), body: body.error || tx('The session did not answer. Try again.') })
+  if (r.s !== 200) return toast({ title: tx('Not sent'), body: txSent(body.error) || tx('The session did not answer. Try again.') })
   if (isQuoting) dropQuote()
   if (isBox) {
     text.value = ''
@@ -1957,7 +1967,7 @@ function openSecretSheet() {
     const r = await api('secret', { value, name: inputs.name.value, host: inputs.host.value, header: inputs.header.value })
     inputs.value.value = ''
     if (r.s !== 200) {
-      toast({ title: tx('Not sent'), body: r.b.error || tx('The session did not answer. Try again.') })
+      toast({ title: tx('Not sent'), body: txSent(r.b.error) || tx('The session did not answer. Try again.') })
       return false
     }
     toast({ title: tx('Sent to the Mac'), body: tx('It says in a moment what it saved.') })
@@ -2121,7 +2131,7 @@ function openPage(name) {
   openViewer(`/${name} · ${titleOf(snap)}`).append(el('div', 'none', tx('Asking the session…')))
   $('viewer').dataset.page = name
   renderPage()
-  void api('page', { cmd: name }).then(r => { if (r.s !== 200) toast({ title: tx('Not opened'), body: r.b?.error || tx('The session did not answer.') }) })
+  void api('page', { cmd: name }).then(r => { if (r.s !== 200) toast({ title: tx('Not opened'), body: txSent(r.b?.error) || tx('The session did not answer.') }) })
 }
 async function pageAct(key, value) {
   pageAsk.pending = key
@@ -2131,7 +2141,7 @@ async function pageAct(key, value) {
   if (r.s !== 200) {
     pageAsk.pending = ''
     renderPage()
-    toast({ title: tx('Not sent'), body: r.b?.error || tx('The session did not answer. Try again.') })
+    toast({ title: tx('Not sent'), body: txSent(r.b?.error) || tx('The session did not answer. Try again.') })
   }
 }
 // the page as the session last built it, once built after the last ask; drawn again on each update
@@ -2149,7 +2159,7 @@ function renderPage() {
   if (body.contains(document.activeElement) && document.activeElement.matches('input, textarea')) return
   body.replaceChildren()
   if (page.note) body.append(el('div', 'meta pad', page.note))
-  if (page.error) body.append(el('div', 'perr', page.error))
+  if (page.error) body.append(el('div', 'perr', txSent(page.error)))
   for (const sec of page.sections) {
     const card = body.appendChild(el('div', 'card'))
     if (sec.title) card.append(el('h3', '', sec.title))
@@ -2434,6 +2444,7 @@ if (canSpeak) speechSynthesis.addEventListener?.('voiceschanged', () => { if (!$
 applyTheme()
 applyFont()
 translateStatic()
+shareLang()
 
 function boot() {
   pair()

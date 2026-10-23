@@ -1,6 +1,8 @@
 // Self remote's service worker: a push carries no payload, so it asks the hub what happened, with
-// a sealed call (e2e.js) under this phone's key.
-importScripts('/e2e.js')
+// a sealed call (e2e.js) under this phone's key, and shows it in the language the page last saved
+// (i18n.js; the page keeps it in the Cache Storage both share).
+importScripts('/e2e.js', '/i18n.js')
+const langNow = () => caches.open('qsb-prefs').then(c => c.match('/lang')).then(r => (r ? r.text() : 'en')).catch(() => 'en')
 self.addEventListener('install', () => self.skipWaiting())
 self.addEventListener('activate', e => e.waitUntil(self.clients.claim()))
 self.addEventListener('push', e => {
@@ -8,6 +10,7 @@ self.addEventListener('push', e => {
     self.E2E.call('notice')
       .then(r => (r.s === 200 ? r.b : Promise.reject(new Error(String(r.s)))))
       .catch(() => ({ title: 'Claude', body: 'Claude finished or needs you.' }))
+      .then(async n => (self.I18N ? self.I18N.localNotice(await langNow(), n) : n))
       .then(n => self.registration.showNotification(n.title, { body: n.body, tag: 'qsb', renotify: true, icon: '/icon.svg', data: { session: n.session || '' } })),
   )
 })
