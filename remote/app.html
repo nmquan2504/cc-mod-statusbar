@@ -196,6 +196,16 @@
   .finder .field input { width: 100%; box-sizing: border-box; padding-right: 36px; }
   mark { background: rgba(224, 176, 74, .45); color: inherit; border-radius: 2px; }
   /* your messages, before and after where you read */
+  /* the mic in the reply area, red while it listens */
+  .composer .mic { flex: none; width: var(--row-h); height: var(--row-h); border-radius: 50%; border: 0; background: none; color: var(--dim); display: inline-flex; align-items: center; justify-content: center; padding: 0; margin-left: auto; }
+  .composer .mic svg.ic { width: 18px; height: 18px; }
+  .composer .mic.on { background: var(--bad); color: #fff; animation: pulse 1.2s infinite; }
+  /* Load earlier, atop the chat */
+  .earlier { display: block; margin: 0 auto 12px; padding: 6px 14px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); color: var(--link); font: inherit; font-size: 13px; }
+  .earlier:disabled { color: var(--dim); }
+  /* a diff's hunks, each a block to tap and ask about */
+  .hblock { border-radius: 6px; cursor: pointer; }
+  .hblock.on { background: rgba(217, 119, 87, .14); outline: 1px solid rgba(217, 119, 87, .5); }
   .pnav { position: fixed; right: 14px; bottom: calc(var(--foot) + 54px + var(--kb)); z-index: 11; display: flex; flex-direction: column; gap: 6px; }
   .pnav button { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); display: inline-flex; align-items: center; justify-content: center; padding: 0; }
   .pnav svg.ic { width: 16px; height: 16px; }
@@ -392,6 +402,7 @@
       <div class="tools-row">
         <button id="plus" class="icon plus" aria-label="Add to the reply" data-icon="plus"></button>
         <div id="facts" class="facts"></div>
+        <button id="mic" class="icon mic" aria-label="Speak" data-icon="mic" hidden></button>
         <button id="send" class="send" aria-label="Send" data-icon="arrowUp"></button>
       </div>
     </div>

@@ -25,6 +25,7 @@ const ICONS = {
   lock: 'M7 11V7a5 5 0 0 1 10 0v4M6 11h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1z',
   plus: 'M12 5v14M5 12h14',
   chevronUp: 'M6 15l6-6 6 6',
+  mic: 'M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5 11a7 7 0 0 0 14 0M12 18v3',
   quote: 'M7 17c-2 0-3-1.5-3-3.5C4 10 6.5 7 10 6v2c-2 .7-3 2-3 3.5h3V17H7zm9 0c-2 0-3-1.5-3-3.5 0-3.5 2.5-6.5 6-7.5v2c-2 .7-3 2-3 3.5h3V17h-3z',
   close: 'M6 6l12 12M18 6L6 18',
   globe: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3.5 12h17M12 3c2.5 2.5 3.8 5.5 3.8 9s-1.3 6.5-3.8 9c-2.5-2.5-3.8-5.5-3.8-9S9.5 5.5 12 3z',
@@ -52,6 +53,8 @@ let snap = null // the session shown
 let picked = ''
 let lastNotice = 0
 let isFirstDraw = true
+// Load earlier: the session asked, how far from the bottom you read, and the items last drawn
+let earlierAsked = '', keepFromBottom = 0, earlierCount = 0
 let shownId = ''
 let filesTab = 'folder'
 // the Folder tab picks a file for the reply (the + menu's Browse project file) instead of opening it
@@ -374,6 +377,22 @@ function renderChat() {
   root.replaceChildren()
   const items = snap.transcript || []
   if (!items.length && !snap.busy) return root.append(el('div', 'empty', 'Nothing in this session yet.'))
+  // the session holds more turns than it sent: 20 more at a tap, the place you read kept
+  if (snap.hasEarlier) {
+    const more = root.appendChild(el('button', 'earlier', earlierAsked === snap.id ? 'Loading earlier turns…' : 'Load earlier turns'))
+    more.disabled = earlierAsked === snap.id
+    more.onclick = async () => {
+      earlierAsked = snap.id
+      keepFromBottom = document.documentElement.scrollHeight - scrollY
+      more.disabled = true
+      more.textContent = 'Loading earlier turns…'
+      const r = await api('earlier')
+      if (r.s !== 200) {
+        earlierAsked = ''
+        toast({ title: 'Not loaded', body: r.b?.error || 'The session did not answer. Try again.' })
+      }
+    }
+  }
   let tools = null
   for (const t of items) {
     // a command sent from here: its bubble, and what it printed or why it did not run
@@ -460,7 +479,7 @@ function renderChat() {
     }
     const head = w.appendChild(el('div', 'head'))
     head.appendChild(el('span', 'spin')).append(icon('spark'))
-    head.append(el('span', '', 'Working…'), el('span', 'elapsed', ''))
+    head.append(el('span', '', `${workingWord(snap.turnStartedAt)}…`), el('span', 'elapsed', ''))
     // Stop, after the time worked: a round button with a solid square; the turn ends as Esc ends it
     const stop = head.appendChild(el('button', 'stop'))
     stop.setAttribute('aria-label', 'Stop this turn')
@@ -472,6 +491,13 @@ function renderChat() {
     }
     tickElapsed()
   }
+}
+// The word on the Working line, as Claude Code's spinner has one: picked by the turn's start, so it
+// holds for the turn and changes with the next.
+const WORKING_WORDS = ['Working', 'Thinking', 'Pondering', 'Brewing', 'Tinkering', 'Crafting', 'Cooking', 'Conjuring', 'Computing', 'Mulling', 'Noodling', 'Puzzling', 'Hatching', 'Whittling', 'Forging', 'Assembling', 'Untangling', 'Wrangling', 'Percolating', 'Simmering', 'Ruminating', 'Deliberating', 'Scheming', 'Musing', 'Churning', 'Spinning', 'Shaping', 'Sketching', 'Polishing', 'Weaving']
+function workingWord(startedAt) {
+  const n = Math.floor(Number(startedAt) || 0)
+  return WORKING_WORDS[((n % WORKING_WORDS.length) + WORKING_WORDS.length) % WORKING_WORDS.length]
 }
 function tickElapsed() {
   const node = document.querySelector('.working .elapsed')
@@ -1020,7 +1046,9 @@ async function showFile(path, atLine) {
 // numbers and text, then what you wrote, sent as your prompt. Its status follows the session: sent,
 // working, waiting for the turn before it, done (render calls tickLineAsk on each state).
 let lineAsk = null // { session, status, sawBusy }
-function openLineAsk(body, path, picked, linesText) {
+// The box itself, for a line, a range (openLineAsk) or a diff's hunk (showDiff): `what` names what is
+// asked about, `hint` follows it dimmed, `compose` makes the prompt from what was written.
+function openAskBox(body, { what, hint = '', placeholder, compose }) {
   let bar = body.querySelector('.lineask')
   if (!bar) {
     // the same frame as the reply area: the box the whole width, the status and send under it
@@ -1035,6 +1063,7 @@ function openLineAsk(body, path, picked, linesText) {
       bar.remove()
       const mark = body.querySelector('.linemark')
       if (mark) mark.hidden = true
+      for (const h of body.querySelectorAll('.hblock.on')) h.classList.remove('on')
       lineAsk = null
     }
     head.append(el('div', 'what'), shut)
@@ -1056,8 +1085,7 @@ function openLineAsk(body, path, picked, linesText) {
     go.onclick = async () => {
       const ask = box.value.trim()
       if (!ask || !snap) return box.focus()
-      const at = bar.dataset
-      const text = LineAsk.lineAskText(mentionOf(at.path), Number(at.from), Number(at.to), bar.picked, ask)
+      const text = bar.compose(ask)
       go.disabled = true
       lineAsk = { session: snap.id, status: 'sending', sawBusy: false, wasBusy: Boolean(snap.busy) }
       tickLineAsk()
@@ -1074,17 +1102,24 @@ function openLineAsk(body, path, picked, linesText) {
       tickLineAsk()
     }
   }
-  Object.assign(bar.dataset, { path, from: String(picked.from), to: String(picked.to) })
-  // the lines' text, kept on the element: a range may be long for an attribute
-  bar.picked = linesText
-  const label = LineAsk.linesLabel(picked.from, picked.to)
-  const what = bar.querySelector('.what')
-  what.textContent = `${label[0].toUpperCase()}${label.slice(1)} · ${shortPath(path)}`
-  if (picked.from === picked.to) what.append(el('span', 'hint', ' · tap another number for a range'))
+  bar.compose = compose
+  const named = bar.querySelector('.what')
+  named.textContent = what
+  if (hint) named.append(el('span', 'hint', hint))
   const box = bar.querySelector('textarea')
-  box.placeholder = `Ask Claude about ${label}`
+  box.placeholder = placeholder
   box.focus()
 }
+function openLineAsk(body, path, picked, linesText) {
+  const label = LineAsk.linesLabel(picked.from, picked.to)
+  openAskBox(body, {
+    what: `${label[0].toUpperCase()}${label.slice(1)} · ${shortPath(path)}`,
+    hint: picked.from === picked.to ? ' · tap another number for a range' : '',
+    placeholder: `Ask Claude about ${label}`,
+    compose: ask => LineAsk.lineAskText(mentionOf(path), picked.from, picked.to, linesText, ask),
+  })
+}
+
 function tickLineAsk() {
   const node = document.querySelector('#viewer:not([hidden]) .lineask .status')
   if (!lineAsk || !node) return
@@ -1125,10 +1160,29 @@ async function showDiff(path) {
   const data = r.b || {}
   const diff = body.appendChild(el('div', 'diff'))
   const text = r.s === 200 ? data.diff || '(no changes against HEAD)' : data.error || 'Could not read the diff.'
+  // each hunk, from its @@ header to the next, a block: a tap marks it and opens the box to ask
+  // Claude about that change
+  let block = diff
   for (const line of text.split('\n')) {
+    if (line.startsWith('@@') && r.s === 200) {
+      block = diff.appendChild(el('div', 'hblock'))
+      const hb = block
+      hb.onclick = () => {
+        for (const h of diff.querySelectorAll('.hblock.on')) h.classList.remove('on')
+        hb.classList.add('on')
+        const hunk = [...hb.children].map(n => n.textContent).join('\n').replace(/\n+$/, '')
+        const at = LineAsk.hunkLines(hunk.split('\n')[0])
+        openAskBox(body, {
+          what: `The change at ${at ? LineAsk.linesLabel(at.from, at.to) : 'this hunk'} · ${shortPath(path)}`,
+          placeholder: 'Ask Claude about this change',
+          compose: ask => LineAsk.hunkAskText(mentionOf(path), hunk, ask),
+        })
+      }
+    }
     const cls = line.startsWith('+++') || line.startsWith('---') ? 'ctx' : line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : line.startsWith('@@') ? 'hunk' : ''
-    diff.append(el('div', cls, line || ' '))
+    block.append(el('div', cls, line || ' '))
   }
+  if (diff.querySelector('.hblock')) body.insertBefore(el('div', 'meta pad', 'Tap a change to ask Claude about it.'), diff)
 }
 
 // ---- Claude's question: every question at once, then Submit ---------------------------------------
@@ -1258,7 +1312,15 @@ function render() {
     lastVaultAt = note.at
   }
   renderHeader()
+  const shownTurns = (snap.transcript || []).length
   renderChat()
+  // earlier turns came in over the chat: the place you read stays where it was
+  if (keepFromBottom && earlierAsked === snap.id && shownTurns !== earlierCount) {
+    window.scrollTo(0, document.documentElement.scrollHeight - keepFromBottom)
+    keepFromBottom = 0
+    earlierAsked = ''
+  }
+  earlierCount = shownTurns
   void highlightChat()
   syncPromptNav()
   // the folder tab and a search stay as they are (nothing read again under the reader); the other
@@ -1443,6 +1505,35 @@ text.addEventListener('input', fitText)
 document.querySelector('.composer').addEventListener('click', e => { if (!e.target.closest('button')) text.focus() })
 $('send').onclick = () => sendText(text.value, true)
 $('unquote').onclick = dropQuote
+
+// The mic: the browser's speech recognition (Chrome, Safari) writes what you say into the box, in
+// the phone's language; a second tap stops it. Hidden where the browser has none.
+{
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition
+  const mic = $('mic')
+  if (!Recognition) mic.hidden = true
+  else {
+    let rec = null
+    mic.hidden = false
+    mic.onclick = () => {
+      if (rec) return rec.stop()
+      rec = new Recognition()
+      rec.lang = navigator.language || 'en-US'
+      rec.interimResults = false
+      rec.onresult = e => {
+        const said = [...e.results].map(r => r[0].transcript).join(' ').trim()
+        if (said) insertText(`${text.value && !/\s$/.test(text.value) ? ' ' : ''}${said}`)
+      }
+      rec.onerror = e => { if (e.error !== 'aborted' && e.error !== 'no-speech') toast({ title: 'No voice input', body: e.error === 'not-allowed' ? 'Allow the microphone for this page.' : e.error }) }
+      rec.onend = () => {
+        rec = null
+        mic.classList.remove('on')
+      }
+      mic.classList.add('on')
+      rec.start()
+    }
+  }
+}
 
 // ↑ ↓ over Newest: your message before, or after, the top of the chat as you read it
 function syncPromptNav() {

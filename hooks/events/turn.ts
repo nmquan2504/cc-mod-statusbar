@@ -24,6 +24,7 @@ const autoContinue = atom({ plugin: 'cc-mod-statusbar', key: 'autoContinue' } as
 const usage = atom({ plugin: 'cc-mod-statusbar', key: 'usage' } as const, null)
 // The files the main loop wrote this turn, with the lines each call added and removed.
 const edited = atom({ plugin: 'cc-mod-statusbar', key: 'edited' } as const, [])
+const tasks = atom({ plugin: 'cc-mod-statusbar', key: 'tasks' } as const, [])
 
 import type { On } from 'claude-code'
 
@@ -58,6 +59,7 @@ export function registerTurn(on: On) {
       rt.answerChips = []
       rt.suggestRound++
       rt.turnId = String((e as any).turnId ?? '')
+      rt.doneBefore = new Set((await read($, tasks)).filter(t => t.status === 'completed').map(t => t.id))
     }
     rt.turnStartedAt = await $.clock.now()
     rt.turnEndedAt = 0

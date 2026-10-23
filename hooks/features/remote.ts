@@ -7,7 +7,8 @@ import type { Page, PageName } from './pages'
 import { waitingPrompts } from './prompts'
 import { TOP_GROUP, USE_KEY, groupOf } from './commands'
 import { modVersionShort } from './update'
-import { forgetSecret, listSecrets, saveTyped } from './vault'
+import { forgetSecret, listSecrets, saveTyped, scrub } from './vault'
+import { maskSecrets } from '../lib/mask'
 import { cfg } from '../state/config'
 import { ME, rt } from '../state/runtime'
 
@@ -98,6 +99,9 @@ export const remote = {
   // the conversation as the phone shows it, as the terminal draws it: read at a turn's start and
   // end, and every tick while a phone watches a turn run
   transcript: [] as TranscriptItem[],
+  // how many turns the phone is sent (TURNS_MAX, raised by Load earlier), and whether there are more
+  turnsMax: 20,
+  hasEarlier: false,
   // the pairing requests a toast already announced
   announced: [] as string[],
   lastAt: 0,
@@ -488,8 +492,24 @@ function toolItem(u: any, cwd: string): TranscriptItem {
   return item
 }
 
+// What the phone is shown of a text: the vault's values as [secret:NAME] (scrub), and any other
+// string shaped like a secret cut to its first characters (lib/mask.ts).
+export const hide = (s: string) => maskSecrets(scrub(s))
+function hideItem(it: TranscriptItem): TranscriptItem {
+  if (it.k === 'user' || it.k === 'text') return { ...it, text: hide(it.text) }
+  if (it.k === 'cmd') return { ...it, command: hide(it.command), text: hide(it.text) }
+  if (it.k !== 'tool') return it
+  const out: TranscriptItem = { ...it, arg: hide(it.arg) }
+  if (it.out !== undefined) out.out = hide(it.out)
+  if (it.old !== undefined) out.old = hide(it.old)
+  if (it.new !== undefined) out.new = hide(it.new)
+  if (it.qa) out.qa = it.qa.map(x => ({ q: hide(x.q), a: hide(x.a) }))
+  return out
+}
+
 // The session's messages as the terminal draws them: the last TURNS_MAX turns, long ones trimmed.
-export function transcriptOf(list: readonly any[], cwd: string, cmds: readonly { anchor: number; command: string; text: string; isError: boolean }[] = [], mids: readonly MidTurn[] = [], typed: readonly string[] = []) {
+// `max`: the turns kept, the last; `info.turns` is set to how many there are in all.
+export function transcriptOf(list: readonly any[], cwd: string, cmds: readonly { anchor: number; command: string; text: string; isError: boolean }[] = [], mids: readonly MidTurn[] = [], typed: readonly string[] = [], max = TURNS_MAX, info?: { turns: number }) {
   const items: TranscriptItem[] = []
   // a command run from the phone is in no message: it goes where the session stood when it ran
   const cmdsAt = (from: number, to: number) => {
@@ -518,7 +538,8 @@ export function transcriptOf(list: readonly any[], cwd: string, cmds: readonly {
     if (it.k === 'user' || it.k === 'cmd' || !turns.length) turns.push([])
     turns[turns.length - 1]!.push(it)
   }
-  return turns.slice(-TURNS_MAX).flatMap(trimTurn)
+  if (info) info.turns = turns.length
+  return turns.slice(-max).flatMap(trimTurn)
 }
 
 // A turn with more than TOOLS_PER_TURN tool calls: its prompt and Claude's text all kept, its
@@ -661,11 +682,13 @@ export async function readRemoteMessages($: any, isFinal = false) {
   await readMemory($)
   await readCommands($)
   await readTitle($)
-  remote.transcript = transcriptOf(list, cwd, remote.cmdLog, await midTurnOf($, list.length, isFinal), await read($, typedPrompts))
+  const info = { turns: 0 }
+  remote.transcript = transcriptOf(list, cwd, remote.cmdLog, await midTurnOf($, list.length, isFinal), await read($, typedPrompts), remote.turnsMax, info).map(hideItem)
+  remote.hasEarlier = info.turns > remote.turnsMax
   remote.lastAt = Date.now()
   // a sent text the transcript now shows, or one two minutes old, leaves the sending list
   const shown = new Set(remote.transcript.filter(t => t.k === 'user').map(t => (t as { text: string }).text.trim()))
-  remote.sending = remote.sending.filter(s => !shown.has(s.text.trim()) && Date.now() - s.at < 120_000)
+  remote.sending = remote.sending.filter(s => !shown.has(hide(s.text).trim()) && Date.now() - s.at < 120_000)
 }
 
 async function snapshotOf($: any) {
@@ -684,18 +707,21 @@ async function snapshotOf($: any) {
     home: (await $.env.get('HOME').catch(() => '')) ?? '',
     busy: rt.isBusy,
     turnStartedAt: rt.isBusy ? rt.turnStartedAt : 0,
-    prompt: oneLine(rt.turnPrompt, 200),
-    nowTool: rt.nowTool,
-    tools: rt.turnTools.slice(-30),
-    tasks: (await read($, tasks)).map(t => ({ subject: t.subject, status: t.status })),
-    summary: turn ? { did: turn.did, result: turn.result, took: turn.took, cost: turn.cost } : null,
+    prompt: hide(oneLine(rt.turnPrompt, 200)),
+    nowTool: hide(rt.nowTool),
+    tools: rt.turnTools.slice(-30).map(hide),
+    // the task list without what earlier turns completed
+    tasks: (await read($, tasks)).filter(t => !(t.status === 'completed' && rt.doneBefore.has(t.id))).map(t => ({ subject: hide(t.subject), status: t.status })),
+    summary: turn ? { did: hide(turn.did), result: hide(turn.result), took: turn.took, cost: turn.cost } : null,
     edited: await read($, edited),
     changes: await read($, changes),
     images: (await read($, images)).map(i => ({ n: i.n, path: i.path, bytes: i.bytes })),
     usage: { five: b.five, week: b.week, ctx: u?.ctxPercent ?? null, cost: u?.costUsd ?? null, limits: u?.rateLimits ?? [], tokens: u?.tokens ?? null, window: u?.window ?? 0, startedAt: u?.startedAt ?? 0 },
     transcript: remote.transcript,
-    queued: remote.queue,
-    sending: remote.sending.map(s => s.text),
+    // more turns than sent: the phone offers Load earlier
+    hasEarlier: remote.hasEarlier,
+    queued: remote.queue.map(hide),
+    sending: remote.sending.map(s => hide(s.text)),
     // what the phone may browse: the session's folder and the folders added; what is in context
     roots: [await $.session.cwd().catch(() => ''), ...remote.context.dirs].filter(Boolean),
     context: remote.context,
@@ -707,7 +733,7 @@ async function snapshotOf($: any) {
     // the question Claude waits on, for the phone to answer
     ask: ask.pending && !ask.pending.result ? { id: ask.pending.id, questions: ask.pending.questions } : null,
     // the permission prompts waiting for the person, shown on the phone; answered at the computer
-    permissions: waitingPrompts(Date.now()),
+    permissions: waitingPrompts(Date.now()).map(p => ({ ...p, text: hide(p.text) })),
     // the pages the phone opened in the last ten minutes
     pages: Object.values(remote.pages).filter(p => Date.now() - p!.at < 600_000),
     // the mod's version this session loaded, for the foot of the phone's drawer
@@ -771,6 +797,12 @@ export async function tickRemote($: any) {
   for (const t of Array.isArray(inbox?.unqueue) ? inbox.unqueue : []) {
     const at = remote.queue.findIndex(q => q.trim() === String(t).trim())
     if (at >= 0) remote.queue = remote.queue.filter((_, i) => i !== at)
+  }
+  // Load earlier on the phone: 20 turns more, 100 at most, sent at once
+  if (inbox?.earlier === true && remote.hasEarlier) {
+    remote.turnsMax = Math.min(remote.turnsMax + 20, 100)
+    await readRemoteMessages($)
+    await hub($, 'POST', `/session?id=${encodeURIComponent(id)}`, await snapshotOf($))
   }
   // Stop on the phone: the running turn ends as Esc ends it; the texts waiting for it stay queued
   if (inbox?.stop === true && rt.isBusy && rt.turnId) {

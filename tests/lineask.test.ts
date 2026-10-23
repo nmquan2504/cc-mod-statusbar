@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { lineAskPhase, lineAskText, lineAt, linesLabel, pickLines } from '../remote/lineask.mjs'
+import { hunkAskText, hunkLines, lineAskPhase, lineAskText, lineAt, linesLabel, pickLines } from '../remote/lineask.mjs'
 import type { LineAskState } from '../remote/lineask.mjs'
 
 // The phone's box for asking Claude about one line of a file (remote/lineask.mjs; the page wires it
@@ -38,6 +38,18 @@ test('the prompt: the file as @path, the lines and their text fenced, then the q
   // a path with a space keeps its quotes; lines holding backticks get a longer fence
   expect(lineAskText('@"docs/read me.md"', 3, 3, 'Run ```npm test``` first', 'reword this')).toBe(
     '@"docs/read me.md" line 3:\n````\nRun ```npm test``` first\n````\nreword this',
+  )
+})
+
+test('a diff hunk: the lines it touches from its header, and the prompt holding it as a diff', () => {
+  expect(hunkLines('@@ -12,4 +12,6 @@ function login()')).toEqual({ from: 12, to: 17 })
+  expect(hunkLines('@@ -3 +3 @@')).toEqual({ from: 3, to: 3 })
+  // a hunk that only removes: the line it was at
+  expect(hunkLines('@@ -8,2 +7,0 @@')).toEqual({ from: 7, to: 7 })
+  expect(hunkLines('not a header')).toBeNull()
+  const hunk = '@@ -1,2 +1,2 @@\n-const a = 1\n+const a = 2\n b()'
+  expect(hunkAskText('@src/a.ts', hunk, 'why the change?')).toBe(
+    '@src/a.ts, the change at lines 1-2:\n```diff\n@@ -1,2 +1,2 @@\n-const a = 1\n+const a = 2\n b()\n```\nwhy the change?',
   )
 })
 

@@ -353,6 +353,13 @@ async function answerOp(dev, id, op, a, res) {
       bump()
       return [200, { ok: true }]
     }
+    // Load earlier: the session sends more of its turns at its next call
+    case 'earlier': {
+      const s = sessions.get(session)
+      if (!s) return [400, { error: 'That session is gone.' }]
+      s.earlier = true
+      return [200, { ok: true }]
+    }
     // Stop: the session ends its running turn at its next call
     case 'stop': {
       const s = sessions.get(session)
@@ -592,12 +599,14 @@ const ctl = createServer(async (req, res) => {
     const secrets = s?.secrets ?? []
     const pages = s?.pages ?? []
     const stop = s?.stop === true
+    const earlier = s?.earlier === true
     const unqueue = s?.unqueue ?? []
     if (s) {
       delete s.answer
       delete s.secrets
       delete s.pages
       delete s.stop
+      delete s.earlier
       delete s.unqueue
     }
     // the texts stay on the phone as sent until the session's next snapshot says where they are
@@ -606,7 +615,7 @@ const ctl = createServer(async (req, res) => {
       s.text = ''
       bump()
     }
-    return send(res, 200, { texts, answer, secrets, pages, stop, unqueue })
+    return send(res, 200, { texts, answer, secrets, pages, stop, unqueue, earlier })
   }
   if (route === 'POST /bye') {
     if (sessions.delete(id)) bump()
