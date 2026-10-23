@@ -1,5 +1,5 @@
 import { suggestionChips } from '../lib/suggest'
-import { remote } from './remote'
+import { noteAddDir, remote } from './remote'
 import { rt } from '../state/runtime'
 
 // The chips under Claude's last answer, while no turn runs: Claude Code's own next-prompt
@@ -20,6 +20,9 @@ export async function sendChip($: any, text: string) {
   rt.answerChips = []
   remote.suggestion = ''
   $.ui.invalidate('ui.render')
-  if (m) return $.command.run({ command: m[1]!, args: (m[2] ?? '').trim() })
+  if (m) {
+    noteAddDir(m[1]!, m[2] ?? '') // a plugin's own command.run passes its hooks by
+    return $.command.run({ command: m[1]!, args: (m[2] ?? '').trim() })
+  }
   return $.prompt.submit({ text, asUser: true })
 }

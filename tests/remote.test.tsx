@@ -549,3 +549,25 @@ test('a panel\'s command as a page on the phone: built on ask, a press carried o
   await clock.advance(2000)
   expect(pageOf('exit')).toBeUndefined()
 })
+
+test('a folder given to /add-dir reaches the phone once Claude may read there', async ($, on) => {
+  const snapshots: any[] = []
+  engine(on, { hub: (path, body) => (path === '/session' && snapshots.push(JSON.parse(body)), STATUS) })
+  on('session.surfaces', () => ({ value: ['terminal'] }))
+  on('command.run', () => ({ text: '' }))
+  // the engine took /work/lib as a working folder; /etc it was never given or turned down
+  on('tool.check', (_: unknown, e: any) => ({ decision: String(e.input?.file_path ?? '').startsWith('/work/lib/') ? 'allow' : 'ask' }))
+  on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
+  on('ui.status', () => ({ value: undefined }))
+  on('agent.list', () => ({ value: [] }))
+  on('tool.register', (_: unknown, e: { name: string }) => ({ value: { tool: e.name } }))
+  on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
+  const clock = mock.clock(on)
+  await ($ as any).session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+  const band = await $.ui.mount({ plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await $.command.run({ command: 'add-dir', args: '/work/lib' })
+  await $.command.run({ command: 'add-dir', args: '/etc' })
+  await switchOn(band) // joining reads the folders
+  await clock.advance(2000)
+  expect(snapshots.at(-1).roots).toEqual(['/work/shop', '/work/lib'])
+})

@@ -35,8 +35,6 @@ export const rt = {
   lastHint: '',
   // The mode as the permission checks give it now (probeMode), the bar's first source.
   probedMode: undefined as string | undefined,
-  // Set when StopFailure says the turn died on the rate limit; a fallback reads the windows
-  isLimitStop: false,
   // The turn now running was the auto-continue's own "continue"
   isContinueTurn: false,
   continueTries: 0,
