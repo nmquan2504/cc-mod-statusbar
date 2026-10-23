@@ -14,7 +14,7 @@
 // the person presses Allow in a terminal. Cloudflare sees sizes and times, never content. Started detached by
 // the first mod (`node server.mjs <dir> <idleMinutes>`); it stops itself when no session has
 // called in for two minutes, or no phone has for idleMinutes. Node 18 or newer; no packages.
-import { execFile, spawn } from 'node:child_process'
+import { execFile, execFileSync, spawn } from 'node:child_process'
 import { generateKeyPairSync, randomBytes, randomInt, sign } from 'node:crypto'
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { Resolver } from 'node:dns/promises'
@@ -43,6 +43,14 @@ if (!DIR) process.exit(2)
 mkdirSync(DIR, { recursive: true, mode: 0o700 })
 chmodSync(DIR, 0o700)
 const SOCK = join(DIR, 'hub.sock')
+// the mod's version this hub was started from, as the mod's modVersionShort writes it ("0.2.1 ·
+// d0a0466"): a session that loaded another tells the person to restart the hub
+const HUB_VERSION = (() => {
+  let version = '', commit = ''
+  try { version = String(JSON.parse(readFileSync(join(HERE, '..', '.claude-plugin', 'plugin.json'), 'utf8')).version ?? '') } catch {}
+  try { commit = execFileSync('git', ['-C', HERE, 'log', '-1', '--format=%h'], { encoding: 'utf8', timeout: 5000 }).trim() } catch {}
+  return [version, commit].filter(Boolean).join(' · ')
+})()
 const log = text => { try { writeFileSync(join(DIR, 'hub.log'), `${new Date().toISOString()} ${text}\n`, { flag: 'a' }) } catch {} }
 
 // ---- state --------------------------------------------------------------------------------
@@ -480,6 +488,7 @@ const pub = createServer(async (req, res) => {
 function statusOf() {
   return {
     pid: process.pid,
+    version: HUB_VERSION,
     url: tunnelUrl,
     link: tunnelUrl ? `${tunnelUrl}/#k=${TOKEN}` : '',
     error: tunnelError,

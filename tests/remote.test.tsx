@@ -25,7 +25,7 @@ const ran = (stdout = '') => ({ exitCode: 0, stdout, stderr: '', isStdoutTruncat
 
 // where the tools are, as the lookup script answers: a test takes one away by setting it to ''
 type Tools = { cloudflared: string; brew: string }
-function engine(on: any, opts: { argvs?: string[][]; hub?: (path: string, body: string) => unknown; toasts?: string[]; tools?: Tools } = {}) {
+function engine(on: any, opts: { argvs?: string[][]; hub?: (path: string, body: string) => unknown; toasts?: string[]; tools?: Tools; run?: (argv: string[]) => unknown } = {}) {
   const tools = opts.tools ?? { cloudflared: '/opt/homebrew/bin/cloudflared', brew: '/opt/homebrew/bin/brew' }
   const store = new Map<string, unknown>()
   on('store.get', (_: unknown, e: any) => ({ value: store.get(e.key) }))
@@ -39,6 +39,8 @@ function engine(on: any, opts: { argvs?: string[][]; hub?: (path: string, body: 
   on('settings.read', () => ({ value: { permissions: { deny: ['Read(./.env)'] }, hooks: { PreToolUse: [] } } }))
   on('process.run', async (_: unknown, e: { argv: string[] }) => {
     opts.argvs?.push(e.argv)
+    const given = opts.run?.(e.argv)
+    if (given) return { value: given }
     // a question's hook sleeps in process.run while it waits: a short real wait, as the shell's
     if (e.argv[0] === 'sleep') await new Promise(r => setTimeout(r, 5))
     if (e.argv[0] === '/bin/sh' && e.argv[2]?.includes('command -v'))
@@ -431,6 +433,48 @@ test('the QR code shows after a Start until the menu shuts; a hub already up kee
   expect(await textOf(band)).not.toContain('█▀')
 })
 
+test('a hub started from other code: the menu says which and restarts it on two presses', async ($, on) => {
+  const argvs: string[][] = []
+  const asked: string[] = []
+  let hubVersion = '0.2.0 · aaaaaaa'
+  let isUp = true
+  engine(on, {
+    argvs,
+    run: argv => argv[0] === 'cat' ? ran('{"version":"0.2.1"}')
+      : argv[0] === 'git' && argv.includes('log') ? ran('bbbbbbb 1761190860\n') : undefined,
+    hub: path => {
+      asked.push(path)
+      if (path === '/stop') isUp = false
+      return isUp ? { ...STATUS, pending: [], version: hubVersion } : undefined
+    },
+  })
+  on('session.surfaces', () => ({ value: ['terminal'] }))
+  on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
+  on('ui.status', () => ({ value: undefined }))
+  on('agent.list', () => ({ value: [] }))
+  on('tool.register', (_: unknown, e: { name: string }) => ({ value: { tool: e.name } }))
+  on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
+  const clock = mock.clock(on)
+  await ($ as any).session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+  const band = await $.ui.mount({ plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await switchOn(band)
+  await clock.advance(2000)
+  await band.press({ key: 'remote' })
+  expect(await textOf(band)).toContain('The hub runs 0.2.0 · aaaaaaa; this session loaded 0.2.1 · bbbbbbb.')
+  await band.press({ key: 'remote-restart' })
+  await band.press({ key: 'remote-restart' })
+  expect(asked).toContain('/stop')
+  expect(argvs.some(a => a[0] === '/bin/sh' && a[2]!.includes('nohup'))).toBe(true)
+  // the same code: nothing to say
+  isUp = true
+  hubVersion = '0.2.1 · bbbbbbb'
+  await clock.advance(2000)
+  await band.press({ key: 'close-menu' })
+  await band.press({ key: 'remote' })
+  expect(await textOf(band)).not.toContain('The hub runs')
+  expect(await band.find({ key: 'remote-restart' })).toBeUndefined()
+})
+
 test('from the phone a built-in runs only when it prints text or takes a value; a panel stays on the computer', () => {
   expect(phoneMayRun('humanizer', '', false)).toBe(true) // a skill hands the model a prompt
   expect(phoneMayRun('compact', '', true)).toBe(true)
@@ -548,8 +592,17 @@ test('a panel\'s command as a page on the phone: built on ask, a press carried o
     { key: 'theme', label: 'Theme', kind: 'choice', value: 'dark', options: ['dark', 'light'], provider: { plugin: 'engine' }, isLocked: true },
   ] as never }))
   on('config.set', (_: unknown, e: any) => (set.push(e), { value: e.value }))
-  on('fs.exists', () => ({ value: false }))
+  // the file as last written, read back
+  on('fs.exists', (_: unknown, e: any) => ({ value: e.path in written }))
+  on('fs.read', (_: unknown, e: any) => ({ value: written[e.path] ?? '' }))
   on('fs.write', (_: unknown, e: any) => ((written[e.path] = e.text), { value: undefined }))
+  // the terminal's answer to the phone's request to loosen the guard
+  const asked: string[] = []
+  let answer = 'Allow'
+  on('tool.call', { tool: 'AskUserQuestion' }, (_: unknown, e: any) => {
+    asked.push(e.questions[0].question)
+    return { result: { questions: e.questions, answers: { [e.questions[0].question]: answer } } }
+  })
   on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
   on('ui.status', () => ({ value: undefined }))
   on('agent.list', () => ({ value: [] }))
@@ -578,7 +631,20 @@ test('a panel\'s command as a page on the phone: built on ask, a press carried o
   await clock.advance(2000)
   expect(set).toEqual([expect.objectContaining({ key: 'verbose', value: true })])
   expect(pageOf('config').error).toBe('Your organization sets this one.')
-  // /permissions: a rule added goes to .claude/settings.local.json; a malformed one is refused
+  // /permissions: a rule added goes to .claude/settings.local.json; a malformed one is refused.
+  // An ask or deny rule goes in at once; an allow rule waits for Allow in the terminal
+  inbox = [{ cmd: 'permissions', key: 'add', value: 'deny\nRead(./secrets/**)' }]
+  await clock.advance(2000)
+  expect(JSON.parse(written['/work/shop/.claude/settings.local.json']!).permissions.deny).toEqual(['Read(./secrets/**)'])
+  expect(asked).toEqual([])
+  answer = 'Deny'
+  inbox = [{ cmd: 'permissions', key: 'add', value: 'allow\nBash(npm test:*)' }]
+  await clock.advance(2000)
+  expect(asked[0]).toContain('add the allow rule Bash(npm test:*)')
+  // asked in the terminal's own dialog: never on the phone, which could answer for itself
+  expect(snapshots.some(s => s.ask)).toBe(false)
+  expect(JSON.parse(written['/work/shop/.claude/settings.local.json']!).permissions.allow).toBeUndefined()
+  answer = 'Allow'
   inbox = [{ cmd: 'permissions', key: 'add', value: 'allow\nBash(npm test:*)' }]
   await clock.advance(2000)
   expect(JSON.parse(written['/work/shop/.claude/settings.local.json']!).permissions.allow).toEqual(['Bash(npm test:*)'])

@@ -5,7 +5,7 @@ import { ARENA_GAP, ARENA_MIN, arena, arenaRuns, endRound, resetArena } from '..
 import { closeMenu, openMenu } from '../features/menu'
 import { ask, showAsk } from '../features/ask'
 import { isRemoteWaiting, pendingPairs, remote, secondsToPair, spinnerFrame } from '../features/remote'
-import { pullModUpdate } from '../features/update'
+import { updateNow } from '../features/update'
 import { TITLES, effortColor, effortIcon, modeStyle, modelStyle } from '../lib/catalog'
 import { clockOf, level, meter, oneLine, pct, shortModel } from '../lib/format'
 import { GAUGE_CELLS, TRACK, gaugeColors, hex, inGauge } from '../lib/graphics'
@@ -134,7 +134,7 @@ export async function drawBand($: any, e: any, next: any) {
   // ✘ npm run: a background command failed or logged an error; a press opens its log
   const broken = failedTask()
   const brokenLabel = broken ? ` ✘ ${taskName(broken.command)} ` : ''
-  // ↑ mod: the mod's own repository has new commits upstream; a press asks, then pulls them
+  // ↑ mod: the mod's own repository has new commits upstream; a press pulls them and reloads
   const updateLabel = rt.modBehind ? ' ↑ mod ' : ''
   // ? Claude asks: a question waits and its menu is shut; a press opens it again
   const askLabel = ask.pending && !ask.pending.result && open !== 'ask' ? ' ? Claude asks ' : ''
@@ -402,7 +402,7 @@ export async function drawBand($: any, e: any, next: any) {
             </Button>
           ) : null}
           {updateLabel ? (
-            <Button key="update" plain hover={{ scope: 'qsb-update', bold: true }} onPress={() => pullModUpdate($)}>
+            <Button key="update" plain hover={{ scope: 'qsb-update', bold: true }} onPress={() => updateNow($)}>
               <Text backgroundColor="suggestion" color="inverseText" bold>{updateLabel}</Text>
             </Button>
           ) : null}

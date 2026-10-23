@@ -210,12 +210,31 @@ export async function pageAction($: any, name: PageName, key: string, value: unk
     const [list, rule] = key === 'add' ? String(value ?? '').split('\n', 2).map(s => s.trim()) : [key.split(':')[1], key.split(':').slice(2).join(':')]
     if (!(LISTS as readonly string[]).includes(list ?? '')) return 'Pick allow, ask or deny.'
     if (!rule || !RULE.test(rule)) return 'Write the rule as Tool or Tool(pattern), such as Bash(npm test:*).'
-    await editLocalSettings($, json => {
-      json.permissions ??= {}
-      const now: string[] = json.permissions[list!] ?? []
-      json.permissions[list!] = key === 'add' ? (now.includes(rule) ? now : [...now, rule]) : now.filter(r => r !== rule)
-    })
-    await logAudit($, `${key === 'add' ? 'added' : 'removed'} ${list} rule ${rule} in .claude/settings.local.json, from the phone`).catch(() => undefined)
+    const what = `${key === 'add' ? 'added' : 'removed'} ${list} rule ${rule} in .claude/settings.local.json`
+    const apply = async () => {
+      await editLocalSettings($, json => {
+        json.permissions ??= {}
+        const now: string[] = json.permissions[list!] ?? []
+        json.permissions[list!] = key === 'add' ? (now.includes(rule) ? now : [...now, rule]) : now.filter(r => r !== rule)
+      })
+      await logAudit($, `${what}, from the phone`).catch(() => undefined)
+    }
+    // an allow rule added or a deny rule taken away loosens the guard: whoever holds the phone
+    // waits for Allow in the terminal, as pairing does; the page says so meanwhile
+    if ((key === 'add' && list === 'allow') || (key !== 'add' && list === 'deny')) {
+      then((async () => {
+        const ALLOW = 'Allow'
+        const answer = await $.ui.ask(`The phone asks to ${key === 'add' ? 'add the allow rule' : 'remove the deny rule'} ${rule} in .claude/settings.local.json, which lets Claude do more without asking. Allow it?`, {
+          header: 'Phone',
+          options: [ALLOW, 'Deny'],
+        }).catch(() => undefined)
+        if (answer === ALLOW) return apply()
+        await logAudit($, `refused: the phone ${what.replace(/^added/, 'would have added').replace(/^removed/, 'would have removed')}`).catch(() => undefined)
+        $.ui.toast(`statusbar: remote: the phone's ${list} rule change was not made`)
+      })())
+      return 'Waiting for Allow in the terminal: this rule lets Claude do more without asking.'
+    }
+    await apply()
     return ''
   }
   if (name === 'context' && key === 'count') {

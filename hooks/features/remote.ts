@@ -27,6 +27,8 @@ const usage = atom({ plugin: 'cc-mod-statusbar', key: 'usage' } as const, null)
 // that asks, so it outlives that session; every session with the setting on joins it, and the
 // phone picks one. The hub listens on a Unix socket in a folder only this user can open.
 export type RemoteStatus = {
+  // the mod's version the hub was started from ("0.2.1 · d0a0466"); absent from a hub before it
+  version?: string
   url: string
   link: string
   error: string
@@ -220,6 +222,19 @@ export async function stopRemote($: any) {
   remote.isJoined = false
   remote.isStarting = false
   $.ui.invalidate('ui.render')
+}
+
+// The hub runs code other than this session's: started before a pull, or by a session that loaded
+// another version. A hub from before the hubs said their version counts as other.
+export const hubIsOther = () => Boolean(remote.status && modVersionShort() && remote.status.version !== modVersionShort())
+
+// Stop the hub, wait for it to go (its socket answers no more), and start it from this session's
+// code. The tunnel's address and the pairing key change: every phone scans and is allowed again.
+export async function restartRemote($: any) {
+  await stopRemote($)
+  for (let i = 0; i < 20 && (await readRemote($)); i++) await $.clock.sleep(250)
+  remote.status = null
+  await startRemote($)
 }
 
 export async function answerPairing($: any, id: string, isAllowed: boolean) {
@@ -643,6 +658,8 @@ async function snapshotOf($: any) {
     effort: b.effort ?? null,
     mode: rt.drawnMode ?? b.mode,
     cwd: await $.session.cwd().catch(() => ''),
+    // the home folder, which the phone writes as ~ in the paths it shows
+    home: (await $.env.get('HOME').catch(() => '')) ?? '',
     busy: rt.isBusy,
     turnStartedAt: rt.isBusy ? rt.turnStartedAt : 0,
     prompt: oneLine(rt.turnPrompt, 200),
