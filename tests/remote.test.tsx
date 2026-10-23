@@ -208,7 +208,7 @@ test('the transcript reads as the terminal: prompts without reminders, text, too
   ], '/work/shop')
   expect(items).toEqual([
     { k: 'user', text: 'fix the test' },
-    { k: 'user', text: '/model opus' },
+    // /model opus, typed in the terminal, stays off the phone
     { k: 'text', text: 'Reading it first.' },
     { k: 'tool', id: 'a', name: 'Read', arg: 'src/qr.ts', path: '/work/shop/src/qr.ts', out: 'Read 3 lines', isError: undefined },
     { k: 'tool', id: 'b', name: 'Update', arg: 'src/qr.ts', path: '/work/shop/src/qr.ts', out: 'updated', isError: undefined, old: 'x = 1', new: 'x = 2' },
@@ -728,7 +728,7 @@ test('a command sent from the phone takes its place in the transcript, where the
   expect(items.map(t => (t.k === 'cmd' ? t.command : t.k === 'user' || t.k === 'text' ? t.text : t.k))).toEqual(['first', 'one', '/secrets', 'second', 'two', '/compact'])
 })
 
-test('a command typed in the terminal: what it printed goes under it, not in a bubble of yours', () => {
+test('a command typed in the terminal, and what it printed, stay off the phone', () => {
   const items = transcriptOf([
     { role: 'user', text: '<local-command-caveat>The command below was run directly in Claude Code.</local-command-caveat>', toolUses: [] },
     { role: 'user', text: '<command-name>/compact</command-name>\n<command-message>compact</command-message>\n<command-args></command-args>', toolUses: [] },
@@ -737,7 +737,6 @@ test('a command typed in the terminal: what it printed goes under it, not in a b
     { role: 'user', text: '[Image #3] fix this', toolUses: [] },
   ], '/w')
   expect(items).toEqual([
-    { k: 'cmd', command: '/compact', text: 'Compacted (ctrl+o to see full summary)', isError: false },
     { k: 'user', text: '[Image #3] fix this' },
   ])
 })
