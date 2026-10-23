@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 import { ASK_KEY, rulesFor } from '../hooks/features/permissions'
-import { suggestionChips, suggestionsIn } from '../hooks/lib/suggest'
+import { suggestPrompt, suggestionChips, suggestionsFrom } from '../hooks/lib/suggest'
 import { SHOW_MS, WAIT_MS, clearPrompts, duePrompts, noteCheck, noteSpinner, permissionQuestion, prompts, verdictOf, waitingPrompts } from '../hooks/features/prompts'
 
 // The hooks registered here sit beneath the plugin and stand for the engine: the model,
@@ -2061,51 +2061,74 @@ test('a permission prompt asked in the band and on the phone: Yes, Yes always, N
   expect(verdictOf(undefined, rule).decision).toBe('deny')
 })
 
-test('what the last answer suggests sending is read by rule, three at most', () => {
-  const said = (lines: string[]) => suggestionsIn(lines.join('\n'))
-  expect(said(['Done: the tests pass.', 'Next: run `/reload-plugins`. If it looks right, say "Push and open a PR".'])).toEqual(['Push and open a PR', '/reload-plugins'])
-  expect(said(['Đã merge.', 'Tiếp theo: nói "Xóa nhánh" thì mình xóa nhánh.'])).toEqual(['Xóa nhánh'])
-  expect(said(['Choose one:', '- **"Cho xóa":** you allow the rm -rf', '- **"Không xóa":** keep the folders'])).toEqual(['Cho xóa', 'Không xóa'])
-  expect(said(['Found it.', 'Bạn có muốn mình sửa luôn không?'])).toEqual(['Có', 'Không'])
-  expect(said(['Found it.', 'Want me to fix it now?'])).toEqual(['Yes', 'No'])
-  // a command only named, a bold label, a table row and a plain question suggest nothing
-  expect(said(['The `/usage` page shows it.', '**Checks:** all pass', '| say "x" | y |', 'Why did it fail?'])).toEqual([])
-  // the closing lines only: what an answer said early on is not what it suggests now
-  expect(said(['Say "early"', ...Array.from({ length: 8 }, (_, i) => `line ${i}`)])).toEqual([])
-  expect(said(['say "a"', 'say "b"', 'say "c"', 'say "d"'])).toEqual(['a', 'b', 'c'])
-  // Claude Code's own suggestion first, the same text once
-  expect(suggestionChips('run the tests', ['Run the tests', 'Merge pr', 'x', 'y'])).toEqual(['run the tests', 'Merge pr', 'x'])
+test('Haiku is asked for three prompts at most; its reply becomes chips; Claude Code\'s own suggestion wins', () => {
+  const asked = suggestPrompt('fix the login', 'Fixed. Want me to open a PR?')
+  expect(asked).toContain('at most 3 short prompts')
+  expect(asked).toContain('Their request: fix the login')
+  expect(asked).toContain("Claude's answer (its end): Fixed. Want me to open a PR?")
+  // list marks and quotes come off, each once, three at most; NONE and a paragraph are no chip
+  expect(suggestionsFrom('1. "Open the PR"\n- /reload-plugins\nopen the pr\nNONE\n\nShip it\nfourth')).toEqual(['Open the PR', '/reload-plugins', 'Ship it'])
+  expect(suggestionsFrom('NONE')).toEqual([])
+  expect(suggestionsFrom('x'.repeat(81))).toEqual([])
+  // Claude Code's own suggestion alone when it made one, else Haiku's
+  expect(suggestionChips('run the tests', ['Merge pr', 'x'])).toEqual(['run the tests'])
+  expect(suggestionChips('', ['Merge pr', 'x', 'y', 'z'])).toEqual(['Merge pr', 'x', 'y'])
 })
 
-test('the band shows the chips once a turn ends; a press sends the chip, a /command runs it', async ($, on) => {
+test('after an answer the chips are Claude Code\'s suggestion, else Haiku\'s three seconds on; a press sends one', async ($, on) => {
   engine(on)
+  const clock = mock.clock(on)
   const submitted: string[] = []
   const ran: string[] = []
+  const asked: any[] = []
   on('prompt.submit', (_: unknown, e: any) => (submitted.push(e.text), { text: e.text }))
   on('command.run', (_: unknown, e: any) => (ran.push(`${e.command} ${e.args}`.trim()), { text: '' }))
+  on('prompt.suggest', () => ({ isShown: true }))
+  on('model.complete', (_: unknown, e: any) => (asked.push(e), { value: { isAnswered: true, text: 'Merge pr\n/reload-plugins\n3. "Xóa nhánh"', usage: USAGE } }))
   on('turn.start', () => ({ turnId: 't1' }))
   on('turn.complete', () => ({ text: 'ok' }))
   const t = $ as any
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
-  await t.turn.start({ text: 'go', turnId: 't1', kind: 'engine' })
-  await t.turn.complete({ text: 'ok', reason: 'answer', answer: 'Done.\nNext: run `/reload-plugins`, then say "Merge pr".' })
+  await t.turn.start({ text: 'merge it', turnId: 't1', kind: 'engine' })
+  await t.turn.complete({ text: 'ok', reason: 'answer', answer: 'Done. Want me to merge?' })
+  // Claude Code gets three seconds to make its own; then Haiku is asked
+  expect(await band.find({ key: 'chip:0' })).toBeUndefined()
+  await clock.advance(3000)
+  expect(asked).toHaveLength(1)
+  expect(asked[0]).toMatchObject({ model: 'haiku' })
+  expect(asked[0].prompt).toContain('Their request: merge it')
+  expect(asked[0].prompt).toContain('Done. Want me to merge?')
   expect((await band.find({ key: 'chip:0' }))?.text).toBe('‹ Merge pr ›')
   expect((await band.find({ key: 'chip:1' }))?.text).toBe('‹ /reload-plugins ›')
+  expect((await band.find({ key: 'chip:2' }))?.text).toBe('‹ Xóa nhánh ›')
   await band.press({ key: 'chip:1' })
   expect(ran).toEqual(['reload-plugins'])
-  // sent, the chips go; the next answer brings its own
   expect(await band.find({ key: 'chip:0' })).toBeUndefined()
+  // Claude Code's own suggestion in time: it alone, and Haiku is not asked
   await t.turn.start({ text: 'go', turnId: 't2', kind: 'engine' })
-  await t.turn.complete({ text: 'ok', reason: 'answer', answer: 'Next: say "Merge pr".' })
+  await t.turn.complete({ text: 'ok', reason: 'answer', answer: 'Tests written.' })
+  await t.prompt.suggest({ text: 'run the tests' })
+  await clock.advance(3000)
+  expect(asked).toHaveLength(1)
+  expect((await band.find({ key: 'chip:0' }))?.text).toBe('‹ run the tests ›')
+  expect(await band.find({ key: 'chip:1' })).toBeUndefined()
   await band.press({ key: 'chip:0' })
-  expect(submitted).toEqual(['Merge pr'])
-  // ✕ takes the row away, sending nothing, until the next answer brings its own
+  expect(submitted).toEqual(['run the tests'])
+  // a turn started within the three seconds: no Haiku for the answer before it
   await t.turn.start({ text: 'go', turnId: 't3', kind: 'engine' })
-  await t.turn.complete({ text: 'ok', reason: 'answer', answer: 'Next: say "Xóa nhánh".' })
+  await t.turn.complete({ text: 'ok', reason: 'answer', answer: 'Done.' })
+  await clock.advance(1000)
+  await t.turn.start({ text: 'go', turnId: 't4', kind: 'engine' })
+  await clock.advance(3000)
+  expect(asked).toHaveLength(1)
+  // ✕ takes the row away, sending nothing, until the next answer brings its own
+  await t.turn.complete({ text: 'ok', reason: 'answer', answer: 'Done.' })
+  await clock.advance(3000)
+  expect(asked).toHaveLength(2)
   await band.press({ key: 'chips-dismiss' })
   expect(await band.find({ key: 'chip:0' })).toBeUndefined()
   expect(await band.find({ key: 'chips-dismiss' })).toBeUndefined()
-  expect(submitted).toEqual(['Merge pr'])
+  expect(submitted).toEqual(['run the tests'])
 })
 
 test('an order saved as the old default puts the mode after the effort', async ($, on) => {

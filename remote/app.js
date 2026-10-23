@@ -372,8 +372,8 @@ function renderChat() {
     if (t.k === 'user') root.append(prompted(t.text, el('div', 'b me')))
     else root.appendChild(el('div', 'b claude')).append(markdown(t.text))
   }
-  // under Claude's last answer: Claude Code's guess at your next prompt, then what the answer
-  // suggests sending (read by rule), three at most; a press sends it as if typed and sent
+  // under Claude's last answer: Claude Code's guess at your next prompt, else what Haiku
+  // proposes, three at most; a press sends it as if typed and sent
   const chips = snap.busy ? [] : snap.suggestions || []
   if (chips.length) {
     const row = root.appendChild(el('div', 'suggests'))

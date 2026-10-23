@@ -1,5 +1,6 @@
 import { atom, read, update } from 'claude-code'
 import { summarizeTurn } from '../features/assist'
+import { suggestNext } from '../features/chips'
 import { planContinue } from '../features/automation'
 import { readGuard } from '../features/guard'
 import { clearPrompts } from '../features/prompts'
@@ -9,7 +10,6 @@ import { keepUsage } from '../features/usage'
 
 import { clockOf, oneLine } from '../lib/format'
 import { CONTINUE_TEXT, MAX_TRIES, clockNow, vnClock } from '../lib/schedule'
-import { suggestionsIn } from '../lib/suggest'
 import { cfg } from '../state/config'
 import { rt } from '../state/runtime'
 
@@ -52,9 +52,12 @@ export function registerTurn(on: On) {
     // a "continue" planned after a limit stop is dropped once the person goes on themselves; a new
     // stop plans one again at turn.complete
     if (!(e as any).agentId && !rt.isContinueTurn && (await read($, autoContinue))) await update($, autoContinue, () => null)
-    // Claude Code's last next-prompt suggestion, and those read from the answer, are spent once a turn starts
+    // Claude Code's last next-prompt suggestion, and Haiku's, are spent once a turn starts
     remote.suggestion = ''
-    if (!(e as any).agentId) rt.answerChips = []
+    if (!(e as any).agentId) {
+      rt.answerChips = []
+      rt.suggestRound++
+    }
     rt.turnStartedAt = await $.clock.now()
     rt.turnEndedAt = 0
     rt.turnTools = []
@@ -79,8 +82,9 @@ export function registerTurn(on: On) {
       log.endedAt = Date.now()
     }
     if (!e.agentId) {
-      // what the answer suggests sending next, read by rule: chips on the band and the phone
-      rt.answerChips = e.reason === 'answer' ? suggestionsIn(String(e.answer ?? '')) : []
+      // what to send next, chips on the band and the phone: Claude Code's own suggestion, else Haiku's
+      rt.answerChips = []
+      if (e.reason === 'answer' && String(e.answer ?? '').trim()) suggestNext($, rt.turnPrompt, String(e.answer))
       const b = await read($, bar)
       const isLimit = e.reason === 'error' && ((b.five ?? 0) >= 100 || (b.week ?? 0) >= 100 || /usage limit|rate limit|hit your limit/i.test(e.answer ?? ''))
       rt.continueTries = isLimit && rt.isContinueTurn ? rt.continueTries + 1 : isLimit ? 1 : 0
