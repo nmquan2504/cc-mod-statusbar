@@ -82,6 +82,12 @@ export async function readModVersion($: any) {
   if (now !== was) await update($, loadedVersion, () => now).catch(() => undefined)
 }
 
+// "0.2.0 · 994a88c": the manifest's version and the commit, for the phone's drawer.
+export function modVersionShort() {
+  const { version, commit } = rt.modVersion
+  return [version, commit].filter(Boolean).join(' · ')
+}
+
 // "0.2.0 · 994a88c, 23 Oct 10:41": the manifest's version, then the commit and when it was made.
 export function modVersionText() {
   const { version, commit, at } = rt.modVersion
