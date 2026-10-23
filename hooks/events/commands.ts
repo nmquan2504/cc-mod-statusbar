@@ -1,5 +1,6 @@
 import { countCommand } from '../features/commands'
 import { acquire, forgetSecret, listSecrets } from '../features/vault'
+import { installZeroTts, uninstallZeroTts } from '../features/zerotts'
 
 import type { On } from 'claude-code'
 
@@ -21,4 +22,10 @@ export function registerCommands(on: On) {
 
   on('command.run', { command: 'secret-forget' }, async ($, e) => ({ text: await forgetSecret($, e.args) }))
     .catch(() => ({ text: 'statusbar vault: could not delete the secret.' }))
+
+  on('command.run', { command: 'zerotts-install' }, async $ => ({ text: await installZeroTts($) }))
+    .catch(() => ({ text: 'statusbar: could not start the ZeroTTS install.' }))
+
+  on('command.run', { command: 'zerotts-uninstall' }, async $ => ({ text: await uninstallZeroTts($) }))
+    .catch(() => ({ text: 'statusbar: could not remove ZeroTTS.' }))
 }

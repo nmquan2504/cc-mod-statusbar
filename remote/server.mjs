@@ -22,6 +22,7 @@ import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, re
 import { Resolver } from 'node:dns/promises'
 import { createServer } from 'node:http'
 import { connect } from 'node:net'
+import { homedir } from 'node:os'
 import { basename, dirname, extname, isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -298,6 +299,73 @@ function fileOf(session, path) {
   try { readSync(fd2, buf, 0, buf.length, 0) } finally { closeSync(fd2) }
   return { status: 200, body: { kind: 'text', text: buf.toString('utf8'), size: st.size, isCut: st.size > TEXT_MAX, name: basename(place.target), ext: ext.slice(1) } }
 }
+// ---- ZeroTTS: the phone's Vietnamese voice, made on the Mac ----------------------------------
+// zerotts-setup.sh (run by /zerotts-install) puts a Python and the model under TTS_HOME; tts.py,
+// started the first time the phone asks, keeps the model loaded and answers a JSON line at a time.
+// It stops after TTS_IDLE_MS unasked, and with the hub.
+const TTS_HOME = process.env.QSB_TTS_HOME || join(homedir(), '.cache', 'cc-mod-statusbar', 'zerotts')
+const TTS_IDLE_MS = 10 * 60_000
+const tts = { proc: null, voices: [], isReady: false, waiting: new Map(), nextId: 1, timer: null, error: '' }
+const ttsState = () =>
+  existsSync(join(TTS_HOME, 'ready')) ? 'ready' : existsSync(join(TTS_HOME, 'failed')) ? 'failed' : existsSync(join(TTS_HOME, '.venv')) ? 'installing' : 'missing'
+function stopTts() {
+  if (tts.proc && tts.proc.exitCode === null) tts.proc.kill('SIGTERM')
+  tts.proc = null
+  tts.isReady = false
+  for (const w of tts.waiting.values()) w({ error: 'The voice stopped.' })
+  tts.waiting.clear()
+}
+function startTts() {
+  if (tts.proc) return
+  tts.error = ''
+  const proc = spawn(join(TTS_HOME, '.venv', 'bin', 'python'), [join(HERE, 'tts.py'), join(TTS_HOME, 'model')], { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } })
+  tts.proc = proc
+  let buf = ''
+  proc.stdout.on('data', chunk => {
+    buf += chunk
+    for (let i; (i = buf.indexOf('\n')) >= 0; ) {
+      const line = buf.slice(0, i)
+      buf = buf.slice(i + 1)
+      let m
+      try { m = JSON.parse(line) } catch { continue }
+      if (m.ready) {
+        tts.isReady = true
+        tts.voices = m.voices ?? []
+        for (const w of tts.waiting.values()) w.start?.()
+      } else tts.waiting.get(m.id)?.(m)
+    }
+  })
+  proc.stderr.on('data', chunk => { tts.error = String(chunk).trim().split('\n').pop().slice(0, 200) })
+  proc.on('exit', code => {
+    if (tts.proc === proc) {
+      log(`tts stopped (${code})`)
+      tts.proc = null
+      tts.isReady = false
+      for (const w of tts.waiting.values()) w({ error: tts.error || 'The voice stopped.' })
+      tts.waiting.clear()
+    }
+  })
+}
+// One sentence as a WAV: { b64 } or { error }; the model loads first (some seconds) when it is not up
+function speakTts(text, voice, lang = 'vi') {
+  if (ttsState() !== 'ready') return Promise.resolve({ error: 'ZeroTTS is not installed on the Mac.' })
+  startTts()
+  clearTimeout(tts.timer)
+  tts.timer = setTimeout(stopTts, TTS_IDLE_MS)
+  tts.timer.unref?.()
+  return new Promise(resolve => {
+    const id = tts.nextId++
+    const send = () => tts.proc?.stdin.write(`${JSON.stringify({ id, text, voice, lang })}\n`)
+    const done = m => {
+      tts.waiting.delete(id)
+      resolve(m)
+    }
+    done.start = send
+    tts.waiting.set(id, done)
+    if (tts.isReady) send()
+  })
+}
+
 function imageOf(session, n) {
   const row = (sessions.get(session)?.snapshot.images ?? []).find(i => String(i.n) === String(n))
   if (!row || !/\/images\/\d+\.(png|jpe?g|gif|webp)$/i.test(row.path) || !existsSync(row.path)) return undefined
@@ -447,6 +515,21 @@ async function answerOp(dev, id, op, a, res) {
       const r = fileOf(session, String(a.path ?? ''))
       if (r.image && a.raw) return [200, { type: r.image.type, b64: readFileSync(r.image.file).toString('base64') }]
       return [r.status, r.body]
+    }
+    case 'ttsinfo':
+      // asked with warm by a phone that reads with ZeroTTS: the model loads now, not at the first piece
+      if (a.warm && ttsState() === 'ready') {
+        startTts()
+        clearTimeout(tts.timer)
+        tts.timer = setTimeout(stopTts, TTS_IDLE_MS)
+        tts.timer.unref?.()
+      }
+      return [200, { state: ttsState(), voices: tts.voices.length ? tts.voices : ['baotrang', 'giahuy', 'hamy', 'huuduc', 'kimoanh', 'maichi', 'quangminh', 'tiendat'] }]
+    case 'tts': {
+      const text = String(a.text ?? '').slice(0, 2000)
+      if (!text.trim()) return [400, { error: 'No text.' }]
+      const r = await speakTts(text, String(a.voice ?? ''), a.lang === 'en' ? 'en' : 'vi')
+      return r.b64 ? [200, { type: 'audio/wav', b64: r.b64 }] : [503, { error: r.error || 'The voice did not answer.' }]
     }
     case 'vapid':
       return [200, { key: VAPID_PUBLIC }]
@@ -635,6 +718,11 @@ const ctl = createServer(async (req, res) => {
     }
     return send(res, 200, { texts, answer, secrets, pages, stop, unqueue, earlier })
   }
+  // /zerotts-uninstall: the voice stopped before its folder goes
+  if (route === 'POST /tts-stop') {
+    stopTts()
+    return send(res, 200, { ok: true })
+  }
   if (route === 'POST /bye') {
     if (sessions.delete(id)) bump()
     return send(res, 200, { ok: true })
@@ -750,6 +838,7 @@ function shutdown(code = 0) {
   isShuttingDown = true
   log(`stopping (${code})`)
   for (const w of waiters) w()
+  stopTts()
   if (tunnel && tunnel.exitCode === null) tunnel.kill('SIGTERM')
   pub.close()
   ctl.close()

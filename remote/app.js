@@ -217,6 +217,7 @@ async function follow() {
     $('app').hidden = false
     clearInterval(pairTimer)
     render()
+    followZeroInfo()
   }
 }
 // a sealed call about the session shown: { s, b }, or { s: 0, b: { error } } when it did not go
@@ -725,10 +726,11 @@ function showEarlierArrived(edge) {
 }
 
 // ---- Claude's answer read aloud --------------------------------------------------------------
-// The speaker by Claude's bubble reads it with the phone's own voices, a sentence at a time, each
-// piece in the Vietnamese voice or the English one (speak.mjs: a sentence with a Vietnamese word
-// stays Vietnamese unless three English words come in a row). A tap again, or on another bubble,
-// stops it; so does the mic, so it does not write down what is read.
+// The speaker by Claude's bubble reads it a sentence at a time, each piece in the Vietnamese voice
+// or the English one (speak.mjs: a sentence with a Vietnamese word stays Vietnamese unless three
+// English words come in a row). The voices are the phone's own, or for Vietnamese, ZeroTTS made on
+// the Mac when Settings picks it (the hub's tts op sends each piece as a WAV). A tap again, or on
+// another bubble, stops it; so does the mic, so it does not write down what is read.
 const canSpeak = 'speechSynthesis' in window && typeof SpeechSynthesisUtterance === 'function'
 let speaking = '' // the text being read: its button shows stop, through the redraws
 let speakRun = 0 // a read stopped: its utterances ending late are not the next read's
@@ -755,28 +757,157 @@ function syncSpeakButtons() {
   }
 }
 
+// What is to be said, one piece after another; a notice joins the end, a bubble starts it again
+const sayQueue = [] // { text, lang, run }
+let isSaying = false
+let endPiece = null // ends the piece being said, when reading stops
+
 function stopSpeaking() {
   if (!canSpeak) return
   speakRun++
   speaking = ''
+  sayQueue.length = 0
   speechSynthesis.cancel()
+  if (audioEl && !audioEl.paused) audioEl.pause()
+  endPiece?.()
   syncSpeakButtons()
+}
+
+// Pieces to say after what is being said; `run` is the read they belong to
+function enqueue(parts) {
+  for (const part of parts) sayQueue.push({ ...part, run: speakRun })
+  void sayAll()
+}
+async function sayAll() {
+  if (isSaying) return
+  isSaying = true
+  while (sayQueue.length) {
+    const piece = sayQueue.shift()
+    if (piece.run !== speakRun) continue
+    // the next ZeroTTS piece is made while this one plays
+    const next = sayQueue.find(q => q.run === speakRun && isZero(q))
+    if (next) void zeroAudio(next)
+    const isSaid = isZero(piece) ? await sayZero(piece) : false
+    if (!isSaid && piece.run === speakRun) await saySpeech(piece)
+  }
+  isSaying = false
+  if (speaking) {
+    speaking = ''
+    syncSpeakButtons()
+  }
+}
+
+// One piece in the phone's voice; done when it ends, fails, or reading stops
+function saySpeech(piece) {
+  return new Promise(resolve => {
+    const said = utterance(piece.text, piece.lang)
+    said.onend = () => resolve(true)
+    said.onerror = e => {
+      if (e.error === 'not-allowed') noteSpeechBlocked()
+      resolve(false)
+    }
+    // a speech the browser left paused (the page was in the background) goes on first
+    speechSynthesis.resume?.()
+    speechSynthesis.speak(said)
+  })
+}
+
+// ---- ZeroTTS: Vietnamese in a voice made on the Mac ------------------------------------------
+// The ZeroTTS voice for `lang` (vi, en), or none, and the phone's voice reads it. Settings' default
+// (Automatic, '') is ZeroTTS's maichi once the Mac has it installed, else the phone's best voice;
+// a voice picked there, ZeroTTS's or the phone's, holds.
+const ZERO_DEFAULT = 'maichi'
+const zeroVoice = lang => {
+  const picked = String(lang === 'en' ? prefs.voiceEn : prefs.voiceVi)
+  if (picked.startsWith('zerotts:')) return picked.slice(8)
+  if (picked || zeroInfo?.state !== 'ready') return ''
+  return zeroInfo.voices.includes(ZERO_DEFAULT) ? ZERO_DEFAULT : zeroInfo.voices[0] || ''
+}
+const usesZero = () => zeroVoice('vi') !== '' || zeroVoice('en') !== ''
+const isZero = piece => zeroVoice(piece.lang) !== ''
+// One player for the page: Safari lets a page play only on an element a tap once played
+let audioEl = null
+const player = () => (audioEl ??= new Audio())
+// Each piece's WAV, as a blob URL, by voice, language and text: a piece read again is not made again
+const zeroCache = new Map()
+function zeroAudio(piece) {
+  const voice = zeroVoice(piece.lang)
+  const key = `${voice}\n${piece.lang}\n${piece.text}`
+  if (!zeroCache.has(key)) {
+    zeroCache.set(key, api('tts', { text: piece.text, voice, lang: piece.lang }).then(r => {
+      if (r.s !== 200 || !r.b?.b64) throw new Error(txSent(r.b?.error) || tx('The voice did not answer.'))
+      return URL.createObjectURL(new Blob([E2E.b64.dec(r.b.b64)], { type: r.b.type || 'audio/wav' }))
+    }))
+    zeroCache.get(key).catch(() => zeroCache.delete(key))
+    // 40 pieces kept, the oldest let go
+    if (zeroCache.size > 40) {
+      const [oldest, url] = zeroCache.entries().next().value
+      zeroCache.delete(oldest)
+      url.then(u => URL.revokeObjectURL(u)).catch(() => undefined)
+    }
+  }
+  return zeroCache.get(key)
+}
+// One piece by ZeroTTS: false when the Mac could not make it (the phone's voice says it then)
+let wasZeroFailNoted = false
+async function sayZero(piece) {
+  let url
+  try {
+    url = await zeroAudio(piece)
+  } catch (err) {
+    if (!wasZeroFailNoted) {
+      wasZeroFailNoted = true
+      toast({ title: tx('ZeroTTS not used'), body: `${err.message} ${tx("The phone's voice reads instead.")}` })
+    }
+    return false
+  }
+  if (piece.run !== speakRun) return true
+  const audio = player()
+  audio.src = url
+  audio.playbackRate = Number(prefs.rate) || 1
+  return new Promise(resolve => {
+    const done = isOk => {
+      audio.onended = audio.onerror = null
+      endPiece = null
+      resolve(isOk)
+    }
+    endPiece = () => done(true)
+    audio.onended = () => done(true)
+    audio.onerror = () => done(false)
+    audio.play().catch(err => {
+      if (err?.name === 'NotAllowedError') noteSpeechBlocked()
+      done(err?.name === 'NotAllowedError')
+    })
+  })
+}
+// What the Mac has: { state: ready | installing | failed | missing, voices }, asked when Settings opens and as the page follows
+// With notices read aloud by ZeroTTS, each ask also keeps it loaded on the Mac (it stops after 10
+// minutes unasked), so a notice does not wait some seconds for the model.
+let zeroInfo = null
+let zeroAskedAt = 0
+async function readZeroInfo() {
+  zeroAskedAt = Date.now()
+  const r = await api('ttsinfo', { warm: usesZero() && prefs.readNotices })
+  const was = JSON.stringify(zeroInfo)
+  zeroInfo = r.s === 200 ? r.b : { state: 'none', voices: [] }
+  if (JSON.stringify(zeroInfo) === was) return
+  if (!$('settings').hidden) renderSettings()
+  // just found installed, and the default reads with it: loaded now
+  if (zeroInfo.state === 'ready' && usesZero() && prefs.readNotices) void api('ttsinfo', { warm: true })
+}
+// asked again every 5 minutes while the page follows: an install done meanwhile shows, and the
+// voice stays loaded
+function followZeroInfo() {
+  if (Date.now() - zeroAskedAt > 300_000) void readZeroInfo()
 }
 
 function speak(text) {
   stopSpeaking()
   const parts = Speak.segments(Speak.speechText(text))
   if (!parts.length) return
-  const run = speakRun
-  const voices = { vi: voiceFor('vi'), en: voiceFor('en') }
   speaking = text
-  parts.forEach((part, i) => {
-    const said = utterance(part.text, part.lang, voices[part.lang])
-    if (i === parts.length - 1) said.onend = () => { if (run === speakRun) stopSpeaking() }
-    said.onerror = () => { if (run === speakRun) stopSpeaking() }
-    speechSynthesis.speak(said)
-  })
   syncSpeakButtons()
+  enqueue(parts)
 }
 
 // A notice come in while the page is open, read aloud when Settings says so: after what is being
@@ -785,13 +916,7 @@ function readNotice(n) {
   if (!prefs.readNotices || !canSpeak || !globalThis.Speak) return
   // the title a line of its own, so the answer's markdown starts its own lines
   const text = prefs.noticeWords === 'status' ? noticeStatus(n) : [localNotice(n).title, noticeBody(n)].filter(Boolean).join('.\n').replace(/\s·\s/g, ', ').replace(/(^|\s)\/(?=\w)/g, '$1')
-  // a speech the browser left paused (the page was in the background) goes on first
-  speechSynthesis.resume?.()
-  Speak.segments(Speak.speechText(text)).forEach((part, i) => {
-    const said = utterance(part.text, part.lang)
-    if (i === 0) said.onerror = e => { if (e.error === 'not-allowed') noteSpeechBlocked() }
-    speechSynthesis.speak(said)
-  })
+  enqueue(Speak.segments(Speak.speechText(text)))
 }
 
 // A notice in the language picked: the words of its title and the mod's lines in its body
@@ -827,6 +952,20 @@ function unlockSpeech() {
   const hush = new SpeechSynthesisUtterance(' ')
   hush.volume = 0
   speechSynthesis.speak(hush)
+  // and the player, with a tenth of a second of silence
+  const audio = player()
+  audio.src = URL.createObjectURL(silentWav())
+  audio.play().then(() => audio.pause()).catch(() => undefined)
+}
+// A WAV of 0.1 s of silence: 8 kHz, 8-bit, mono
+function silentWav() {
+  const n = 800, buf = new DataView(new ArrayBuffer(44 + n))
+  const text = (at, str) => [...str].forEach((c, i) => buf.setUint8(at + i, c.charCodeAt(0)))
+  text(0, 'RIFF'); buf.setUint32(4, 36 + n, true); text(8, 'WAVEfmt '); buf.setUint32(16, 16, true)
+  buf.setUint16(20, 1, true); buf.setUint16(22, 1, true); buf.setUint32(24, 8000, true); buf.setUint32(28, 8000, true)
+  buf.setUint16(32, 1, true); buf.setUint16(34, 8, true); text(36, 'data'); buf.setUint32(40, n, true)
+  for (let i = 0; i < n; i++) buf.setUint8(44 + i, 128)
+  return new Blob([buf.buffer], { type: 'audio/wav' })
 }
 addEventListener('pointerdown', unlockSpeech, { capture: true, passive: true })
 function noteSpeechBlocked() {
@@ -839,7 +978,7 @@ function noteSpeechBlocked() {
 function playSample(lang) {
   if (!canSpeak || !globalThis.I18N) return
   stopSpeaking()
-  speechSynthesis.speak(utterance(I18N.SAMPLES[lang], lang))
+  enqueue([{ text: I18N.SAMPLES[lang], lang }])
 }
 
 function speakButton(text) {
@@ -2398,12 +2537,22 @@ function renderSettings() {
     for (const [lang, key, label] of [['vi', 'voiceVi', tx('Vietnamese voice')], ['en', 'voiceEn', tx('English voice')]]) {
       const right = row(voices, label)
       const sel = right.appendChild(el('select', 'psel'))
-      sel.append(new Option(tx('Best on this phone'), ''))
-      for (const v of Speak.voicesFor(speechSynthesis.getVoices(), lang)) sel.append(new Option(v.name, v.name))
+      sel.append(new Option(zeroInfo?.state === 'ready' ? tx('Automatic: ZeroTTS') : tx('Automatic: best on this phone'), ''))
+      // made on the Mac, once ZeroTTS is installed there: a Vietnamese model, which reads English
+      // with a Vietnamese accent
+      if (zeroInfo?.state === 'ready') {
+        const group = sel.appendChild(document.createElement('optgroup'))
+        group.label = tx('ZeroTTS, on the Mac')
+        for (const v of zeroInfo.voices) group.append(new Option(`ZeroTTS · ${v}`, `zerotts:${v}`))
+        const phone = sel.appendChild(document.createElement('optgroup'))
+        phone.label = tx('On this phone')
+        for (const v of Speak.voicesFor(speechSynthesis.getVoices(), lang)) phone.append(new Option(v.name, v.name))
+      } else for (const v of Speak.voicesFor(speechSynthesis.getVoices(), lang)) sel.append(new Option(v.name, v.name))
       sel.value = [...sel.options].some(o => o.value === prefs[key]) ? prefs[key] : ''
       sel.onchange = () => {
         prefs[key] = sel.value
         savePrefs()
+        if (usesZero()) void readZeroInfo()
         playSample(lang)
       }
       const play = right.appendChild(el('button', 'icon play'))
@@ -2414,6 +2563,8 @@ function renderSettings() {
     const speed = voices.appendChild(el('div', 'prow'))
     speed.append(el('div', 'pl', tx('Speed')))
     seg(speed, RATES.map(r => [r, `${r}×`]), Number(prefs.rate) || 1, r => set('rate', r))
+    const zeroNote = { missing: tx('ZeroTTS, a Vietnamese voice made on the Mac: run /zerotts-install in the terminal to add it (about 900 MB).'), installing: tx('ZeroTTS is installing on the Mac.'), failed: tx('The ZeroTTS install on the Mac failed: see its setup.log, then run /zerotts-install again.') }[zeroInfo?.state]
+    if (zeroNote) voices.append(el('div', 'pd hint', zeroNote))
     if (isIos) voices.append(el('div', 'pd hint', tx('For better voices, download an Enhanced or Premium voice in Settings, Accessibility, Spoken Content, Voices.')))
   }
 
@@ -2433,7 +2584,7 @@ function renderSettings() {
       // said within the tap, which also lets the page speak later
       if (prefs.readNotices && globalThis.I18N) {
         stopSpeaking()
-        speechSynthesis.speak(utterance(I18N.SAMPLES[`notice_${prefs.lang}`], prefs.lang))
+        enqueue([{ text: I18N.SAMPLES[`notice_${prefs.lang}`], lang: prefs.lang }])
       }
     })
     if (prefs.readNotices) seg(notes, [['status', tx('Status')], ['title', tx('Title only')], ['short', tx('One line')], ['full', tx('Full')]], prefs.noticeWords, v => set('noticeWords', v))
@@ -2446,6 +2597,7 @@ function renderSettings() {
 function openSettings() {
   closeLayers()
   renderSettings()
+  void readZeroInfo()
   $('settings').hidden = false
   $('settings').scrollTop = 0
 }
