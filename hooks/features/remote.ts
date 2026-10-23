@@ -61,7 +61,7 @@ export const remote = {
   // what the session holds in context, for the phone's Context tab: files @-mentioned in a prompt,
   // files Claude read, folders added (/add-dir, additionalDirectories), memory files
   context: { mentions: [] as string[], reads: [] as string[], dirs: [] as string[], memory: [] as { path: string; type: string; tokens: number }[] },
-  // folders /add-dir added this session (the DirectoryAdded hook), and when the memory files were read
+  // folders /add-dir was given this session (noteAddDir), and when the memory files were read
   addedDirs: [] as string[],
   memoryAt: 0,
   // the slash commands and skills, for the phone's list, read on joining and every five minutes
@@ -478,13 +478,27 @@ export function contextOf(list: readonly any[], cwd: string, home: string) {
   return { mentions: mentions.slice(-50), reads: reads.slice(-50) }
 }
 
+// A folder given to /add-dir, typed or sent from the phone or a chip. The command may still ask
+// (this session or remember) or be turned down, so rootsOf keeps it only once Claude may read there.
+export function noteAddDir(command: string, args: string) {
+  const dir = args.trim().replace(/^(["'])(.*)\1$/, '$2')
+  if (command === 'add-dir' && dir && !remote.addedDirs.includes(dir)) remote.addedDirs = [...remote.addedDirs, dir]
+}
+
 // The folders the session works in: its own, then those added; each absolute, each once.
 export async function rootsOf($: any) {
   const cwd: string = await $.session.cwd().catch(() => '')
+  const home: string = (await $.env.get('HOME').catch(() => '')) ?? ''
+  const abs = (d: string) => (d.startsWith('/') ? d : d.startsWith('~/') && home ? `${home}${d.slice(1)}` : `${cwd}/${d}`).replace(/\/+$/, '')
   const perms = (await $.settings.read({ key: 'permissions' }).catch(() => undefined)) as { additionalDirectories?: unknown } | undefined
   const fromSettings = Array.isArray(perms?.additionalDirectories) ? perms!.additionalDirectories.filter((d): d is string => typeof d === 'string') : []
-  const added = [...fromSettings, ...remote.addedDirs].map(d => (d.startsWith('/') ? d : `${cwd}/${d}`).replace(/\/+$/, ''))
-  return { cwd, dirs: [...new Set(added)].filter(d => d && d !== cwd) }
+  // a folder /add-dir was given counts once a Read there needs no prompt: the engine took it as a working folder
+  const added: string[] = []
+  for (const d of remote.addedDirs.map(abs)) {
+    const r = await $.tool.check({ tool: 'Read', input: { file_path: `${d}/.dir-probe` } }).catch(() => undefined)
+    if (r?.decision === 'allow') added.push(d)
+  }
+  return { cwd, dirs: [...new Set([...fromSettings.map(abs), ...added])].filter(d => d && d !== cwd) }
 }
 
 // The memory files the session loads (CLAUDE.md, rules), from the engine's local estimate of the
@@ -703,6 +717,7 @@ export async function tickRemote($: any) {
     if (what.kind === 'run') {
       // what the command printed goes back to the phone; a prompt for the model prints nothing
       const r: any = await $.command.run({ command: what.name, args: what.args }).catch((err: unknown) => ({ error: String(err) }))
+      if (!r?.error) noteAddDir(what.name, what.args ?? '') // a plugin's own command.run passes its hooks by
       if (r?.error) return log(`/${what.name} did not run: ${oneLine(r.error, 200)}`, true)
       $.ui.toast(`statusbar: remote: ran /${what.name} from the phone`)
       await log(typeof r?.text === 'string' && r.text.trim() ? (r.text.length > 8000 ? `${r.text.slice(0, 8000)}…` : r.text) : 'ran', false)

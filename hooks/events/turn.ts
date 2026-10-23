@@ -65,20 +65,13 @@ export function registerTurn(on: On) {
     return next(e)
   }).catch(($, e, next) => next(e)) // a status bar never holds up the session
 
-  // StopFailure names the API error a turn died on; a turn.complete with reason 'error' follows
-  on('classic.StopFailure', async ($, e: any, next) => {
-    if (e.error === 'rate_limit') rt.isLimitStop = true
-    return next(e)
-  }).catch(($, e, next) => next(e))
-
   on('turn.complete', async ($, e, next) => {
     // a turn that ended (an Esc at the dialog among them) leaves no prompt waiting
     if (!e.agentId) clearPrompts()
     await refreshBar($)
     await readGuard($)
     // A main-loop turn the 5-hour or weekly limit stopped: "continue" once the window resets.
-    // StopFailure says rate_limit; when it does not reach this mod, a window read at 100% or the
-    // limit's own message in the answer does.
+    // A window read at 100% or the limit's own message in the answer says so.
     // an agent's run ends: its answer, for the tasks menu's detail
     if (e.agentId) {
       const log = (rt.agentLog[e.agentId] ??= { startedAt: Date.now(), tools: [] })
@@ -89,14 +82,13 @@ export function registerTurn(on: On) {
       // what the answer suggests sending next, read by rule: chips on the band and the phone
       rt.answerChips = e.reason === 'answer' ? suggestionsIn(String(e.answer ?? '')) : []
       const b = await read($, bar)
-      const isLimit = e.reason === 'error' && (rt.isLimitStop || (b.five ?? 0) >= 100 || (b.week ?? 0) >= 100 || /usage limit|rate limit|hit your limit/i.test(e.answer ?? ''))
+      const isLimit = e.reason === 'error' && ((b.five ?? 0) >= 100 || (b.week ?? 0) >= 100 || /usage limit|rate limit|hit your limit/i.test(e.answer ?? ''))
       rt.continueTries = isLimit && rt.isContinueTurn ? rt.continueTries + 1 : isLimit ? 1 : 0
       if (isLimit && cfg.autoContinue && rt.continueTries <= MAX_TRIES) {
         const plan = await planContinue($, await clockNow($))
         await update($, autoContinue, () => plan)
         $.ui.toast(`statusbar: stopped by the ${plan.window} limit; "${CONTINUE_TEXT}" goes in at ${vnClock(plan.at)}`)
       } else if (isLimit && cfg.autoContinue) $.ui.toast(`statusbar: the limit stopped ${MAX_TRIES} tries in a row; auto-continue gave up`)
-      rt.isLimitStop = false
       rt.isContinueTurn = false
     }
     if (rt.turnStartedAt) {
