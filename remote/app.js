@@ -15,7 +15,7 @@ const el = (tag, cls, text) => {
 // Kept in this browser alone (localStorage), so each phone has its own; the page works without them.
 const PREFS_KEY = 'qsb-prefs'
 const prefs = (() => {
-  const base = { v: 2, lang: globalThis.I18N?.langOf(navigator.language) ?? 'en', theme: 'system', voiceVi: '', voiceEn: '', rate: 1, readNotices: false, noticeWords: 'status', notifyOff: false }
+  const base = { v: 2, lang: globalThis.I18N?.langOf(navigator.language) ?? 'en', theme: 'system', voiceVi: '', voiceEn: '', rate: 1, readNotices: false, noticeWords: 'status', notifyOff: false, fontScale: 1 }
   try {
     const kept = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}')
     // kept before the status became the default, when every phone saved the title then default
@@ -2304,6 +2304,10 @@ function applyTheme() {
 }
 themeQuery.addEventListener?.('change', applyTheme)
 
+// The chat's and the code's text size: a scale on the sizes app.html writes (--fs)
+const FONT_SCALES = [0.85, 1, 1.15, 1.3, 1.5]
+const applyFont = () => document.documentElement.style.setProperty('--fs', String(Number(prefs.fontScale) || 1))
+
 const RATES = [0.9, 1, 1.2, 1.5]
 function renderSettings() {
   const body = $('settings-body')
@@ -2347,6 +2351,24 @@ function renderSettings() {
     set('theme', v)
     applyTheme()
   })
+
+  const sizes = card(tx('Text size'))
+  const at = Math.max(0, FONT_SCALES.indexOf(Number(prefs.fontScale) || 1))
+  const size = row(sizes, tx('Chat and code'))
+  size.classList.add('size')
+  const step = (label, aria, to) => {
+    const b = size.appendChild(el('button', 'pbtn', label))
+    b.setAttribute('aria-label', aria)
+    b.disabled = to < 0 || to >= FONT_SCALES.length
+    b.onclick = () => {
+      set('fontScale', FONT_SCALES[to])
+      applyFont()
+    }
+  }
+  step('A−', tx('Smaller text'), at - 1)
+  size.append(el('span', 'pv', `${Math.round(FONT_SCALES[at] * 100)}%`))
+  step('A+', tx('Larger text'), at + 1)
+  sizes.appendChild(el('div', 'b claude preview')).append(markdown(tx('Claude answers at this size, and `code` too.')))
 
   const voices = card(tx('Read aloud voices'))
   if (!canSpeak || !globalThis.Speak) voices.append(el('div', 'meta pad', tx('This browser cannot read aloud.')))
@@ -2410,6 +2432,7 @@ $('close-settings').onclick = () => { $('settings').hidden = true }
 // the voices come in late on some phones: the lists fill when they do
 if (canSpeak) speechSynthesis.addEventListener?.('voiceschanged', () => { if (!$('settings').hidden) renderSettings() })
 applyTheme()
+applyFont()
 translateStatic()
 
 function boot() {
