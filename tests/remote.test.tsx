@@ -193,6 +193,20 @@ test('the transcript reads as the terminal: prompts without reminders, text, too
   ])
 })
 
+test('a prompt shows as typed whatever the engine put around it, and a notice holding its words shows nothing', () => {
+  const items = transcriptOf([
+    { role: 'user', text: '<ide_opened_file>The user opened src/qr.ts in the IDE.</ide_opened_file>\nfix it', toolUses: [] },
+    { role: 'user', text: '<some_new_tag>\nsetup notes\n</some_new_tag>\nok', toolUses: [] },
+    { role: 'user', text: '<task-notification>\n<summary>ok\nfix it</summary>\n</task-notification>', toolUses: [] },
+    { role: 'user', text: '<future_tag>older prompt</future_tag>\nnot kept', toolUses: [] },
+  ], '/w', [], [], ['fix it', 'ok'])
+  expect(items).toEqual([
+    { k: 'user', text: 'fix it' },
+    { k: 'user', text: 'ok' },
+    { k: 'user', text: '<future_tag>older prompt</future_tag>\nnot kept' },
+  ])
+})
+
 // ---- Claude's AskUserQuestion, asked in the band ---------------------------------------------
 declare function setTimeout(callback: (...args: never[]) => void, ms: number): unknown
 const QUESTIONS = [

@@ -120,6 +120,7 @@ declare module 'claude-code' {
       collapsed: string[]
       filter: string
       images: ImageRow[]
+      typed: string[]
     }
   }
 }

@@ -1,4 +1,4 @@
-import { atom, read } from 'claude-code'
+import { atom, read, update } from 'claude-code'
 import { oneLine, shortModel } from '../lib/format'
 import { suggestionChips } from '../lib/suggest'
 import { ask, settleAsk } from './ask'
@@ -362,6 +362,30 @@ function promptText(text: string) {
     .trim()
 }
 
+// The prompts as they went in (prompt.submit, and those the phone sent), newest last, kept in the
+// session's state so a reload keeps them: the transcript holds a prompt inside what the engine put
+// around it (the file open in an IDE, Claude in Chrome's instructions, whatever another setup
+// adds), and the phone shows it as typed. A prompt from before they were kept falls back to promptText.
+export const typedPrompts = atom({ plugin: 'cc-mod-statusbar', key: 'typed' } as const, [])
+export async function noteTyped($: any, text: string) {
+  const t = text.trim()
+  if (t) await update($, typedPrompts, list => [...list.filter(x => x !== t), t].slice(-100))
+}
+
+// The prompt as typed that a message holds, as a block of its own (not in the middle of a line):
+// the longest one found, so a short prompt inside a longer one is not taken for it.
+function typedIn(raw: string, typed: readonly string[]) {
+  let found = ''
+  for (const t of typed) {
+    if (t.length <= found.length) continue
+    for (let i = raw.indexOf(t); i >= 0; i = raw.indexOf(t, i + 1)) {
+      const before = raw[i - 1], after = raw[i + t.length]
+      if ((before === undefined || /[\s>]/.test(before)) && (after === undefined || /[\s<]/.test(after))) { found = t; break }
+    }
+  }
+  return found
+}
+
 // A question Claude asked: each question with the answer it got ('' when left blank or dismissed),
 // from the call's stored answers, or from the words the model read.
 function askItem(u: any): TranscriptItem {
@@ -401,7 +425,7 @@ function toolItem(u: any, cwd: string): TranscriptItem {
 }
 
 // The session's messages as the terminal draws them: the last TURNS_MAX turns, long ones trimmed.
-export function transcriptOf(list: readonly any[], cwd: string, cmds: readonly { anchor: number; command: string; text: string; isError: boolean }[] = [], mids: readonly MidTurn[] = []) {
+export function transcriptOf(list: readonly any[], cwd: string, cmds: readonly { anchor: number; command: string; text: string; isError: boolean }[] = [], mids: readonly MidTurn[] = [], typed: readonly string[] = []) {
   const items: TranscriptItem[] = []
   // a command run from the phone is in no message: it goes where the session stood when it ran
   const cmdsAt = (from: number, to: number) => {
@@ -419,8 +443,8 @@ export function transcriptOf(list: readonly any[], cwd: string, cmds: readonly {
         if (last?.k === 'user' && last.text.startsWith('/')) items[items.length - 1] = { k: 'cmd', command: last.text, text: cut(text, 4000), isError: out[1] === 'stderr' }
         continue
       }
-      const text = promptText(String(m.text ?? ''))
-      if (text) items.push({ k: 'user', text: cut(text, 8000) })
+      const raw = String(m.text ?? ''), text = promptText(raw)
+      if (text) items.push({ k: 'user', text: cut(typedIn(raw, typed) || text, 8000) })
       continue
     }
     if (typeof m.text === 'string' && m.text.trim()) items.push({ k: 'text', text: cut(m.text.trim(), 12000) })
@@ -576,7 +600,7 @@ export async function readRemoteMessages($: any, isFinal = false) {
   remote.context = { ...remote.context, ...contextOf(list, cwd, home), dirs }
   await readMemory($)
   await readCommands($)
-  remote.transcript = transcriptOf(list, cwd, remote.cmdLog, await midTurnOf($, list.length, isFinal))
+  remote.transcript = transcriptOf(list, cwd, remote.cmdLog, await midTurnOf($, list.length, isFinal), await read($, typedPrompts))
   remote.lastAt = Date.now()
   // a sent text the transcript now shows, or one two minutes old, leaves the sending list
   const shown = new Set(remote.transcript.filter(t => t.k === 'user').map(t => (t as { text: string }).text.trim()))
@@ -723,6 +747,7 @@ export async function tickRemote($: any) {
       await log(typeof r?.text === 'string' && r.text.trim() ? (r.text.length > 8000 ? `${r.text.slice(0, 8000)}…` : r.text) : 'ran', false)
       return
     }
+    await noteTyped($, text)
     const isSent = await $.prompt.submit({ text, asUser: true }).then(() => true, () => false)
     if (isSent) {
       remote.sending = [...remote.sending, { text, at: Date.now() }]
