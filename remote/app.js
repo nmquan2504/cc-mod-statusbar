@@ -487,7 +487,6 @@ function openSheet() {
   chip('wk', usage.week, 50, 80)
   chip('ctx', usage.ctx, 70, 85)
   if (typeof usage.cost === 'number') chips.append(el('span', 'chip', `$${usage.cost.toFixed(2)} this session`))
-  if (snap.version) sheet.append(el('div', 'meta', `cc-mod-statusbar ${snap.version}`))
   $('scrim').hidden = false
   sheet.hidden = false
 }
