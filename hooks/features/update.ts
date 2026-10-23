@@ -1,4 +1,9 @@
+import { atom, read, update } from 'claude-code'
 import { rt } from '../state/runtime'
+
+// The version this session ran before its last reload, kept in the session's state, which a
+// reload keeps: a reload that loads another version says so.
+const loadedVersion = atom({ plugin: 'cc-mod-statusbar', key: 'loadedVersion' } as const, '')
 
 // How often the mod asks its own repository for new commits, in the session clock's seconds.
 export const UPDATE_EVERY = 3600
@@ -34,6 +39,31 @@ export async function pullModUpdate($: any) {
     return
   }
   rt.modBehind = 0
+  rt.isModPulled = true
   $.ui.invalidate('ui.render')
   $.ui.toast('statusbar: mod updated; run /reload-plugins to load it')
+}
+
+// The code this session loaded: the manifest's version and, in a git working copy, its commit and
+// the commit's date. Read at session.start, which a reload runs again, so it names the code loaded,
+// not what a later pull put in the folder.
+export async function readModVersion($: any) {
+  const root: string = $.plugin.root
+  const manifest = await $.process.run(['cat', `${root}/.claude-plugin/plugin.json`]).catch(() => undefined)
+  let version = ''
+  try { version = String(JSON.parse(manifest?.stdout ?? '').version ?? '') } catch { version = '' }
+  const r = await $.process.run(['git', '-C', root, 'log', '-1', '--format=%h %ct']).catch(() => undefined)
+  const [commit = '', at = ''] = r && r.exitCode === 0 ? r.stdout.trim().split(' ') : []
+  rt.modVersion = { version, commit, at: Number(at) * 1000 || 0 }
+  const now = modVersionText()
+  const was = await read($, loadedVersion).catch(() => '')
+  if (now && was && was !== now) $.ui.toast(`statusbar: now on ${now} (was ${was})`)
+  if (now !== was) await update($, loadedVersion, () => now).catch(() => undefined)
+}
+
+// "0.1.0 · 994a88c, 23 Oct 10:41": the manifest's version, then the commit and when it was made.
+export function modVersionText() {
+  const { version, commit, at } = rt.modVersion
+  const when = at ? new Date(at).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''
+  return [version, [commit, when].filter(Boolean).join(', ')].filter(Boolean).join(' · ')
 }
