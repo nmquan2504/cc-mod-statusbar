@@ -24,6 +24,7 @@ const ICONS = {
   file: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5',
   lock: 'M7 11V7a5 5 0 0 1 10 0v4M6 11h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1z',
   plus: 'M12 5v14M5 12h14',
+  close: 'M6 6l12 12M18 6L6 18',
   globe: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3.5 12h17M12 3c2.5 2.5 3.8 5.5 3.8 9s-1.3 6.5-3.8 9c-2.5-2.5-3.8-5.5-3.8-9S9.5 5.5 12 3z',
   key: 'M14.5 4a5.5 5.5 0 1 1-4.2 9L4 19.3V21h3v-2h2v-2h2l.7-.7A5.5 5.5 0 0 1 14.5 4zM16 8.5h.01',
   slash: 'M16 3L8 21',
@@ -739,7 +740,19 @@ function openLineAsk(body, path, n, lineText) {
     // the same frame as the reply area: the box the whole width, the status and send under it
     bar = body.appendChild(el('div', 'lineask'))
     const frame = el('div', 'composer')
-    bar.append(el('div', 'what'), frame)
+    const head = el('div', 'head')
+    // ✕ shuts the box and unmarks the line; a prompt already sent goes on
+    const shut = el('button', 'icon close')
+    shut.setAttribute('aria-label', 'Close')
+    shut.append(icon('close'))
+    shut.onclick = () => {
+      bar.remove()
+      const mark = body.querySelector('.linemark')
+      if (mark) mark.hidden = true
+      lineAsk = null
+    }
+    head.append(el('div', 'what'), shut)
+    bar.append(head, frame)
     const box = frame.appendChild(el('textarea'))
     box.rows = 1
     // grows with what is typed, up to 160px, as the reply box does
