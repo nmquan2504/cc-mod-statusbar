@@ -595,7 +595,7 @@ new MutationObserver(syncLayered).observe(document.body, { subtree: true, attrib
 // move more up or down than across is a scroll. Held DIM_AFTER_MS it starts to dim, and at
 // HOLD_TO_COPY_MS it is copied: on a code block, that block; elsewhere, the bubble's text as written.
 const bubbleText = new WeakMap() // a bubble -> its text as Claude or you wrote it
-const SWIPE_PX = 64, DIM_AFTER_MS = 1000, HOLD_TO_COPY_MS = 3000
+const SWIPE_PX = 64, DIM_AFTER_MS = 500, HOLD_TO_COPY_MS = 1500
 async function copyText(value) {
   try {
     await navigator.clipboard.writeText(value)

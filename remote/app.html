@@ -105,8 +105,8 @@
   .srow .name.unread::after { content: ''; display: inline-block; width: 7px; height: 7px; margin-left: 6px; border-radius: 50%; background: var(--link); vertical-align: middle; }
   #open-drawer { position: relative; }
   #open-drawer.unread::after { content: ''; position: absolute; top: 8px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--link); }
-  /* held: it dims over the two seconds before it is copied */
-  .b.copying, .b pre.copying { opacity: .5; transition: opacity 2s linear; }
+  /* held: it dims over the second before it is copied */
+  .b.copying, .b pre.copying { opacity: .5; transition: opacity 1s linear; }
   /* a task's box on its first line, not in the middle of a task that wraps */
   .working .task { display: flex; align-items: flex-start; gap: 6px; color: var(--dim); }
   .working .task svg.ic { flex: none; width: 13px; height: 13px; margin-top: .25em; } .working .task.doing { color: var(--claude); } .working .task.done span { text-decoration: line-through; }
