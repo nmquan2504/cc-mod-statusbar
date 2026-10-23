@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { segments, speechText } from '../remote/speak.mjs'
+import { pickVoice, segments, speechText, voicesFor } from '../remote/speak.mjs'
 
 // Reading Claude's answer aloud on the phone (remote/speak.mjs; the page wires it to a button on
 // the bubble): what is said, and which voice says each piece.
@@ -47,4 +47,23 @@ test('what is said: a code block named, links and paths short, the markdown mark
   )
   expect(speechText('| File | Lines |\n|---|---|\n| a.ts | 12 |')).toBe('File, Lines\na.ts, 12')
   expect(speechText('build → test → ship, see https://example.com/x')).toBe('build, test, ship, see link')
+})
+
+test('the voices offered: Premium and Enhanced first, then the home region, the novelty voices left out', () => {
+  const voices = [
+    { name: 'Albert', lang: 'en-US' },
+    { name: 'Daniel', lang: 'en-GB', default: true },
+    { name: 'Samantha', lang: 'en-US' },
+    { name: 'Bahh', lang: 'en-US' },
+    { name: 'Ava (Premium)', lang: 'en-US' },
+    { name: 'Linh', lang: 'vi-VN' },
+    { name: 'Karen (Enhanced)', lang: 'en_AU' },
+  ]
+  expect(voicesFor(voices, 'en').map(v => v.name)).toEqual(['Ava (Premium)', 'Karen (Enhanced)', 'Samantha', 'Daniel'])
+  expect(voicesFor(voices, 'vi').map(v => v.name)).toEqual(['Linh'])
+  // a voice picked in Settings, while the phone has it; else the best
+  expect(pickVoice(voices, 'en', 'Daniel')?.name).toBe('Daniel')
+  expect(pickVoice(voices, 'en', 'Gone')?.name).toBe('Ava (Premium)')
+  expect(pickVoice(voices, 'en', 'Albert')?.name).toBe('Ava (Premium)')
+  expect(pickVoice([{ name: 'Albert', lang: 'en-US' }], 'vi')).toBeNull()
 })

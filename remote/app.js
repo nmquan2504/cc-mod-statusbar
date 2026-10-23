@@ -11,6 +11,22 @@ const el = (tag, cls, text) => {
   return node
 }
 
+// ---- this phone's settings: language, theme, voices, notices read aloud ----------------------------
+// Kept in this browser alone (localStorage), so each phone has its own; the page works without them.
+const PREFS_KEY = 'qsb-prefs'
+const prefs = (() => {
+  const base = { lang: globalThis.I18N?.langOf(navigator.language) ?? 'en', theme: 'system', voiceVi: '', voiceEn: '', rate: 1, readNotices: false, notifyOff: false }
+  try { return { ...base, ...JSON.parse(localStorage.getItem(PREFS_KEY) || '{}') } } catch { return base }
+})()
+function savePrefs() {
+  try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)) } catch {}
+}
+// A text the page shows, in the language picked (i18n.mjs), its {names} filled from `values`. A hub
+// older than this page serves no i18n.mjs, and the page stays English.
+const fill = (text, values) => (values ? text.replace(/\{(\w+)\}/g, (m, k) => (k in values ? String(values[k]) : m)) : text)
+const tx = (text, values) => (globalThis.I18N ? I18N.translate(prefs.lang, text, values) : fill(text, values))
+const linesShown = (from, to) => (from === to ? tx('line {n}', { n: from }) : tx('lines {from}-{to}', { from, to }))
+
 // The icons, drawn as SVG strokes in the text's color: a 24-unit box, one path each.
 const ICONS = {
   menu: 'M4 6h16M4 12h16M4 18h16',
@@ -37,6 +53,8 @@ const ICONS = {
   boxChecked: 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM8 12.5l2.5 2.5L16 9.5',
   speaker: 'M4 9.5v5h3.5L12 18V6L7.5 9.5zM15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11',
   stop: 'M8 8h8v8H8z',
+  play: 'M8 5.5v13l10.5-6.5z',
+  gear: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z',
 }
 function icon(name) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
@@ -81,7 +99,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 // waits for Allow in a terminal, asking with sealed calls.
 async function pair() {
   if (!E2E.isSupported()) {
-    gate('This browser cannot encrypt, so it cannot open the remote. Open the link in a current Safari or Chrome.')
+    gate(tx('This browser cannot encrypt, so it cannot open the remote. Open the link in a current Safari or Chrome.'))
     throw new Error('e2e')
   }
   const k = new URLSearchParams(location.hash.slice(1)).get('k')
@@ -90,20 +108,20 @@ async function pair() {
     await E2E.forget()
     try {
       const { code } = await E2E.pair(k)
-      gate('In the terminal, pick this code.', code)
+      gate(tx('In the terminal, pick this code.'), code)
     } catch (err) {
-      gate(err.message)
+      gate(tx(err.message))
       throw err
     }
   } else if (!(await E2E.load())) {
-    gate('Scan the QR code in the terminal, or paste its link here.', '', true)
+    gate(tx('Scan the QR code in the terminal, or paste its link here.'), '', true)
     throw new Error('unpaired')
   }
   for (;;) {
     const r = await E2E.call('paired').catch(err => err)
     if (r instanceof E2E.Unpaired) {
       await E2E.forget()
-      gate('Not paired. Scan the QR code in the terminal again.', '', true)
+      gate(tx('Not paired. Scan the QR code in the terminal again.'), '', true)
       throw r
     }
     if (r instanceof Error) {
@@ -112,12 +130,12 @@ async function pair() {
     }
     if (r.s === 200) return
     if (r.s === 202) {
-      gate('In the terminal, pick this code.', r.b.code, false, r.b.secondsLeft)
+      gate(tx('In the terminal, pick this code.'), r.b.code, false, r.b.secondsLeft)
       await sleep(2000)
       continue
     }
     await E2E.forget()
-    gate(r.b.error || 'Refused in the terminal.', '', true)
+    gate(r.b.error || tx('Refused in the terminal.'), '', true)
     throw new Error('refused')
   }
 }
@@ -140,7 +158,7 @@ function gate(text, code, canPaste, secondsLeft) {
 function showPairLeft() {
   const left = Math.max(0, Math.ceil((pairUntil - Date.now()) / 1000))
   $('gate-left').hidden = !pairUntil
-  $('gate-left').textContent = left ? `Allow it within ${left} s` : 'Checking…'
+  $('gate-left').textContent = left ? tx('Allow it within {n} s', { n: left }) : tx('Checking…')
   $('gate-left').classList.toggle('low', left > 0 && left <= 15)
 }
 
@@ -157,13 +175,13 @@ function showOffline(ms) {
   line.classList.toggle('gone', isGone)
   line.replaceChildren()
   if (!isGone) line.appendChild(el('span', 'spin')).append(icon('spark'))
-  line.append(document.createTextNode(isGone ? 'The link seems to have ended. If the remote was started again, scan its new QR code in the terminal.' : ' Reconnecting…'))
+  line.append(document.createTextNode(isGone ? tx('The link seems to have ended. If the remote was started again, scan its new QR code in the terminal.') : ` ${tx('Reconnecting…')}`))
 }
 async function follow() {
   let since = -1
   for (;;) {
     const r = await E2E.call('state', { since }).catch(err => err)
-    if (r instanceof E2E.Unpaired) return gate('Not paired. Scan the QR code in the terminal again.', '', true)
+    if (r instanceof E2E.Unpaired) return gate(tx('Not paired. Scan the QR code in the terminal again.'), '', true)
     if (r instanceof Error || r.s !== 200) {
       failedSince ||= Date.now()
       showOffline(Date.now() - failedSince)
@@ -177,7 +195,10 @@ async function follow() {
     noteUnread()
     if (state.notice.at > lastNotice) {
       const from = state.notice.session
-      if (lastNotice) toast(state.notice, from ? () => openSession(from) : undefined)
+      if (lastNotice) {
+        toast(state.notice, from ? () => openSession(from) : undefined)
+        readNotice(state.notice)
+      }
       lastNotice = state.notice.at
     }
     $('gate').hidden = true
@@ -248,10 +269,10 @@ function promptedText(text, into) {
     a.href = '#'
     a.onclick = ev => {
       ev.preventDefault()
-      const body = openViewer(`Image #${img.n}`)
+      const body = openViewer(tx('Image #{n}', { n: img.n }))
       void imageUrl('image', { n: img.n }, `${snap.id}:${img.n}`).then(url => {
         if (url) body.appendChild(el('img')).src = url
-        else body.append(el('div', 'none', 'This image is no longer on the computer.'))
+        else body.append(el('div', 'none', tx('This image is no longer on the computer.')))
       })
     }
     at = m.index + m[0].length
@@ -333,13 +354,13 @@ const diffPathOf = path => snap.edited.find(f => f.path === path)?.path ?? snap.
 
 function toolLines(t) {
   const lines = []
-  if (t.out === undefined) lines.push(['', 'Running…'])
+  if (t.out === undefined) lines.push(['', tx('Running…')])
   else if (t.isError) for (const l of t.out.split('\n')) lines.push(['del', l])
   else if (t.old !== undefined) {
     for (const l of t.old ? t.old.split('\n') : []) lines.push(['del', `- ${l}`])
     for (const l of t.new ? t.new.split('\n') : []) lines.push(['add', `+ ${l}`])
   } else if (t.new !== undefined) {
-    lines.push(['', `Wrote ${t.new.split('\n').length} lines`])
+    lines.push(['', tx('Wrote {n} lines', { n: t.new.split('\n').length })])
     for (const l of t.new.split('\n')) lines.push(['add', l])
   } else for (const l of t.out.replace(/\n+$/, '').split('\n')) lines.push(['', l])
   return lines
@@ -352,7 +373,7 @@ function askRow(t, into) {
   const row = into.appendChild(el('div', `trow ask${isOpen ? ' open' : ''}`))
   row.append(icon('help'))
   const name = row.appendChild(el('span', 'name'))
-  name.append(el('strong', '', 'Ask'), document.createTextNode(` ${t.arg}`))
+  name.append(el('strong', '', tx('Ask')), document.createTextNode(` ${t.arg}`))
   row.appendChild(el('span', 'chev')).append(icon(isOpen ? 'chevronDown' : 'chevronRight'))
   row.onclick = () => {
     if (isOpen) opened.delete(t.id)
@@ -360,12 +381,12 @@ function askRow(t, into) {
     renderChat()
   }
   const qa = t.qa || []
-  const summary = t.out === undefined ? 'waiting for your answer' : t.isError ? 'dismissed' : qa.map(x => x.a).filter(Boolean).join(' · ') || 'no answer'
+  const summary = t.out === undefined ? tx('waiting for your answer') : t.isError ? tx('dismissed') : qa.map(x => x.a).filter(Boolean).join(' · ') || tx('no answer')
   if (!isOpen) return into.append(el('div', 'ask-sum', `↳ ${summary}`))
   const out = into.appendChild(el('div', 'tout ask-out'))
   for (const x of qa) {
     out.append(el('div', 'aq', x.q))
-    out.append(el('div', 'aa', `↳ ${t.out === undefined ? 'waiting' : t.isError ? 'dismissed' : x.a || 'left blank'}`))
+    out.append(el('div', 'aa', `↳ ${t.out === undefined ? tx('waiting') : t.isError ? tx('dismissed') : x.a || tx('left blank')}`))
   }
 }
 
@@ -388,13 +409,13 @@ function toolRow(t, into) {
   for (const [cls, text] of toolLines(t)) out.append(el('div', cls, text || ' '))
   const diffPath = t.path && diffPathOf(t.path)
   if (diffPath) {
-    const open = out.appendChild(el('div', 'open-diff', 'Open the whole diff'))
+    const open = out.appendChild(el('div', 'open-diff', tx('Open the whole diff')))
     open.onclick = () => showDiff(diffPath)
   }
   // a call that failed: its call and what it said, quoted over the reply box, to ask about it
   if (t.isError) {
-    const ask = out.appendChild(el('div', 'open-diff', 'Ask Claude about this error'))
-    ask.onclick = () => setQuote(`${t.name} failed`, `${t.name}(${t.arg})\n${t.out || ''}`.trim(), ERROR_QUOTE_MAX)
+    const ask = out.appendChild(el('div', 'open-diff', tx('Ask Claude about this error')))
+    ask.onclick = () => setQuote(tx('{name} failed', { name: t.name }), `${t.name}(${t.arg})\n${t.out || ''}`.trim(), ERROR_QUOTE_MAX)
   }
 }
 
@@ -402,11 +423,11 @@ function renderChat() {
   const root = $('chat')
   root.replaceChildren()
   const items = snap.transcript || []
-  if (!items.length && !snap.busy) return root.append(el('div', 'empty', 'Nothing in this session yet.'))
+  if (!items.length && !snap.busy) return root.append(el('div', 'empty', tx('Nothing in this session yet.')))
   // the session holds more turns than it sent: 20 more at a tap, the place you read kept
   if (snap.hasEarlier) {
     const more = root.appendChild(el('button', 'earlier'))
-    more.append(el('span', 'ring'), el('span', 'label', 'Load earlier turns'))
+    more.append(el('span', 'ring'), el('span', 'label', tx('Load earlier turns')))
     if (earlierAsked === snap.id) showEarlierLoading(more)
     more.onclick = async () => {
       earlierAsked = snap.id
@@ -419,7 +440,7 @@ function renderChat() {
         earlierAsked = ''
         keepFromBottom = 0
         hideEarlierLoading()
-        toast({ title: 'Not loaded', body: r.b?.error || 'The session did not answer. Try again.' })
+        toast({ title: tx('Not loaded'), body: r.b?.error || tx('The session did not answer. Try again.') })
       }
     }
   }
@@ -434,7 +455,7 @@ function renderChat() {
     }
     if (t.k === 'more') {
       tools = null
-      root.append(el('div', 'more-tools', `… ${t.n} earlier tool call${t.n === 1 ? '' : 's'}`))
+      root.append(el('div', 'more-tools', `… ${t.n === 1 ? tx('1 earlier tool call') : tx('{n} earlier tool calls', { n: t.n })}`))
       continue
     }
     if (t.k === 'tool') {
@@ -473,33 +494,33 @@ function renderChat() {
     const b = root.appendChild(prompted(text, el('div', snap.busy ? 'b me queued' : 'b me')))
     bubbleText.set(b, text)
     if (!snap.busy) continue
-    b.append(el('span', 'note', 'waits for this turn to end'))
+    b.append(el('span', 'note', tx('waits for this turn to end')))
     // ✕ takes it back before it goes in; gone at once here, and from the session at its next call
     const x = b.appendChild(el('button', 'unq', '✕'))
-    x.setAttribute('aria-label', 'Take back')
+    x.setAttribute('aria-label', tx('Take back'))
     x.onclick = async e => {
       e.stopPropagation()
       b.remove()
       const r = await api('unqueue', { text })
-      if (r.s !== 200) toast({ title: 'Not taken back', body: r.b?.error || 'The session did not answer. Try again.' })
+      if (r.s !== 200) toast({ title: tx('Not taken back'), body: r.b?.error || tx('The session did not answer. Try again.') })
     }
   }
   if (snap.ask) {
     // the question, as a bubble that opens its page again
     const b = root.appendChild(el('div', 'b claude ask'))
-    b.append(el('div', 'qt', snap.ask.questions[0]?.question || 'Claude asks you'))
-    if (snap.ask.questions.length > 1) b.append(el('div', 'meta', `and ${snap.ask.questions.length - 1} more`))
-    b.append(el('div', 'go', 'Answer'))
+    b.append(el('div', 'qt', snap.ask.questions[0]?.question || tx('Claude asks you')))
+    if (snap.ask.questions.length > 1) b.append(el('div', 'meta', tx('and {n} more', { n: snap.ask.questions.length - 1 })))
+    b.append(el('div', 'go', tx('Answer')))
     b.onclick = () => openAsk(true)
   }
   // a permission prompt waiting at the computer: what it would run and why it asks; no buttons,
   // since an organization's policy may not let a plugin answer one
   for (const p of snap.permissions || []) {
     const b = root.appendChild(el('div', 'b claude ask perm'))
-    b.append(el('div', 'qt', `Claude asks to use ${p.tool}`))
+    b.append(el('div', 'qt', tx('Claude asks to use {tool}', { tool: p.tool })))
     b.append(el('pre', 'call', p.text))
     if (p.reason) b.append(el('div', 'meta', p.reason))
-    b.append(el('div', 'go', 'Answer it at the computer'))
+    b.append(el('div', 'go', tx('Answer it at the computer')))
   }
   if (snap.busy) {
     // the task list first, the Working line last: it stays just above the box (the tool running is
@@ -514,12 +535,12 @@ function renderChat() {
     head.append(el('span', '', `${workingWord(snap.turnStartedAt)}…`), el('span', 'elapsed', ''))
     // Stop, after the time worked: a round button with a solid square; the turn ends as Esc ends it
     const stop = head.appendChild(el('button', 'stop'))
-    stop.setAttribute('aria-label', 'Stop this turn')
+    stop.setAttribute('aria-label', tx('Stop this turn'))
     stop.append(el('span', 'sq'))
     stop.onclick = async () => {
       stop.disabled = true
       const r = await api('stop', { session: snap.id })
-      toast(r.s === 200 ? { title: 'Stopping', body: 'The session ends its turn in a moment.' } : { title: 'Not stopped', body: r.b?.error || 'The session did not answer. Try again.' })
+      toast(r.s === 200 ? { title: tx('Stopping'), body: tx('The session ends its turn in a moment.') } : { title: tx('Not stopped'), body: r.b?.error || tx('The session did not answer. Try again.') })
     }
     tickElapsed()
   }
@@ -528,8 +549,9 @@ function renderChat() {
 // holds for the turn and changes with the next.
 const WORKING_WORDS = ['Working', 'Thinking', 'Pondering', 'Brewing', 'Tinkering', 'Crafting', 'Cooking', 'Conjuring', 'Computing', 'Mulling', 'Noodling', 'Puzzling', 'Hatching', 'Whittling', 'Forging', 'Assembling', 'Untangling', 'Wrangling', 'Percolating', 'Simmering', 'Ruminating', 'Deliberating', 'Scheming', 'Musing', 'Churning', 'Spinning', 'Shaping', 'Sketching', 'Polishing', 'Weaving']
 function workingWord(startedAt) {
+  const words = prefs.lang === 'vi' && globalThis.I18N ? I18N.WORKING_VI : WORKING_WORDS
   const n = Math.floor(Number(startedAt) || 0)
-  return WORKING_WORDS[((n % WORKING_WORDS.length) + WORKING_WORDS.length) % WORKING_WORDS.length]
+  return words[((n % words.length) + words.length) % words.length]
 }
 function tickElapsed() {
   const node = document.querySelector('.working .elapsed')
@@ -547,7 +569,7 @@ function renderHeader() {
   const n = snap.edited.length + snap.changes.length + snap.images.length
   $('files-badge').hidden = !n
   $('files-badge').textContent = String(n)
-  $('text').placeholder = snap.busy ? 'Queue a reply' : 'Reply'
+  $('text').placeholder = snap.busy ? tx('Queue a reply') : tx('Reply')
 }
 
 // Sessions that ended a turn while another was shown: marked in the drawer, and on its button, until
@@ -589,7 +611,7 @@ async function highlightChat() {
 function ctxRing(pct) {
   const p = Math.max(0, Math.min(100, Math.round(pct)))
   const ring = el('span', `ctxring${p >= 85 ? ' bad' : p >= 70 ? ' warn' : ''}`)
-  ring.title = `context ${p}%`
+  ring.title = tx('context {p}%', { p })
   ring.style.setProperty('--p', String(p))
   ring.append(el('span', '', String(p)))
   return ring
@@ -598,7 +620,7 @@ function ctxRing(pct) {
 function renderDrawer() {
   const box = $('sessions')
   box.replaceChildren()
-  if (!state.sessions.length) box.append(el('div', 'meta', 'No session has the remote on now.'))
+  if (!state.sessions.length) box.append(el('div', 'meta', tx('No session has the remote on now.')))
   for (const s of state.sessions) {
     const row = box.appendChild(el('button', `srow${s.id === picked ? ' on' : ''}`))
     // orange: a question or a permission prompt waits for you there
@@ -634,10 +656,10 @@ function openSheet() {
   sheet.append(el('h2', '', titleOf(snap)))
   const line = sheet.appendChild(el('div', 'meta'))
   if (snap.branch) line.append(icon('branch'), document.createTextNode(` ${snap.branch} · `))
-  line.append(document.createTextNode([snap.model, snap.mode && `mode ${snap.mode}`].filter(Boolean).join(' · ')))
+  line.append(document.createTextNode([snap.model, snap.mode && tx('mode {mode}', { mode: snap.mode })].filter(Boolean).join(' · ')))
   // the home folder written as ~
   if (snap.cwd) sheet.append(el('div', 'meta', snap.home && (snap.cwd === snap.home || snap.cwd.startsWith(`${snap.home}/`)) ? `~${snap.cwd.slice(snap.home.length)}` : snap.cwd))
-  sheet.append(el('div', 'meta', snap.busy && snap.turnStartedAt ? `Working for ${clock(Date.now() - snap.turnStartedAt)}` : 'Idle'))
+  sheet.append(el('div', 'meta', snap.busy && snap.turnStartedAt ? tx('Working for {time}', { time: clock(Date.now() - snap.turnStartedAt) }) : tx('Idle')))
   const chips = sheet.appendChild(el('div', 'chips'))
   const usage = snap.usage || {}
   const chip = (label, n, warnAt, badAt) => {
@@ -646,7 +668,7 @@ function openSheet() {
   chip('5h', usage.five, 50, 80)
   chip('wk', usage.week, 50, 80)
   chip('ctx', usage.ctx, 70, 85)
-  if (typeof usage.cost === 'number') chips.append(el('span', 'chip', `$${usage.cost.toFixed(2)} this session`))
+  if (typeof usage.cost === 'number') chips.append(el('span', 'chip', tx('${cost} this session', { cost: usage.cost.toFixed(2) })))
   $('scrim').hidden = false
   sheet.hidden = false
 }
@@ -664,7 +686,7 @@ new MutationObserver(syncLayered).observe(document.body, { subtree: true, attrib
 function showEarlierLoading(more) {
   more.disabled = true
   more.classList.add('loading')
-  more.querySelector('.label').textContent = 'Loading earlier turns…'
+  more.querySelector('.label').textContent = tx('Loading earlier turns…')
   if (!more.nextElementSibling?.classList.contains('ghost')) more.after(el('div', 'ghost claude'), el('div', 'ghost me'))
 }
 
@@ -674,7 +696,7 @@ function hideEarlierLoading() {
   if (!more) return
   more.disabled = false
   more.classList.remove('loading')
-  more.querySelector('.label').textContent = 'Load earlier turns'
+  more.querySelector('.label').textContent = tx('Load earlier turns')
   for (const ghost of $('chat').querySelectorAll('.ghost')) ghost.remove()
 }
 
@@ -699,11 +721,16 @@ const canSpeak = 'speechSynthesis' in window && typeof SpeechSynthesisUtterance 
 let speaking = '' // the text being read: its button shows stop, through the redraws
 let speakRun = 0 // a read stopped: its utterances ending late are not the next read's
 
-// The phone's voice for `lang`: Vietnamese from Vietnam, US English, else any of that language;
-// none, and the browser picks by the utterance's lang
-function voiceFor(lang) {
-  const voices = speechSynthesis.getVoices().filter(v => v.lang.toLowerCase().replace('_', '-').startsWith(lang))
-  return voices.find(v => /^(vi-vn|en-us)$/i.test(v.lang.replace('_', '-'))) ?? voices[0] ?? null
+// The phone's voice for `lang`: the one picked in Settings while the phone has it, else the best
+// (speak.mjs); none, and the browser picks by the utterance's lang
+const voiceFor = lang => Speak.pickVoice(speechSynthesis.getVoices(), lang, lang === 'vi' ? prefs.voiceVi : prefs.voiceEn)
+// One piece to say, in its language's voice, at the speed picked
+function utterance(text, lang, voice = voiceFor(lang)) {
+  const said = new SpeechSynthesisUtterance(text)
+  said.lang = lang === 'vi' ? 'vi-VN' : 'en-US'
+  if (voice) said.voice = voice
+  said.rate = Number(prefs.rate) || 1
+  return said
 }
 
 function syncSpeakButtons() {
@@ -712,7 +739,7 @@ function syncSpeakButtons() {
     if (btn.classList.contains('on') === isOn) continue
     btn.classList.toggle('on', isOn)
     btn.replaceChildren(icon(isOn ? 'stop' : 'speaker'))
-    btn.setAttribute('aria-label', isOn ? 'Stop reading' : 'Read aloud')
+    btn.setAttribute('aria-label', isOn ? tx('Stop reading') : tx('Read aloud'))
   }
 }
 
@@ -732,9 +759,7 @@ function speak(text) {
   const voices = { vi: voiceFor('vi'), en: voiceFor('en') }
   speaking = text
   parts.forEach((part, i) => {
-    const said = new SpeechSynthesisUtterance(part.text)
-    said.lang = part.lang === 'vi' ? 'vi-VN' : 'en-US'
-    if (voices[part.lang]) said.voice = voices[part.lang]
+    const said = utterance(part.text, part.lang, voices[part.lang])
     if (i === parts.length - 1) said.onend = () => { if (run === speakRun) stopSpeaking() }
     said.onerror = () => { if (run === speakRun) stopSpeaking() }
     speechSynthesis.speak(said)
@@ -742,12 +767,27 @@ function speak(text) {
   syncSpeakButtons()
 }
 
+// A notice come in while the page is open, read aloud when Settings says so: after what is being
+// read, not over it. A page in the background may not be let speak; the push shows as ever.
+function readNotice(n) {
+  if (!prefs.readNotices || !canSpeak || !globalThis.Speak) return
+  const text = [n.title, n.body].filter(Boolean).join('. ').replace(/\s·\s/g, ', ').replace(/(^|\s)\/(?=\w)/g, '$1')
+  for (const part of Speak.segments(Speak.speechText(text))) speechSynthesis.speak(utterance(part.text, part.lang))
+}
+
+// A voice's sample, from Settings
+function playSample(lang) {
+  if (!canSpeak || !globalThis.I18N) return
+  stopSpeaking()
+  speechSynthesis.speak(utterance(I18N.SAMPLES[lang], lang))
+}
+
 function speakButton(text) {
   const btn = el('button', 'speak')
   const isOn = speaking === text
   btn.classList.toggle('on', isOn)
   btn.append(icon(isOn ? 'stop' : 'speaker'))
-  btn.setAttribute('aria-label', isOn ? 'Stop reading' : 'Read aloud')
+  btn.setAttribute('aria-label', isOn ? tx('Stop reading') : tx('Read aloud'))
   btn.onclick = () => (speaking === text ? stopSpeaking() : speak(text))
   return btn
 }
@@ -799,7 +839,7 @@ async function copyText(value) {
       const isCopied = await copyText(isBlock ? held.textContent : bubbleText.get(from))
       held.classList.remove('copying')
       navigator.vibrate?.(15)
-      toast(isCopied ? { title: 'Copied', body: isBlock ? 'The code block' : from.classList.contains('me') ? 'Your message' : 'The whole answer' } : { title: 'Not copied', body: 'The browser refused the clipboard.' })
+      toast(isCopied ? { title: tx('Copied'), body: isBlock ? tx('The code block') : from.classList.contains('me') ? tx('Your message') : tx('The whole answer') } : { title: tx('Not copied'), body: tx('The browser refused the clipboard.') })
     }, HOLD_TO_COPY_MS)
   })
   $('chat').addEventListener('pointermove', e => {
@@ -826,7 +866,7 @@ async function copyText(value) {
     b.style.transform = ''
     b.classList.remove('quoting')
     if (!isAcross || dx <= SWIPE_PX) return
-    setQuote(b.classList.contains('me') ? 'You' : 'Claude', bubbleText.get(b))
+    setQuote(b.classList.contains('me') ? tx('You') : 'Claude', bubbleText.get(b))
     navigator.vibrate?.(10)
   }
   $('chat').addEventListener('pointerup', end)
@@ -926,38 +966,38 @@ function marked(text, q, into) {
 }
 async function renderSearch(root) {
   const round = ++searchRound
-  root.append(el('div', 'meta pad', 'Searching…'))
+  root.append(el('div', 'meta pad', tx('Searching…')))
   const r = await api('search', { query: filesQuery })
   if (round !== searchRound) return
   root.replaceChildren()
   const data = r.b || {}
-  if (r.s !== 200) return root.append(el('div', 'none', data.error || 'Could not search.'))
-  if (!data.names.length && !data.hits.length) return root.append(el('div', 'none', `Nothing holds "${filesQuery}".`))
+  if (r.s !== 200) return root.append(el('div', 'none', data.error || tx('Could not search.')))
+  if (!data.names.length && !data.hits.length) return root.append(el('div', 'none', tx('Nothing holds "{q}".', { q: filesQuery })))
   const group = (title, rows) => {
     if (!rows.length) return
     root.append(el('div', 'sgroup', title))
     const card = root.appendChild(el('div', 'card tree'))
     for (const row of rows) card.append(row)
   }
-  group(`Files ${data.names.length}`, data.names.map(f => {
+  group(tx('Files {n}', { n: data.names.length }), data.names.map(f => {
     const b = el('button', 'shit')
     b.append(marked(f.rel, filesQuery, el('span')))
     b.onclick = () => (isPicking ? pickFile(f.path) : showFile(f.path))
     return b
   }))
-  group(`In files ${data.hits.length}`, data.hits.map(h => {
+  group(tx('In files {n}', { n: data.hits.length }), data.hits.map(h => {
     const b = el('button', 'shit')
     b.append(el('span', 'at', `${h.rel}:${h.line}`), marked(h.text, filesQuery, el('span', 'line')))
     b.onclick = () => showFile(h.path, h.line)
     return b
   }))
-  if (data.isCut) root.append(el('div', 'meta pad', 'More match: search for something longer.'))
+  if (data.isCut) root.append(el('div', 'meta pad', tx('More match: search for something longer.')))
 }
 
 async function renderFolder(root) {
-  if (isPicking) root.append(el('div', 'pickbar', 'Pick a file to mention in your reply'))
+  if (isPicking) root.append(el('div', 'pickbar', tx('Pick a file to mention in your reply')))
   const roots = snap.roots || []
-  if (!roots.length) return root.append(el('div', 'none', 'This session names no folder.'))
+  if (!roots.length) return root.append(el('div', 'none', tx('This session names no folder.')))
   if (!roots.includes(browse.root)) browse = { root: roots[0], path: roots[0] }
   // the folders this session works in, when it has more than one
   if (roots.length > 1) {
@@ -980,21 +1020,21 @@ async function renderFolder(root) {
     step(p, `${browse.root}/${parts.slice(0, i + 1).join('/')}`)
   })
   const list = root.appendChild(el('div', 'card tree'))
-  list.append(el('div', 'meta', 'Loading…'))
+  list.append(el('div', 'meta', tx('Loading…')))
   const r = await api('tree', { path: browse.path })
   const data = r.b || {}
   list.replaceChildren()
-  if (r.s !== 200) return list.append(el('div', 'none', data.error || 'Could not read the folder.'))
+  if (r.s !== 200) return list.append(el('div', 'none', data.error || tx('Could not read the folder.')))
   // a folder in a git repository: its branch after the path
   if (data.branch) crumbs.appendChild(el('span', 'fbranch')).append(icon('branch'), document.createTextNode(` ${data.branch}`))
-  if (!data.rows.length) return list.append(el('div', 'none', 'Empty folder.'))
+  if (!data.rows.length) return list.append(el('div', 'none', tx('Empty folder.')))
   for (const row of data.rows) {
     const item = list.appendChild(el('button', `trow-file${row.isLocked ? ' locked' : ''}`))
     item.append(icon(row.isLocked ? 'lock' : row.isDir ? 'folder' : 'file'), el('span', 'fname', row.name))
-    if (inContext(row.path)) item.append(el('span', 'ctxdot', 'in context'))
+    if (inContext(row.path)) item.append(el('span', 'ctxdot', tx('in context')))
     if (!row.isDir) item.append(el('span', 'fsize', size(row.size)))
     item.onclick = () => {
-      if (row.isLocked) return toast({ title: 'Locked', body: 'Secrets are not shown on the phone.' })
+      if (row.isLocked) return toast({ title: tx('Locked'), body: tx('Secrets are not shown on the phone.') })
       if (row.isDir) {
         browse.path = row.path
         renderFiles()
@@ -1018,20 +1058,20 @@ function renderContext(root) {
     row.onclick = onclick || (() => showFile(path))
     return row
   }
-  group('Mentioned with @', 'No file @-mentioned in a prompt yet.', [...(c.mentions || [])].reverse().map(p => fileLine(p)))
-  group('Read by Claude', 'Claude has read no file yet.', [...(c.reads || [])].reverse().map(p => fileLine(p)))
-  group('Folders added', 'No folder added with /add-dir.', (c.dirs || []).map(d => fileLine(d, 'browse', () => {
+  group(tx('Mentioned with @'), tx('No file @-mentioned in a prompt yet.'), [...(c.mentions || [])].reverse().map(p => fileLine(p)))
+  group(tx('Read by Claude'), tx('Claude has read no file yet.'), [...(c.reads || [])].reverse().map(p => fileLine(p)))
+  group(tx('Folders added'), tx('No folder added with /add-dir.'), (c.dirs || []).map(d => fileLine(d, 'browse', () => {
     browse = { root: d, path: d }
     filesTab = 'folder'
     renderFiles()
   })))
-  group('Memory files', 'No memory file loaded.', (c.memory || []).map(m => fileLine(m.path, `${m.tokens} tok`)))
+  group(tx('Memory files'), tx('No memory file loaded.'), (c.memory || []).map(m => fileLine(m.path, `${m.tokens} tok`)))
 }
 
 function renderChanges(root) {
   if (snap.edited.length) {
     const card = root.appendChild(el('div', 'card'))
-    card.append(el('h3', '', 'Edited this turn'))
+    card.append(el('h3', '', tx('Edited this turn')))
     for (const f of snap.edited) {
       const row = card.appendChild(fileRow(f.path, '', ''))
       row.lastChild.append(el('span', 'add', `+${f.added} `), el('span', 'del', `−${f.removed}`))
@@ -1039,22 +1079,22 @@ function renderChanges(root) {
   }
   if (snap.changes.length) {
     const card = root.appendChild(el('div', 'card'))
-    card.append(el('h3', '', 'Changed in git'))
+    card.append(el('h3', '', tx('Changed in git')))
     for (const f of snap.changes) card.append(fileRow(f.path, f.code, 'ctx'))
   }
-  if (!root.childElementCount) root.append(el('div', 'none', 'No changed files.'))
+  if (!root.childElementCount) root.append(el('div', 'none', tx('No changed files.')))
 }
 
 function renderImages(root) {
-  if (!snap.images.length) return root.append(el('div', 'none', 'No images pasted in this session.'))
+  if (!snap.images.length) return root.append(el('div', 'none', tx('No images pasted in this session.')))
   const grid = root.appendChild(el('div', 'grid'))
   for (const img of snap.images) {
     const node = grid.appendChild(el('img'))
     node.loading = 'lazy'
-    node.alt = `Image #${img.n}`
+    node.alt = tx('Image #{n}', { n: img.n })
     void imageUrl('image', { n: img.n }, `${snap.id}:${img.n}`).then(url => { node.src = url })
     node.onclick = () => {
-      const body = openViewer(`Image #${img.n}`)
+      const body = openViewer(tx('Image #{n}', { n: img.n }))
       body.appendChild(el('img')).src = node.src
     }
   }
@@ -1080,19 +1120,19 @@ function loadHighlighter() {
 // `atLine`: the line a search found, marked and scrolled to
 async function showFile(path, atLine) {
   const body = openViewer(shortPath(path))
-  body.append(el('div', 'meta pad', 'Loading…'))
+  body.append(el('div', 'meta pad', tx('Loading…')))
   const r = await api('file', { path })
   const data = r.b || {}
   body.replaceChildren()
-  if (r.s !== 200) return body.append(el('div', 'none', data.error || 'Could not open the file.'))
+  if (r.s !== 200) return body.append(el('div', 'none', data.error || tx('Could not open the file.')))
   if (data.kind === 'image') {
     const img = body.appendChild(el('img'))
     img.src = await imageUrl('file', { path, raw: true })
     return
   }
-  if (data.kind === 'binary') return body.append(el('div', 'none', `A binary file, ${size(data.size)}.`))
+  if (data.kind === 'binary') return body.append(el('div', 'none', tx('A binary file, {size}.', { size: size(data.size) })))
   const lines = data.text.replace(/\n$/, '').split('\n')
-  body.append(el('div', 'meta pad', `${lines.length} lines · ${size(data.size)}${data.isCut ? ' · the first 512 KB' : ''}`))
+  body.append(el('div', 'meta pad', `${tx('{n} lines', { n: lines.length })} · ${size(data.size)}${data.isCut ? ` · ${tx('the first 512 KB')}` : ''}`))
   const code = body.appendChild(el('div', 'codeview'))
   const gutter = code.appendChild(el('pre', 'gutter', lines.map((_, i) => i + 1).join('\n')))
   // a tap on a line number marks that line and opens a box under the file to ask Claude about it;
@@ -1122,9 +1162,9 @@ async function showFile(path, atLine) {
   const q = field.appendChild(el('input'))
   q.type = 'text'
   q.enterKeyHint = 'search'
-  q.placeholder = 'Find in this file'
+  q.placeholder = tx('Find in this file')
   const clear = field.appendChild(el('button', 'clear'))
-  clear.setAttribute('aria-label', 'Clear')
+  clear.setAttribute('aria-label', tx('Clear'))
   clear.append(icon('close'))
   clear.hidden = true
   clear.onclick = () => {
@@ -1134,10 +1174,10 @@ async function showFile(path, atLine) {
   }
   const count = finder.appendChild(el('span', 'count'))
   const up = finder.appendChild(el('button', 'icon'))
-  up.setAttribute('aria-label', 'Previous match')
+  up.setAttribute('aria-label', tx('Previous match'))
   up.append(icon('arrowUp'))
   const down = finder.appendChild(el('button', 'icon'))
-  down.setAttribute('aria-label', 'Next match')
+  down.setAttribute('aria-label', tx('Next match'))
   down.append(icon('arrowDown'))
   const hits = code.appendChild(el('div', 'hits'))
   let found = [], at = 0
@@ -1196,7 +1236,7 @@ function openAskBox(body, { what, hint = '', placeholder, compose }) {
     const head = el('div', 'head')
     // ✕ shuts the box and unmarks the line; a prompt already sent goes on
     const shut = el('button', 'icon close')
-    shut.setAttribute('aria-label', 'Close')
+    shut.setAttribute('aria-label', tx('Close'))
     shut.append(icon('close'))
     shut.onclick = () => {
       bar.remove()
@@ -1219,11 +1259,11 @@ function openAskBox(body, { what, hint = '', placeholder, compose }) {
     const row = frame.appendChild(el('div', 'tools-row'))
     row.append(el('div', 'status'))
     const mic = row.appendChild(el('button', 'icon mic'))
-    mic.setAttribute('aria-label', 'Speak')
+    mic.setAttribute('aria-label', tx('Speak'))
     mic.append(icon('mic'))
     wireMic(mic, box, () => box.oninput())
     const go = row.appendChild(el('button', 'send'))
-    go.setAttribute('aria-label', 'Send')
+    go.setAttribute('aria-label', tx('Send'))
     go.append(icon('arrowUp'))
     go.onclick = async () => {
       const ask = box.value.trim()
@@ -1236,7 +1276,7 @@ function openAskBox(body, { what, hint = '', placeholder, compose }) {
       go.disabled = false
       if (r.s !== 200) {
         lineAsk = null
-        bar.querySelector('.status').replaceChildren(el('span', 'err', r.b?.error || 'Not sent: the session did not answer. Try again.'))
+        bar.querySelector('.status').replaceChildren(el('span', 'err', r.b?.error || tx('Not sent: the session did not answer. Try again.')))
         return
       }
       box.value = ''
@@ -1254,11 +1294,11 @@ function openAskBox(body, { what, hint = '', placeholder, compose }) {
   box.focus()
 }
 function openLineAsk(body, path, picked, linesText) {
-  const label = LineAsk.linesLabel(picked.from, picked.to)
+  const label = linesShown(picked.from, picked.to)
   openAskBox(body, {
     what: `${label[0].toUpperCase()}${label.slice(1)} · ${shortPath(path)}`,
-    hint: picked.from === picked.to ? ' · tap another number for a range' : '',
-    placeholder: `Ask Claude about ${label}`,
+    hint: picked.from === picked.to ? tx(' · tap another number for a range') : '',
+    placeholder: tx('Ask Claude about {what}', { what: label }),
     compose: ask => LineAsk.lineAskText(mentionOf(path), picked.from, picked.to, linesText, ask),
   })
 }
@@ -1274,11 +1314,11 @@ function tickLineAsk() {
     return row
   }
   const phase = LineAsk.lineAskPhase(lineAsk, Boolean(s?.busy))
-  if (phase === 'sending') return node.replaceChildren(working(' Sending…'))
-  if (phase === 'waits') return node.replaceChildren(working(' Waits for the turn before it to end…'))
-  if (phase === 'working') return node.replaceChildren(working(' Claude is working on it…'))
-  const done = el('span', 'done', 'Done. ')
-  const open = el('button', 'link', 'Open the chat')
+  if (phase === 'sending') return node.replaceChildren(working(` ${tx('Sending…')}`))
+  if (phase === 'waits') return node.replaceChildren(working(` ${tx('Waits for the turn before it to end…')}`))
+  if (phase === 'working') return node.replaceChildren(working(` ${tx('Claude is working on it…')}`))
+  const done = el('span', 'done', `${tx('Done.')} `)
+  const open = el('button', 'link', tx('Open the chat'))
   open.onclick = () => {
     $('viewer').hidden = true
     $('files').hidden = true
@@ -1302,7 +1342,7 @@ async function showDiff(path) {
   const r = await api('diff', { path })
   const data = r.b || {}
   const diff = body.appendChild(el('div', 'diff'))
-  const text = r.s === 200 ? data.diff || '(no changes against HEAD)' : data.error || 'Could not read the diff.'
+  const text = r.s === 200 ? data.diff || tx('(no changes against HEAD)') : data.error || tx('Could not read the diff.')
   // each hunk, from its @@ header to the next, a block: a tap marks it and opens the box to ask
   // Claude about that change
   let block = diff
@@ -1316,8 +1356,8 @@ async function showDiff(path) {
         const hunk = [...hb.children].map(n => n.textContent).join('\n').replace(/\n+$/, '')
         const at = LineAsk.hunkLines(hunk.split('\n')[0])
         openAskBox(body, {
-          what: `The change at ${at ? LineAsk.linesLabel(at.from, at.to) : 'this hunk'} · ${shortPath(path)}`,
-          placeholder: 'Ask Claude about this change',
+          what: `${tx('The change at {where}', { where: at ? linesShown(at.from, at.to) : tx('this hunk') })} · ${shortPath(path)}`,
+          placeholder: tx('Ask Claude about this change'),
           compose: ask => LineAsk.hunkAskText(mentionOf(path), hunk, ask),
         })
       }
@@ -1325,7 +1365,7 @@ async function showDiff(path) {
     const cls = line.startsWith('+++') || line.startsWith('---') ? 'ctx' : line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : line.startsWith('@@') ? 'hunk' : ''
     block.append(el('div', cls, line || ' '))
   }
-  if (diff.querySelector('.hblock')) body.insertBefore(el('div', 'meta pad', 'Tap a change to ask Claude about it.'), diff)
+  if (diff.querySelector('.hblock')) body.insertBefore(el('div', 'meta pad', tx('Tap a change to ask Claude about it.')), diff)
 }
 
 // ---- Claude's question: every question at once, then Submit ---------------------------------------
@@ -1350,7 +1390,7 @@ function renderAsk() {
   if (askDraft.id !== a.id) askDraft = { id: a.id, picks: {}, other: {} }
   const count = () => {
     const n = Object.keys(answersOf(a.questions, askDraft)).length
-    $('ask-submit').textContent = `Submit ${n}/${a.questions.length}`
+    $('ask-submit').textContent = tx('Submit {n}/{total}', { n, total: a.questions.length })
     $('ask-submit').disabled = !n
   }
   a.questions.forEach((q, i) => {
@@ -1398,7 +1438,7 @@ function renderAsk() {
     } else {
       const other = box.appendChild(el('textarea', 'other'))
       other.rows = 2
-      other.placeholder = q.kind === 'text' ? q.placeholder || 'Type your answer' : 'Other: type your own answer'
+      other.placeholder = q.kind === 'text' ? q.placeholder || tx('Type your answer') : tx('Other: type your own answer')
       other.value = askDraft.other[i] || ''
       other.oninput = () => {
         askDraft.other[i] = other.value
@@ -1424,11 +1464,11 @@ async function sendAnswer(isDismissed) {
   const body = r.b || {}
   if (r.s !== 200) {
     $('ask-submit').disabled = false
-    return toast({ title: 'Not sent', body: body.error || 'The session did not answer. Try again.' })
+    return toast({ title: tx('Not sent'), body: body.error || tx('The session did not answer. Try again.') })
   }
   askHiddenId = a.id
   $('ask').hidden = true
-  toast({ title: isDismissed ? 'Dismissed' : 'Answered', body: isDismissed ? 'Claude goes on without an answer.' : 'Claude has your answer.' })
+  toast({ title: isDismissed ? tx('Dismissed') : tx('Answered'), body: isDismissed ? tx('Claude goes on without an answer.') : tx('Claude has your answer.') })
 }
 
 // ---- one drawing for every update ----------------------------------------------------------------
@@ -1441,7 +1481,7 @@ function render() {
     $('title-text').textContent = 'Claude'
     $('dot').className = 'dot'
     $('files-badge').hidden = true
-    $('chat').replaceChildren(el('div', 'empty', 'No Claude Code session has the remote on now.'))
+    $('chat').replaceChildren(el('div', 'empty', tx('No Claude Code session has the remote on now.')))
     return
   }
   // the chat sticks to its newest line, as a terminal does, unless you scrolled up to read
@@ -1451,7 +1491,7 @@ function render() {
   const note = snap.vaultNote
   if (!lastVaultAt) lastVaultAt = note?.at || 1
   else if (note && note.at > lastVaultAt) {
-    toast({ title: note.isError ? 'Secret not saved' : 'Secret saved', body: note.text })
+    toast({ title: note.isError ? tx('Secret not saved') : tx('Secret saved'), body: note.text })
     lastVaultAt = note.at
   }
   renderHeader()
@@ -1480,7 +1520,7 @@ function render() {
   renderFacts()
   if (!snap.ask && !$('ask').hidden) {
     $('ask').hidden = true
-    toast({ title: 'Answered', body: 'The question was answered on the Mac.' })
+    toast({ title: tx('Answered'), body: tx('The question was answered on the Mac.') })
   }
   if (isFollowing) toBottom()
   else $('jump').hidden = false
@@ -1594,23 +1634,24 @@ $('jump').onclick = () => {
   $('jump').hidden = true
 }
 
-// unpairing takes a second press within 4 seconds; no browser dialog
+// unpairing (Settings) takes a second press within 4 seconds; no browser dialog
 let unpairArmedAt = 0
-$('unpair').onclick = async () => {
+async function unpair(btn) {
   if (Date.now() - unpairArmedAt > 4000) {
     unpairArmedAt = Date.now()
-    $('unpair').textContent = 'Press again to unpair'
-    $('unpair').classList.add('warn')
+    btn.textContent = tx('Press again to unpair')
+    btn.classList.add('armed')
     setTimeout(() => {
-      $('unpair').textContent = 'Unpair this phone'
-      $('unpair').classList.remove('warn')
+      btn.textContent = tx('Unpair this phone')
+      btn.classList.remove('armed')
     }, 4000)
     return
   }
+  $('settings').hidden = true
   await E2E.call('forget').catch(() => undefined)
   await E2E.forget()
   closeLayers()
-  gate('This phone is unpaired. Scan the QR code in the terminal to pair it again.')
+  gate(tx('This phone is unpaired. Scan the QR code in the terminal to pair it again.'))
 }
 
 const text = $('text')
@@ -1673,7 +1714,7 @@ function wireMic(mic, box, fit) {
       box.value = `${box.value}${box.value && !/\s$/.test(box.value) ? ' ' : ''}${said}`
       fit()
     }
-    rec.onerror = e => { if (e.error !== 'aborted' && e.error !== 'no-speech') toast({ title: 'No voice input', body: e.error === 'not-allowed' ? 'Allow the microphone for this page.' : e.error }) }
+    rec.onerror = e => { if (e.error !== 'aborted' && e.error !== 'no-speech') toast({ title: tx('No voice input'), body: e.error === 'not-allowed' ? tx('Allow the microphone for this page.') : e.error }) }
     rec.onend = () => {
       rec = null
       mic.classList.remove('on')
@@ -1746,7 +1787,7 @@ async function sendText(raw, isBox = false) {
   const r = await api('reply', { text: isQuoting ? withQuote(value) : value })
   $('send').disabled = false
   const body = r.b || {}
-  if (r.s !== 200) return toast({ title: 'Not sent', body: body.error || 'The session did not answer. Try again.' })
+  if (r.s !== 200) return toast({ title: tx('Not sent'), body: body.error || tx('The session did not answer. Try again.') })
   if (isQuoting) dropQuote()
   if (isBox) {
     text.value = ''
@@ -1781,15 +1822,15 @@ function openPlus() {
       run()
     }
   }
-  item('file', 'Browse project file', 'mention it in your reply as @path', () => {
+  item('file', tx('Browse project file'), tx('mention it in your reply as @path'), () => {
     isPicking = true
     filesTab = 'folder'
     renderFiles()
     $('files').hidden = false
   })
-  item('globe', 'Add a web page', 'Claude reads it as context', openWebSheet)
-  item('key', 'Add a secret', 'saved to the Mac\'s keychain, never to the chat', openSecretSheet)
-  item('slash', 'Slash commands', 'commands and skills, the ones you type most first', openCommands)
+  item('globe', tx('Add a web page'), tx('Claude reads it as context'), openWebSheet)
+  item('key', tx('Add a secret'), tx("saved to the Mac's keychain, never to the chat"), openSecretSheet)
+  item('slash', tx('Slash commands'), tx('commands and skills, the ones you type most first'), openCommands)
   menu.hidden = false
   $('plus').classList.add('on')
 }
@@ -1829,7 +1870,7 @@ function formSheet(title, note, fields, submitLabel, onSubmit) {
   const more = fields.filter(x => x.isMore)
   if (more.length) {
     const d = form.appendChild(el('details'))
-    d.append(el('summary', '', 'For an unknown kind of token: its name, host and header'))
+    d.append(el('summary', '', tx('For an unknown kind of token: its name, host and header')))
     for (const f of more) add(d, f)
   }
   const go = form.appendChild(el('button', 'primary', submitLabel))
@@ -1844,10 +1885,10 @@ function formSheet(title, note, fields, submitLabel, onSubmit) {
   inputs[fields[0].key].focus()
 }
 function openWebSheet() {
-  formSheet('Add a web page', 'Your reply asks Claude to read it, as the + menu on the Mac does.', [{ key: 'url', type: 'url', placeholder: 'https://example.com/docs' }], 'Add to the reply', inputs => {
+  formSheet('Add a web page', tx('Your reply asks Claude to read it, as the + menu on the Mac does.'), [{ key: 'url', type: 'url', placeholder: 'https://example.com/docs' }], tx('Add to the reply'), inputs => {
     const url = inputs.url.value.trim()
     if (!/^https?:\/\/\S+$/.test(url)) {
-      toast({ title: 'Not a web address', body: 'Give the whole address, from https://.' })
+      toast({ title: tx('Not a web address'), body: tx('Give the whole address, from https://.') })
       return false
     }
     insertText(`Read ${url} and use it as context. `)
@@ -1855,21 +1896,21 @@ function openWebSheet() {
   })
 }
 function openSecretSheet() {
-  formSheet('Add a secret', 'Saved to the Mac\'s keychain, end to end encrypted on the way. Claude sees only its NAME and uses it only with its host. Known tokens (ghp_, sk-ant-, figd_, glpat-, xoxb-, sk-) name themselves.', [
-    { key: 'value', type: 'password', placeholder: 'the token or key' },
-    { key: 'name', placeholder: 'NAME, e.g. ACME_API_KEY', isMore: true },
-    { key: 'host', placeholder: 'host, e.g. api.acme.dev', isMore: true },
-    { key: 'header', placeholder: 'header, e.g. Authorization: Bearer', isMore: true },
-  ], 'Save on the Mac', async inputs => {
+  formSheet(tx('Add a secret'), tx("Saved to the Mac's keychain, end to end encrypted on the way. Claude sees only its NAME and uses it only with its host. Known tokens (ghp_, sk-ant-, figd_, glpat-, xoxb-, sk-) name themselves."), [
+    { key: 'value', type: 'password', placeholder: tx('the token or key') },
+    { key: 'name', placeholder: tx('NAME, e.g. ACME_API_KEY'), isMore: true },
+    { key: 'host', placeholder: tx('host, e.g. api.acme.dev'), isMore: true },
+    { key: 'header', placeholder: tx('header, e.g. Authorization: Bearer'), isMore: true },
+  ], tx('Save on the Mac'), async inputs => {
     const value = inputs.value.value.trim()
     if (!value) return false
     const r = await api('secret', { value, name: inputs.name.value, host: inputs.host.value, header: inputs.header.value })
     inputs.value.value = ''
     if (r.s !== 200) {
-      toast({ title: 'Not sent', body: r.b.error || 'The session did not answer. Try again.' })
+      toast({ title: tx('Not sent'), body: r.b.error || tx('The session did not answer. Try again.') })
       return false
     }
-    toast({ title: 'Sent to the Mac', body: 'It says in a moment what it saved.' })
+    toast({ title: tx('Sent to the Mac'), body: tx('It says in a moment what it saved.') })
     return true
   })
 }
@@ -1880,15 +1921,15 @@ function renderCommands() {
   const list = (snap?.commands || []).filter(c => words.every(w => `${c.name} ${c.description}`.toLowerCase().includes(w)))
   const root = $('cmds-body')
   root.replaceChildren()
-  if (!list.length) return root.append(el('div', 'none', words.length ? 'Nothing matches.' : 'The session has listed no commands yet.'))
+  if (!list.length) return root.append(el('div', 'none', words.length ? tx('Nothing matches.') : tx('The session has listed no commands yet.')))
   for (const group of new Set(list.map(c => c.group))) {
     const card = root.appendChild(el('div', 'card'))
     card.append(el('h3', '', group.replace(/^\d+ · /, '')))
     for (const c of list.filter(x => x.group === group)) {
       const b = card.appendChild(el('button', `cmd${c.isComputerOnly ? ' computeronly' : ''}`))
       const head = b.appendChild(el('div', 'n', `/${c.name}`))
-      if (c.isComputerOnly) head.append(el('span', 'tag', 'Computer only'))
-      if (c.needsArgs) head.append(el('span', 'tag', 'give a value'))
+      if (c.isComputerOnly) head.append(el('span', 'tag', tx('Computer only')))
+      if (c.needsArgs) head.append(el('span', 'tag', tx('give a value')))
       b.append(el('div', 'd', c.description))
       b.onclick = () => pickCommand(c)
     }
@@ -1912,7 +1953,7 @@ function pickCommand(c) {
     fitText()
     return openPage(c.name)
   }
-  if (c.isComputerOnly) return toast({ title: `/${c.name} is computer only`, body: 'It opens a panel on the computer, which the phone cannot close.' })
+  if (c.isComputerOnly) return toast({ title: tx('/{name} is computer only', { name: c.name }), body: tx('It opens a panel on the computer, which the phone cannot close.') })
   text.value = `/${c.name} ${text.value.replace(/^\/\S*\s*/, '')}`
   fitText()
   $('cmds').hidden = true
@@ -1940,7 +1981,7 @@ function updateSlash() {
     const b = box.appendChild(el('button', `item${c.isComputerOnly ? ' computeronly' : ''}`))
     const t = b.appendChild(el('div', 't'))
     t.append(el('span', 'n', `/${c.name}`))
-    if (c.isComputerOnly) t.append(el('span', 'tag', 'Computer only'))
+    if (c.isComputerOnly) t.append(el('span', 'tag', tx('Computer only')))
     if (c.description) b.append(el('div', 'd', c.description))
     // the box keeps the keyboard: a press does not take the focus first
     b.onpointerdown = e => e.preventDefault()
@@ -1965,9 +2006,9 @@ const WINDOW_NAMES = { five_hour: '5-hour', seven_day: 'Week', seven_day_opus: '
 function until(iso) {
   const ms = Date.parse(iso || '') - Date.now()
   if (!Number.isFinite(ms)) return ''
-  if (ms <= 0) return 'resets now'
+  if (ms <= 0) return tx('resets now')
   const m = Math.round(ms / 60000)
-  return m < 60 ? `resets in ${m} min` : m < 1440 ? `resets in ${Math.floor(m / 60)} h ${m % 60} min` : `resets in ${Math.floor(m / 1440)} d ${Math.floor((m % 1440) / 60)} h`
+  return m < 60 ? tx('resets in {m} min', { m }) : m < 1440 ? tx('resets in {h} h {m} min', { h: Math.floor(m / 60), m: m % 60 }) : tx('resets in {d} d {h} h', { d: Math.floor(m / 1440), h: Math.floor((m % 1440) / 60) })
 }
 function meterRow(label, percent, note) {
   const row = el('div', 'meter')
@@ -1981,17 +2022,17 @@ function meterRow(label, percent, note) {
 }
 function openUsage() {
   if (!snap) return
-  const body = openViewer(`Usage · ${titleOf(snap)}`)
+  const body = openViewer(`${tx('Usage')} · ${titleOf(snap)}`)
   const u = snap.usage || {}
   const limits = u.limits || []
   const card = body.appendChild(el('div', 'card usage'))
-  card.append(el('h3', '', 'Rate limits'))
-  if (!limits.length) card.append(el('div', 'meta pad', 'No reading yet: the figures come with the next answer from the API.'))
-  for (const r of limits) card.append(meterRow(WINDOW_NAMES[r.kind] || r.kind, r.percentUsed, until(r.resetsAt)))
+  card.append(el('h3', '', tx('Rate limits')))
+  if (!limits.length) card.append(el('div', 'meta pad', tx('No reading yet: the figures come with the next answer from the API.')))
+  for (const r of limits) card.append(meterRow(WINDOW_NAMES[r.kind] ? tx(WINDOW_NAMES[r.kind]) : r.kind, r.percentUsed, until(r.resetsAt)))
   const ctx = body.appendChild(el('div', 'card usage'))
-  ctx.append(el('h3', '', 'This session'))
-  ctx.append(meterRow('Context', u.ctx, u.tokens ? `${Math.round(u.tokens / 1000)}k of ${Math.round((u.window || 0) / 1000)}k tokens` : ''))
-  if (typeof u.cost === 'number') ctx.append(el('div', 'meta pad', `Cost so far $${u.cost.toFixed(2)}${u.startedAt ? `, over ${clock(Date.now() - u.startedAt)}` : ''}`))
+  ctx.append(el('h3', '', tx('This session')))
+  ctx.append(meterRow(tx('Context'), u.ctx, u.tokens ? tx('{used}k of {window}k tokens', { used: Math.round(u.tokens / 1000), window: Math.round((u.window || 0) / 1000) }) : ''))
+  if (typeof u.cost === 'number') ctx.append(el('div', 'meta pad', `${tx('Cost so far ${cost}', { cost: u.cost.toFixed(2) })}${u.startedAt ? tx(', over {time}', { time: clock(Date.now() - u.startedAt) }) : ''}`))
 }
 
 // ---- under the reply box: the model and the effort, each a press from its page ---------------------
@@ -2011,8 +2052,8 @@ function renderFacts() {
   // the model and its effort, one pill
   if (snap.model || snap.effort) {
     const p = pill()
-    if (snap.model) part(p, 'model', 'Model', () => openPage('model')).append(snap.model)
-    if (snap.effort) part(p, '', 'Effort', () => openPage('effort')).append(snap.effort)
+    if (snap.model) part(p, 'model', tx('Model'), () => openPage('model')).append(snap.model)
+    if (snap.effort) part(p, '', tx('Effort'), () => openPage('effort')).append(snap.effort)
   }
 }
 
@@ -2027,10 +2068,10 @@ function openPage(name) {
   pageAsk.name = name
   pageAsk.at = Date.now()
   pageAsk.pending = ''
-  openViewer(`/${name} · ${titleOf(snap)}`).append(el('div', 'none', 'Asking the session…'))
+  openViewer(`/${name} · ${titleOf(snap)}`).append(el('div', 'none', tx('Asking the session…')))
   $('viewer').dataset.page = name
   renderPage()
-  void api('page', { cmd: name }).then(r => { if (r.s !== 200) toast({ title: 'Not opened', body: r.b?.error || 'The session did not answer.' }) })
+  void api('page', { cmd: name }).then(r => { if (r.s !== 200) toast({ title: tx('Not opened'), body: r.b?.error || tx('The session did not answer.') }) })
 }
 async function pageAct(key, value) {
   pageAsk.pending = key
@@ -2040,7 +2081,7 @@ async function pageAct(key, value) {
   if (r.s !== 200) {
     pageAsk.pending = ''
     renderPage()
-    toast({ title: 'Not sent', body: r.b?.error || 'The session did not answer. Try again.' })
+    toast({ title: tx('Not sent'), body: r.b?.error || tx('The session did not answer. Try again.') })
   }
 }
 // the page as the session last built it, once built after the last ask; drawn again on each update
@@ -2103,20 +2144,20 @@ function pageRow(row) {
     const input = line.appendChild(el('input'))
     input.type = row.kind === 'number' ? 'number' : 'text'
     input.value = row.value || ''
-    const save = line.appendChild(el('button', 'pbtn', 'Save'))
+    const save = line.appendChild(el('button', 'pbtn', tx('Save')))
     save.onclick = () => pageAct(row.key, row.kind === 'number' ? Number(input.value) : input.value)
   }
   if (row.kind === 'action') {
-    const b = right.appendChild(el('button', 'pbtn', isBusy ? 'Working…' : 'Run'))
+    const b = right.appendChild(el('button', 'pbtn', isBusy ? tx('Working…') : tx('Run')))
     b.onclick = () => pageAct(row.key)
   }
   if (row.kind === 'remove') {
-    const b = right.appendChild(el('button', 'pbtn danger', 'Remove'))
+    const b = right.appendChild(el('button', 'pbtn danger', tx('Remove')))
     b.onclick = () => {
       if (b.dataset.armed) return pageAct(row.key)
       b.dataset.armed = '1'
-      b.textContent = 'Tap again'
-      setTimeout(() => { delete b.dataset.armed; b.textContent = 'Remove' }, 4000)
+      b.textContent = tx('Tap again')
+      setTimeout(() => { delete b.dataset.armed; b.textContent = tx('Remove') }, 4000)
     }
   }
   if (row.kind === 'add') {
@@ -2126,10 +2167,10 @@ function pageRow(row) {
     const input = line.appendChild(el('input'))
     input.placeholder = 'Tool(pattern)'
     input.autocapitalize = 'off'
-    const add = line.appendChild(el('button', 'pbtn', 'Add'))
+    const add = line.appendChild(el('button', 'pbtn', tx('Add')))
     add.onclick = () => input.value.trim() && pageAct(row.key, `${sel.value}\n${input.value.trim()}`)
     head.remove()
-    wrap.prepend(el('div', 'pd', `For example ${row.label}`))
+    wrap.prepend(el('div', 'pd', tx('For example {x}', { x: row.label })))
   }
   return wrap
 }
@@ -2137,27 +2178,37 @@ function pageRow(row) {
 // ---- push -----------------------------------------------------------------------------------
 const isIos = /iPhone|iPad|iPod/.test(navigator.userAgent)
 const isStandalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true
+// What Settings shows for notifications: on, off, none (a browser with no push), or home (an iPhone
+// page not yet added to the Home Screen, where Safari has none)
+function notifyState() {
+  if (!('serviceWorker' in navigator)) return 'none'
+  if (!('PushManager' in window)) return isIos && !isStandalone ? 'home' : 'none'
+  let isSubscribed = false
+  try { isSubscribed = localStorage.getItem('qsb-sub') === location.host } catch {}
+  return Notification.permission === 'granted' && isSubscribed && !prefs.notifyOff ? 'on' : 'off'
+}
 function setupNotify() {
-  const btn = $('notify')
   if (!('serviceWorker' in navigator)) return
   navigator.serviceWorker.register('/sw.js').catch(() => undefined)
   // a push notification tapped while the app is open: its session
   navigator.serviceWorker.addEventListener('message', e => openSession(e.data?.open))
-  if (!('PushManager' in window)) {
-    if (isIos && !isStandalone) {
-      btn.hidden = false
-      btn.onclick = () => toast({ title: 'Notifications on iPhone', body: 'Tap Share, then Add to Home Screen, and open Claude remote from there.' })
-    }
-    return
-  }
-  let isSubscribed = false
-  try { isSubscribed = localStorage.getItem('qsb-sub') === location.host } catch {}
-  btn.hidden = Notification.permission === 'granted' && isSubscribed
-  btn.onclick = subscribe
-  if (Notification.permission === 'granted') subscribe().catch(() => undefined)
+  // allowed before and not turned off in Settings: subscribed again, for this hub's key
+  if ('PushManager' in window && Notification.permission === 'granted' && !prefs.notifyOff) subscribe(true).catch(() => undefined)
 }
-async function subscribe() {
-  if ((await Notification.requestPermission()) !== 'granted') return toast({ title: 'Notifications off', body: 'Allow them in the browser settings to hear when Claude finishes.' })
+// The switch in Settings turned off: this phone's subscription dropped (the hub forgets one the push
+// service refuses), and not taken again at the next start
+async function unsubscribe() {
+  prefs.notifyOff = true
+  savePrefs()
+  try { localStorage.removeItem('qsb-sub') } catch {}
+  const reg = await navigator.serviceWorker.ready
+  await (await reg.pushManager.getSubscription())?.unsubscribe()
+  toast({ title: tx('Notifications off'), body: tx('This phone no longer gets them.') })
+}
+async function subscribe(isQuiet = false) {
+  prefs.notifyOff = false
+  savePrefs()
+  if ((await Notification.requestPermission()) !== 'granted') return toast({ title: tx('Notifications off'), body: tx('Allow them in the browser settings to hear when Claude finishes.') })
   const reg = await navigator.serviceWorker.ready
   const { key } = (await E2E.call('vapid')).b
   const raw = Uint8Array.from(atob(key.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))
@@ -2167,10 +2218,141 @@ async function subscribe() {
   const r = await E2E.call('subscribe', { sub: sub.toJSON() })
   if (r.s === 200) {
     try { localStorage.setItem('qsb-sub', location.host) } catch {}
-    $('notify').hidden = true
-    toast({ title: 'Notifications on', body: 'You will hear when Claude finishes or needs you.' })
+    if (!isQuiet) toast({ title: tx('Notifications on'), body: tx('You will hear when Claude finishes or needs you.') })
   }
 }
+
+// ---- Settings: language, theme, voices, notifications, unpairing -------------------------------
+// The page's own words in app.html, kept in English the first time and shown in the language picked
+const STATIC_NODES = {
+  text: [...document.querySelectorAll('[data-t]')],
+  aria: [...document.querySelectorAll('[aria-label]')].map(node => [node, node.getAttribute('aria-label')]),
+  hint: [...document.querySelectorAll('[placeholder]')].map(node => [node, node.getAttribute('placeholder')]),
+}
+function translateStatic() {
+  document.documentElement.lang = prefs.lang
+  for (const node of STATIC_NODES.text) node.textContent = tx(node.dataset.t)
+  for (const [node, en] of STATIC_NODES.aria) node.setAttribute('aria-label', tx(en))
+  for (const [node, en] of STATIC_NODES.hint) node.placeholder = tx(en)
+}
+function applyLang() {
+  translateStatic()
+  if (snap) render()
+  if (!$('settings').hidden) renderSettings()
+}
+
+// Light, dark, or the phone's own: the colours, the code's colours and the browser's bar
+const themeQuery = matchMedia('(prefers-color-scheme: light)')
+function applyTheme() {
+  const root = document.documentElement
+  if (prefs.theme === 'system') delete root.dataset.theme
+  else root.dataset.theme = prefs.theme
+  const isLight = prefs.theme === 'light' || (prefs.theme === 'system' && themeQuery.matches)
+  $('hljs-dark').media = prefs.theme === 'system' ? '(prefers-color-scheme: dark)' : isLight ? 'not all' : 'all'
+  $('hljs-light').media = prefs.theme === 'system' ? '(prefers-color-scheme: light)' : isLight ? 'all' : 'not all'
+  document.querySelector('meta[name="theme-color"]').content = isLight ? '#f7f6f1' : '#1a1a18'
+}
+themeQuery.addEventListener?.('change', applyTheme)
+
+const RATES = [0.9, 1, 1.2, 1.5]
+function renderSettings() {
+  const body = $('settings-body')
+  body.replaceChildren()
+  const card = title => {
+    const c = body.appendChild(el('div', 'card set'))
+    c.append(el('h3', '', title))
+    return c
+  }
+  const seg = (into, options, value, onPick) => {
+    const row = into.appendChild(el('div', 'seg'))
+    for (const [v, label] of options) row.appendChild(el('button', v === value ? 'on' : '', label)).onclick = () => onPick(v)
+  }
+  // a row: its words on the left, what sets it on the right
+  const row = (into, label, note) => {
+    const r = into.appendChild(el('div', 'prow'))
+    const head = r.appendChild(el('div', 'ph'))
+    const text = head.appendChild(el('div', 'pt'))
+    text.append(el('div', 'pl', label))
+    if (note) text.append(el('div', 'pd', note))
+    return head.appendChild(el('div', 'pr'))
+  }
+  const toggle = (into, isOn, onFlip) => {
+    const sw = into.appendChild(el('button', `switch${isOn ? ' on' : ''}`))
+    sw.setAttribute('role', 'switch')
+    sw.setAttribute('aria-checked', String(isOn))
+    sw.onclick = onFlip
+  }
+  const set = (key, value) => {
+    prefs[key] = value
+    savePrefs()
+    renderSettings()
+  }
+
+  seg(card(tx('Language')), [['en', 'English'], ['vi', 'Tiếng Việt']], prefs.lang, v => {
+    prefs.lang = v
+    savePrefs()
+    applyLang()
+  })
+  seg(card(tx('Theme')), [['system', tx('System')], ['light', tx('Light')], ['dark', tx('Dark')]], prefs.theme, v => {
+    set('theme', v)
+    applyTheme()
+  })
+
+  const voices = card(tx('Read aloud voices'))
+  if (!canSpeak || !globalThis.Speak) voices.append(el('div', 'meta pad', tx('This browser cannot read aloud.')))
+  else {
+    for (const [lang, key, label] of [['vi', 'voiceVi', tx('Vietnamese voice')], ['en', 'voiceEn', tx('English voice')]]) {
+      const right = row(voices, label)
+      const sel = right.appendChild(el('select', 'psel'))
+      sel.append(new Option(tx('Best on this phone'), ''))
+      for (const v of Speak.voicesFor(speechSynthesis.getVoices(), lang)) sel.append(new Option(v.name, v.name))
+      sel.value = [...sel.options].some(o => o.value === prefs[key]) ? prefs[key] : ''
+      sel.onchange = () => {
+        prefs[key] = sel.value
+        savePrefs()
+        playSample(lang)
+      }
+      const play = right.appendChild(el('button', 'icon play'))
+      play.setAttribute('aria-label', tx('Play a sample'))
+      play.append(icon('play'))
+      play.onclick = () => playSample(lang)
+    }
+    const speed = voices.appendChild(el('div', 'prow'))
+    speed.append(el('div', 'pl', tx('Speed')))
+    seg(speed, RATES.map(r => [r, `${r}×`]), Number(prefs.rate) || 1, r => set('rate', r))
+    if (isIos) voices.append(el('div', 'pd hint', tx('For better voices, download an Enhanced or Premium voice in Settings, Accessibility, Spoken Content, Voices.')))
+  }
+
+  const notes = card(tx('Notifications'))
+  const pushIs = notifyState()
+  const push = row(notes, tx('Notify me when Claude finishes'), pushIs === 'home' ? tx('On iPhone: tap Share, then Add to Home Screen, and open Claude remote from there.') : pushIs === 'none' ? tx('This browser cannot show notifications.') : tx('Also when Claude needs you.'))
+  if (pushIs === 'on' || pushIs === 'off') {
+    toggle(push, pushIs === 'on', async () => {
+      await (pushIs === 'on' ? unsubscribe() : subscribe()).catch(err => toast({ title: tx('Notifications off'), body: err.message }))
+      renderSettings()
+    })
+  }
+  if (canSpeak && globalThis.Speak) {
+    const read = row(notes, tx('Read notifications aloud'), tx('While this page is open, each one is read as it comes in.'))
+    toggle(read, prefs.readNotices, () => set('readNotices', !prefs.readNotices))
+  }
+
+  const off = body.appendChild(el('button', 'plain unpair', tx('Unpair this phone')))
+  off.onclick = () => unpair(off)
+  body.append(el('div', 'meta pad center', tx('These settings stay on this phone.')))
+}
+function openSettings() {
+  closeLayers()
+  renderSettings()
+  $('settings').hidden = false
+  $('settings').scrollTop = 0
+}
+$('open-settings').onclick = openSettings
+$('close-settings').onclick = () => { $('settings').hidden = true }
+// the voices come in late on some phones: the lists fill when they do
+if (canSpeak) speechSynthesis.addEventListener?.('voiceschanged', () => { if (!$('settings').hidden) renderSettings() })
+applyTheme()
+translateStatic()
 
 function boot() {
   pair()
@@ -2183,7 +2365,7 @@ function boot() {
 // a home-screen app has storage of its own and no camera on the link: its link is pasted here
 $('gate-go').onclick = () => {
   const hash = /#k=[\w-]+/.exec($('gate-link').value)?.[0]
-  if (!hash) return toast({ title: 'Not a link', body: 'Paste the whole link the terminal shows (⇄, then c).' })
+  if (!hash) return toast({ title: tx('Not a link'), body: tx('Paste the whole link the terminal shows (⇄, then c).') })
   location.hash = hash
   boot()
 }

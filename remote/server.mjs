@@ -465,6 +465,7 @@ const STATIC = {
   '/e2e.js': ['e2e.js', 'text/javascript; charset=utf-8'],
   '/lineask.mjs': ['lineask.mjs', 'text/javascript; charset=utf-8'],
   '/speak.mjs': ['speak.mjs', 'text/javascript; charset=utf-8'],
+  '/i18n.mjs': ['i18n.mjs', 'text/javascript; charset=utf-8'],
   '/sw.js': ['sw.js', 'text/javascript; charset=utf-8'],
   '/icon.svg': ['icon.svg', 'image/svg+xml'],
   '/vendor/highlight.min.js': ['vendor/highlight.min.js', 'text/javascript; charset=utf-8'],
