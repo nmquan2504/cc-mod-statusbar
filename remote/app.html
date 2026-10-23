@@ -192,7 +192,10 @@
   .codeview .linemark { position: absolute; left: 0; right: 0; background: rgba(217, 119, 87, .18); pointer-events: none; }
   /* the box under a file that asks Claude about a line: the reply area's frame (.composer) */
   .lineask { position: sticky; bottom: 0; margin: 8px -12px 0; padding: 6px 10px calc(8px + env(safe-area-inset-bottom)); background: var(--bg); }
-  .lineask .what { margin: 0 6px 6px; font: 12px var(--mono); color: var(--dim); }
+  .lineask .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 2px 6px 6px; }
+  .lineask .what { min-width: 0; font: 12px var(--mono); color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lineask .close { flex: none; width: 28px; height: 28px; border: 0; border-radius: 50%; background: var(--panel); color: var(--dim); display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+  .lineask .close svg.ic { width: 14px; height: 14px; }
   .lineask .status { flex: 1; min-width: 0; padding-left: 4px; font-size: 13px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .lineask .busy { display: inline-flex; align-items: center; gap: 4px; color: var(--claude); }
   .lineask .spin { display: inline-flex; animation: spin 2s linear infinite; }
