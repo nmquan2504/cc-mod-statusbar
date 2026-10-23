@@ -670,6 +670,7 @@ function statusOf() {
     pending: [...devices.entries()].filter(([, d]) => !d.isApproved && !d.isDenied && !isExpired(d)).map(([id, d]) => ({ id, code: d.code, name: d.name, at: d.at, expiresAt: d.at + PAIR_MS })),
     phones: Date.now() - lastPhoneAt < 40_000 ? [...devices.values()].filter(d => d.isApproved && Date.now() - d.seenAt < 40_000).length : 0,
     isLocked: pairFails >= MAX_PAIR_FAILS,
+    tts: { state: ttsState(), isLoaded: tts.isReady },
     subscriptions: subscriptions.size,
   }
 }
@@ -717,6 +718,17 @@ const ctl = createServer(async (req, res) => {
       bump()
     }
     return send(res, 200, { texts, answer, secrets, pages, stop, unqueue, earlier })
+  }
+  // /zerotts-install, the install done: the voice loaded now, so the first piece does not wait
+  if (route === 'POST /tts-warm') {
+    if (ttsState() === 'ready') {
+      startTts()
+      clearTimeout(tts.timer)
+      tts.timer = setTimeout(stopTts, TTS_IDLE_MS)
+      tts.timer.unref?.()
+      for (let i = 0; i < 60 && tts.proc && !tts.isReady; i++) await new Promise(r => setTimeout(r, 250))
+    }
+    return send(res, 200, { state: ttsState(), isLoaded: tts.isReady, voices: tts.voices, error: tts.error })
   }
   // /zerotts-uninstall: the voice stopped before its folder goes
   if (route === 'POST /tts-stop') {
