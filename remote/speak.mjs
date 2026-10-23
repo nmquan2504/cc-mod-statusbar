@@ -84,4 +84,31 @@ export function segments(text) {
   return out
 }
 
-globalThis.Speak = { speechText, segments, EN_RUN }
+// Apple's novelty voices, listed beside the real ones on an iPhone or a Mac: never picked by itself,
+// never offered
+const NOVELTY = new Set(['Albert', 'Bad News', 'Bahh', 'Bells', 'Boing', 'Bubbles', 'Cellos', 'Deranged', 'Good News',
+  'Hysterical', 'Jester', 'Organ', 'Pipe Organ', 'Superstar', 'Trinoids', 'Whisper', 'Wobble', 'Zarvox', 'Fred', 'Junior',
+  'Kathy', 'Ralph'])
+// The region each language is best read in
+const HOME = { vi: 'vi-vn', en: 'en-us' }
+const tagOf = voice => voice.lang.toLowerCase().replace('_', '-')
+
+// The phone's voices for `lang` (vi, en), best first: Premium, then Enhanced (or a neural or natural
+// voice), then the language's home region (vi-VN, en-US), then the phone's default; the novelty
+// voices left out
+export function voicesFor(voices, lang) {
+  const score = v => (/premium/i.test(v.name) ? 8 : /enhanced|neural|natural/i.test(v.name) ? 4 : 0) + (tagOf(v) === HOME[lang] ? 2 : 0) + (v.default ? 1 : 0)
+  return voices
+    .filter(v => tagOf(v).startsWith(lang) && !NOVELTY.has(v.name.replace(/\s*\(.*\)$/, '')))
+    .map((v, i) => ({ v, i, s: score(v) }))
+    .sort((a, b) => b.s - a.s || a.i - b.i)
+    .map(x => x.v)
+}
+
+// The voice to read `lang` in: the one named `name` when the phone has it, else the best
+export function pickVoice(voices, lang, name) {
+  const usable = voicesFor(voices, lang)
+  return (name && usable.find(v => v.name === name)) || usable[0] || null
+}
+
+globalThis.Speak = { speechText, segments, voicesFor, pickVoice, EN_RUN }

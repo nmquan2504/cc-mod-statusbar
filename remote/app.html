@@ -9,8 +9,8 @@
 <title>Claude remote</title>
 <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="/vendor/hljs-dark.css" media="(prefers-color-scheme: dark)">
-<link rel="stylesheet" href="/vendor/hljs-light.css" media="(prefers-color-scheme: light)">
+<link id="hljs-dark" rel="stylesheet" href="/vendor/hljs-dark.css" media="(prefers-color-scheme: dark)">
+<link id="hljs-light" rel="stylesheet" href="/vendor/hljs-light.css" media="(prefers-color-scheme: light)">
 <style>
   :root {
     --bg: #1a1a18; --panel: #24241f; --line: #34342d; --text: #ecebe4; --dim: #9b9a90;
@@ -22,9 +22,11 @@
     /* the reply area's height, measured as it grows (app.js) */
     --foot: calc(108px + env(safe-area-inset-bottom));
   }
+  /* light: the phone's choice, unless Settings picked dark; or Settings picked light */
   @media (prefers-color-scheme: light) {
-    :root { --bg: #f7f6f1; --panel: #ffffff; --line: #e3e1d7; --text: #23231f; --dim: #6c6b63; --ok: #2e8b3a; --bad: #c4372d; --warn: #a87a10; --link: #2d63b8; }
+    :root:not([data-theme="dark"]) { --bg: #f7f6f1; --panel: #ffffff; --line: #e3e1d7; --text: #23231f; --dim: #6c6b63; --ok: #2e8b3a; --bad: #c4372d; --warn: #a87a10; --link: #2d63b8; }
   }
+  :root[data-theme="light"] { --bg: #f7f6f1; --panel: #ffffff; --line: #e3e1d7; --text: #23231f; --dim: #6c6b63; --ok: #2e8b3a; --bad: #c4372d; --warn: #a87a10; --link: #2d63b8; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
   button { font: inherit; color: inherit; }
@@ -178,6 +180,21 @@
   .drawer-foot { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
   .plain { border: 1px solid var(--line); background: none; border-radius: 10px; padding: 9px 12px; text-align: left; }
   .plain.warn { color: var(--bad); border-color: var(--bad); }
+  /* the drawer's way to Settings */
+  .setbtn { display: flex; align-items: center; gap: 8px; }
+  .setbtn svg.ic { width: 18px; height: 18px; color: var(--dim); }
+  /* Settings */
+  .card.set { padding: 4px 12px 8px; margin-top: 12px; }
+  .card.set .seg { margin: 8px 0 4px; }
+  .card.set .prow .pr { max-width: 60%; }
+  .card.set .psel { max-width: 100%; text-overflow: ellipsis; }
+  .card.set .prow > .seg { margin-top: 8px; }
+  .card.set .play { width: 32px; height: 32px; color: var(--claude); }
+  .card.set .play svg.ic { width: 18px; height: 18px; fill: currentColor; }
+  .card.set .hint { padding: 4px 0 6px; }
+  .unpair { display: block; width: 100%; margin-top: 4px; text-align: center; color: var(--bad); border-color: var(--bad); font-weight: 600; }
+  .unpair.armed { background: var(--bad); color: #fff; }
+  .meta.center { text-align: center; }
   .sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 21; background: var(--bg); border-top: 1px solid var(--line); border-radius: 16px 16px 0 0; padding: 16px 16px calc(20px + env(safe-area-inset-bottom)); }
   .sheet h2 { margin: 0 0 4px; font-size: 18px; overflow-wrap: anywhere; }
   .meta { color: var(--dim); font-size: 13px; overflow-wrap: anywhere; }
@@ -401,14 +418,14 @@
 <body>
 <div id="gate" class="gate" hidden>
   <h2>Claude remote</h2>
-  <p id="gate-text">Scan the QR code in the terminal (⇄ on the status bar).</p>
+  <p id="gate-text" data-t="Scan the QR code in the terminal (⇄ on the status bar).">Scan the QR code in the terminal (⇄ on the status bar).</p>
   <div id="gate-code" class="code" hidden></div>
   <div id="gate-left" class="left" hidden></div>
   <div id="gate-paste" class="paste" hidden>
     <input id="gate-link" type="url" placeholder="https://…trycloudflare.com/#k=…" autocomplete="off" aria-label="The remote's link">
-    <button id="gate-go" class="primary">Pair</button>
+    <button id="gate-go" class="primary" data-t="Pair">Pair</button>
   </div>
-  <p class="meta">Everything between this phone and your Mac is encrypted end to end: Cloudflare carries it but cannot read it.</p>
+  <p class="meta" data-t="Everything between this phone and your Mac is encrypted end to end: Cloudflare carries it but cannot read it.">Everything between this phone and your Mac is encrypted end to end: Cloudflare carries it but cannot read it.</p>
 </div>
 
 <div id="app" hidden>
@@ -446,11 +463,10 @@
 
 <div id="scrim" class="scrim" hidden></div>
 <aside id="drawer" class="drawer" aria-label="Sessions">
-  <h3>Sessions</h3>
+  <h3 data-t="Sessions">Sessions</h3>
   <div id="sessions" class="sessions"></div>
   <div class="drawer-foot">
-    <button id="notify" class="plain" hidden>Notify me when Claude finishes</button>
-    <button id="unpair" class="plain">Unpair this phone</button>
+    <button id="open-settings" class="plain setbtn" data-icon="gear"><span data-t="Settings">Settings</span></button>
     <div id="version" class="ver"></div>
   </div>
 </aside>
@@ -459,14 +475,14 @@
 <div id="files" class="page" hidden>
   <div class="page-head">
     <button id="close-files" class="icon" aria-label="Back" data-icon="back"></button>
-    <strong>Files &amp; images</strong>
+    <strong data-t="Files &amp; images">Files &amp; images</strong>
   </div>
   <div class="fsearch"><input id="files-q" type="text" placeholder="Search file names and contents" aria-label="Search files" autocomplete="off" enterkeyhint="search"><button id="files-q-clear" class="icon" aria-label="Clear the search" data-icon="close" hidden></button></div>
   <div class="seg">
-    <button id="seg-folder" class="on">Folder</button>
-    <button id="seg-context">Context</button>
-    <button id="seg-changes">Changes</button>
-    <button id="seg-images">Images</button>
+    <button id="seg-folder" class="on" data-t="Folder">Folder</button>
+    <button id="seg-context" data-t="Context">Context</button>
+    <button id="seg-changes" data-t="Changes">Changes</button>
+    <button id="seg-images" data-t="Images">Images</button>
   </div>
   <div id="files-body"></div>
 </div>
@@ -474,19 +490,19 @@
 <div id="ask" class="page" hidden>
   <div class="page-head">
     <button id="close-ask" class="icon" aria-label="Back" data-icon="back"></button>
-    <strong>Claude asks</strong>
+    <strong data-t="Claude asks">Claude asks</strong>
   </div>
   <div id="ask-body"></div>
   <div class="ask-actions">
-    <button id="ask-dismiss" class="plain">Dismiss</button>
-    <button id="ask-submit" class="primary">Submit</button>
+    <button id="ask-dismiss" class="plain" data-t="Dismiss">Dismiss</button>
+    <button id="ask-submit" class="primary" data-t="Submit">Submit</button>
   </div>
 </div>
 
 <div id="cmds" class="page" hidden>
   <div class="page-head">
     <button id="close-cmds" class="icon" aria-label="Back" data-icon="back"></button>
-    <strong>Slash commands</strong>
+    <strong data-t="Slash commands">Slash commands</strong>
   </div>
   <input id="cmd-search" class="search" type="search" placeholder="Type to filter" autocomplete="off" aria-label="Filter the commands">
   <div id="cmds-body"></div>
@@ -499,9 +515,18 @@
   </div>
   <div id="viewer-body"></div>
 </div>
-<script src="/e2e.js"></script>
-<script src="/app.js"></script>
-<script type="module" src="/lineask.mjs"></script>
+<div id="settings" class="page" hidden>
+  <div class="page-head">
+    <button id="close-settings" class="icon" aria-label="Back" data-icon="back"></button>
+    <strong data-t="Settings">Settings</strong>
+  </div>
+  <div id="settings-body"></div>
+</div>
+<!-- deferred, in this order: the modules set globalThis.I18N, Speak and LineAsk before app.js runs -->
+<script type="module" src="/i18n.mjs"></script>
 <script type="module" src="/speak.mjs"></script>
+<script type="module" src="/lineask.mjs"></script>
+<script defer src="/e2e.js"></script>
+<script defer src="/app.js"></script>
 </body>
 </html>
