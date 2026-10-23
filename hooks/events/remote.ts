@@ -3,9 +3,10 @@ import { noteAddDir, remote } from '../features/remote'
 import type { On } from 'claude-code'
 
 export function registerRemote(on: On) {
-  // Claude Code's guess at the next prompt (the dim line): the phone shows it under its + menu
+  // Claude Code's guess at the next prompt (the dim line): the chip row on the band and the phone shows it
   on('prompt.suggest', async ($, e, next) => {
     remote.suggestion = String(e.text ?? '').trim()
+    $.ui.invalidate('ui.render') // the chip row shows it, in place of Haiku's
     return next(e)
   }).catch(($, e, next) => next(e))
 
