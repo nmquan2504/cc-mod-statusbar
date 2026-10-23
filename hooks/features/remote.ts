@@ -763,7 +763,7 @@ export async function tickRemote($: any) {
   // the transcript: on joining, and every tick while a turn runs (a prompt is stored a moment after
   // turn.start, and a phone that comes back to the page must find it there)
   if (!remote.isJoined || rt.isBusy) await readRemoteMessages($)
-  const status: RemoteStatus | undefined = await hub($, 'POST', `/session?id=${encodeURIComponent(id)}`, await snapshotOf($))
+  const status: RemoteStatus | undefined = await hub($, 'POST', `/session?id=${encodeURIComponent(id)}&idle=${cfg.remoteIdleMinutes}`, await snapshotOf($))
   if (!status) {
     // the hub went away: stopped from another session, or idle
     if (remote.isJoined) $.ui.toast('statusbar: remote: the link stopped')
@@ -802,7 +802,7 @@ export async function tickRemote($: any) {
   if (inbox?.earlier === true && remote.hasEarlier) {
     remote.turnsMax = Math.min(remote.turnsMax + 20, 100)
     await readRemoteMessages($)
-    await hub($, 'POST', `/session?id=${encodeURIComponent(id)}`, await snapshotOf($))
+    await hub($, 'POST', `/session?id=${encodeURIComponent(id)}&idle=${cfg.remoteIdleMinutes}`, await snapshotOf($))
   }
   // Stop on the phone: the running turn ends as Esc ends it; the texts waiting for it stay queued
   if (inbox?.stop === true && rt.isBusy && rt.turnId) {
@@ -826,12 +826,12 @@ export async function tickRemote($: any) {
     if (!isPage(name)) continue
     const rebuild = async () => {
       remote.pages = { ...remote.pages, [name]: await buildPage($, name) }
-      await hub($, 'POST', `/session?id=${encodeURIComponent(id)}`, await snapshotOf($))
+      await hub($, 'POST', `/session?id=${encodeURIComponent(id)}&idle=${cfg.remoteIdleMinutes}`, await snapshotOf($))
     }
     const error = typeof a.key === 'string' ? await pageAction($, name, a.key, a.value, p => void p.then(rebuild, rebuild)).catch((e: unknown) => `It did not go through: ${String(e).slice(0, 200)}`) : ''
     remote.pages = { ...remote.pages, [name]: await buildPage($, name, error || undefined) }
   }
-  if (asked.length) await hub($, 'POST', `/session?id=${encodeURIComponent(id)}`, await snapshotOf($))
+  if (asked.length) await hub($, 'POST', `/session?id=${encodeURIComponent(id)}&idle=${cfg.remoteIdleMinutes}`, await snapshotOf($))
   // secrets typed on the phone go to the keychain; the phone hears the NAME and host, never the value
   for (const given of Array.isArray(inbox?.secrets) ? inbox.secrets : []) {
     const r: any = await saveTyped($, given).catch(() => ({ error: 'the keychain refused it' }))

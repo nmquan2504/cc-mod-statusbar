@@ -40,6 +40,15 @@ export const join = (a: string, b: string) => (a ? `${a}/${b}` : b)
 export const parent = (p: string) => p.split('/').slice(0, -1).join('/')
 
 // 14:02: a moment as the clock on the wall reads it.
+// A span of minutes as the Settings menu writes it: 45m, 1h, 1h 30m, 1d, 1d 12h; 0 is off
+export const spanText = (minutes: number) => {
+  if (minutes <= 0) return 'off'
+  if (minutes < 60) return `${minutes}m`
+  if (minutes < 1440) return minutes % 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes / 60}h`
+  const h = Math.floor((minutes % 1440) / 60)
+  return h ? `${Math.floor(minutes / 1440)}d ${h}h` : `${Math.floor(minutes / 1440)}d`
+}
+
 export const hhmm = (at: number) => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
 // 2h 14m, 3d 4h, 45m: a span of milliseconds, coarse.

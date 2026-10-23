@@ -13,7 +13,9 @@
 // AES-GCM key from the ECDH secret salted with K; the phone then waits, with a 4-character code, until
 // the person picks that code in a terminal (the mod offers it among two others), which posts /allow. Cloudflare sees sizes and times, never content. Started detached by
 // the first mod (`node server.mjs <dir> <idleMinutes>`); it stops itself when no session has
-// called in for two minutes, or no phone has for idleMinutes. Node 18 or newer; no packages.
+// called in for two minutes, or no phone has for idleMinutes (0: never). Each session's snapshot
+// carries the idle time in force, so a change in Settings reaches a running hub. Node 18 or newer;
+// no packages.
 import { execFile, execFileSync, spawn } from 'node:child_process'
 import { generateKeyPairSync, randomBytes, randomInt, sign } from 'node:crypto'
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -25,7 +27,13 @@ import { fileURLToPath } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const DIR = process.argv[2]
-const IDLE_MS = Math.max(5, Number(process.argv[3]) || 30) * 60_000
+// minutes with no phone before the hub stops: 0 never, else at least 5 (a week at most)
+const idleMsOf = (minutes, fallback) => {
+  const m = Number(minutes)
+  if (minutes === null || minutes === undefined || minutes === '' || !Number.isFinite(m) || m < 0) return fallback
+  return m === 0 ? Infinity : Math.min(10_080, Math.max(5, m)) * 60_000
+}
+let idleMs = idleMsOf(process.argv[3], 30 * 60_000)
 const SESSION_TTL = 120_000
 const POLL_WAIT = 25_000
 // a phone's request is small; a session's snapshot carries its transcript
@@ -584,6 +592,7 @@ const ctl = createServer(async (req, res) => {
     const body = await readJson(req, MAX_SNAPSHOT)
     if (!body || !id) return send(res, 400, { error: 'bad snapshot' })
     const s = sessions.get(id) ?? { inbox: [], snapshot: {}, seenAt: 0, text: '' }
+    idleMs = idleMsOf(url.searchParams.get('idle'), idleMs)
     const text = JSON.stringify(body)
     s.seenAt = lastSessionAt = Date.now()
     if (text !== s.text) {
@@ -749,7 +758,7 @@ setInterval(() => {
   const now = Date.now()
   for (const [id, s] of sessions) if (now - s.seenAt > 15_000) { sessions.delete(id); bump() }
   if (now - lastSessionAt > SESSION_TTL) return shutdown(0)
-  if (now - lastPhoneAt > IDLE_MS) shutdown(0)
+  if (now - lastPhoneAt > idleMs) shutdown(0)
 }, 5_000).unref()
 
 // a hub already answering on the socket keeps it: two sessions may start one at the same moment

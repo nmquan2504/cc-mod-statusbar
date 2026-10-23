@@ -46,6 +46,7 @@ export const cfg = {
   hiStartMinute: 0,
   // Self remote: the ⇄ chip, a link the phone opens through a Cloudflare quick tunnel; off by default
   selfRemote: false,
+  // minutes with no phone watching before the hub stops; 0: never (it still stops with no session)
   remoteIdleMinutes: 30,
 }
 
@@ -54,6 +55,17 @@ export type CfgKey = keyof typeof cfg
 export const DEFAULTS = { ...cfg }
 
 export const SETTINGS_KEY = 'settings'
+
+// The remote's idle time as − and + step it: off, then minutes, hours and days, up to a week
+export const REMOTE_IDLE_STOPS = [0, 5, 15, 30, 60, 120, 240, 480, 720, 1440, 2880, 4320, 10080] as const
+
+// A number row's next value, `dir` −1 or +1: its step held to its range, or its next stop (from a
+// value between stops, the nearest one that way)
+export function stepped(row: { step: number; min: number; max: number; stops?: readonly number[] }, n: number, dir: -1 | 1) {
+  if (!row.stops) return Math.min(row.max, Math.max(row.min, n + dir * row.step))
+  const next = dir > 0 ? row.stops.find(s => s > n) : [...row.stops].reverse().find(s => s < n)
+  return next ?? n
+}
 
 // A value of the wrong type, or a number outside its row's range, keeps the default.
 export function readOptions(stored: Readonly<Record<string, unknown>>) {
@@ -128,11 +140,12 @@ export async function importSettings($: any, text: string) {
   return known.length
 }
 
-// The Settings menu's rows, in order: a switch, or a number with its step and range. A row with
-// a group is drawn under that group's own heading, after the rows without one.
+// The Settings menu's rows, in order: a switch, or a number with its step and range. A number with
+// `stops` steps through those values instead, and one with `span` is written as a span of time
+// (spanText). A row with a group is drawn under that group's own heading, after the rows without one.
 export const SETTINGS: ((
   | { key: CfgKey; kind: 'switch'; label: string; note: string }
-  | { key: CfgKey; kind: 'number'; label: string; note: string; step: number; min: number; max: number; unit: string }
+  | { key: CfgKey; kind: 'number'; label: string; note: string; step: number; min: number; max: number; unit: string; stops?: readonly number[]; span?: true }
 ) & { group?: 'remote' })[] = [
   { key: 'usageGauge', kind: 'switch', label: 'Usage gauges', note: 'on: gauge and figure (5h ▰▱▱▱ 21%); off: the figure alone (5h 21%)' },
   { key: 'gitMarks', kind: 'switch', label: 'Git marks', note: 'files changed, commits to push and to pull' },
@@ -153,7 +166,7 @@ export const SETTINGS: ((
   { key: 'hiStartMinute', kind: 'number', label: 'Schedule starts at, minute', note: 'past that hour, in steps of 15', step: 15, min: 0, max: 45, unit: 'm' },
   { key: 'dangerConfirm', kind: 'switch', label: 'Confirm dangerous commands', note: 'rm -rf, push --force, reset --hard, curl | sh ask you, even in auto mode' },
   { key: 'selfRemote', kind: 'switch', label: 'Self remote', note: 'the ⇄ chip on the bar', group: 'remote' },
-  { key: 'remoteIdleMinutes', kind: 'number', label: 'Remote stops after', note: 'minutes with no phone watching', step: 5, min: 5, max: 240, unit: ' min', group: 'remote' },
+  { key: 'remoteIdleMinutes', kind: 'number', label: 'Remote stops after', note: 'with no phone watching; off: it stops only when no session runs', step: 5, min: 0, max: 10080, unit: '', stops: REMOTE_IDLE_STOPS, span: true, group: 'remote' },
 ]
 
 // The bar's items as Settings lists them, left to right, each with the switch that shows it.

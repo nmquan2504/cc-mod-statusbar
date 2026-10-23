@@ -1,8 +1,8 @@
 import { outputStyles } from '../../features/assist'
 import { modVersionText, updateNow } from '../../features/update'
 
-import { BAR_ITEMS, BAR_PRESETS, DEFAULTS, HISTORY_KEY, SETTINGS, SETTINGS_KEY, applyBarPreset, barOrder, barPresetNow, cfg, importSettings, moveBarItem, restorePreviousSettings, saveSettings, settingsText } from '../../state/config'
-import { hhmm } from '../../lib/format'
+import { BAR_ITEMS, BAR_PRESETS, DEFAULTS, HISTORY_KEY, SETTINGS, SETTINGS_KEY, applyBarPreset, barOrder, barPresetNow, cfg, importSettings, moveBarItem, restorePreviousSettings, saveSettings, settingsText, stepped } from '../../state/config'
+import { hhmm, spanText } from '../../lib/format'
 import { rt } from '../../state/runtime'
 import type { CfgKey, SettingsSnapshot } from '../../state/config'
 import type { Entry } from './entry'
@@ -32,11 +32,11 @@ export async function drawSettingsMenu($: any, els: any, _isTerminal: boolean, _
     const n = cfg[r.key] as number
     return (
       <Box key={`num:${r.key}`} flexDirection="row" gap={1}>
-        <Button key={`dec:${r.key}`} plain onPress={() => set(r.key, Math.max(r.min, n - r.step))}>
+        <Button key={`dec:${r.key}`} plain onPress={() => set(r.key, stepped(r, n, -1))}>
           <Text backgroundColor="subtle" color="inverseText" bold>{' − '}</Text>
         </Button>
-        <Text color="claude" bold>{`${n}${r.unit}`.padStart(5)}</Text>
-        <Button key={`inc:${r.key}`} plain onPress={() => set(r.key, Math.min(r.max, n + r.step))}>
+        <Text color="claude" bold>{(r.span ? spanText(n) : `${n}${r.unit}`).padStart(5)}</Text>
+        <Button key={`inc:${r.key}`} plain onPress={() => set(r.key, stepped(r, n, 1))}>
           <Text backgroundColor="subtle" color="inverseText" bold>{' + '}</Text>
         </Button>
         <Text><Text bold>{r.label}</Text><Text dimColor>{`  ${r.note}`}</Text></Text>
