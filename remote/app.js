@@ -81,7 +81,7 @@ async function pair() {
     await E2E.forget()
     try {
       const { code } = await E2E.pair(k)
-      gate('Check the code in the terminal and press Allow there.', code)
+      gate('In the terminal, pick this code.', code)
     } catch (err) {
       gate(err.message)
       throw err
@@ -103,7 +103,7 @@ async function pair() {
     }
     if (r.s === 200) return
     if (r.s === 202) {
-      gate('Check the code in the terminal and press Allow there.', r.b.code, false, r.b.secondsLeft)
+      gate('In the terminal, pick this code.', r.b.code, false, r.b.secondsLeft)
       await sleep(2000)
       continue
     }
@@ -434,12 +434,11 @@ function renderChat() {
     }
     const head = w.appendChild(el('div', 'head'))
     head.appendChild(el('span', 'spin')).append(icon('spark'))
-    head.append(el('span', '', 'Working…'))
-    // Stop, right after Working…: a round button with a solid square; the turn ends as Esc ends it
+    head.append(el('span', '', 'Working…'), el('span', 'elapsed', ''))
+    // Stop, after the time worked: a round button with a solid square; the turn ends as Esc ends it
     const stop = head.appendChild(el('button', 'stop'))
     stop.setAttribute('aria-label', 'Stop this turn')
     stop.append(el('span', 'sq'))
-    head.append(el('span', 'elapsed', ''))
     stop.onclick = async () => {
       stop.disabled = true
       const r = await api('stop', { session: snap.id })

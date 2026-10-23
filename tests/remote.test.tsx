@@ -1,5 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
-import { contextOf, midTurnsIn, phoneCommand, phoneMayRun, sessionTitleIn, transcriptOf } from '../hooks/features/remote'
+import { contextOf, midTurnsIn, pairChoices, phoneCommand, phoneMayRun, sessionTitleIn, transcriptOf } from '../hooks/features/remote'
 import { isOneTap } from '../hooks/features/ask'
 import { qrMatrix, qrRows } from '../hooks/lib/qr'
 
@@ -135,15 +135,35 @@ test('with the hub up: the QR code on request, a phone asking to pair with its c
   const bar = await textOf(band)
   expect(bar.indexOf('"key":"usage"')).toBeLessThan(bar.indexOf('"key":"remote"'))
   expect(bar.indexOf('"key":"remote"')).toBeLessThan(bar.indexOf('"key":"guard"'))
-  expect(drawn).toContain('Android, Chrome asks to pair, code K7M3')
+  // the terminal offers three codes, the phone's among them, and names none as the phone's
+  expect(drawn).toContain('Android, Chrome asks to pair: pick the code it shows')
+  const choices = pairChoices('p1', 'K7M3')
+  expect(new Set(choices).size).toBe(3)
+  expect(choices).toContain('K7M3')
+  expect(pairChoices('p1', 'K7M3')).toEqual(choices)
+  for (const c of choices) expect(drawn).toContain(` ${c} `)
   expect(drawn).toContain('"60 s"')
   expect(drawn).not.toContain('█▀') // a hub this session did not start keeps its code hidden
   expect(drawn).toContain('Sessions on the link ')
   await band.press({ key: 'remote-qr' })
   expect(await textOf(band)).toContain('█▀') // the QR code's rows
-  await band.press({ key: 'allow:p1' })
+  await band.press({ key: `pick:p1:${choices.indexOf('K7M3')}` })
   expect(asked).toContain('/allow {"id":"p1"}')
   expect((await band.find({ key: 'remote' }))?.text).toBe(' ⇄ 1 ')
+})
+
+test('a code other than the phone\'s refuses the request, and says why', async ($, on) => {
+  const asked: string[] = []
+  const toasts: string[] = []
+  engine(on, { toasts, hub: (path, body) => (asked.push(`${path} ${body}`), path === '/deny' ? { ...STATUS, pending: [] } : STATUS) })
+  const band = await $.ui.mount({ plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await switchOn(band)
+  await band.press({ key: 'remote' })
+  const wrong = pairChoices('p1', 'K7M3').findIndex(c => c !== 'K7M3')
+  await band.press({ key: `pick:p1:${wrong}` })
+  expect(asked).toContain('/deny {"id":"p1"}')
+  expect(asked.some(a => a.startsWith('/allow'))).toBe(false)
+  expect(toasts.join()).toContain('not the code the phone shows')
 })
 
 test('a request to pair a minute old is gone from the terminal; Allow on one the hub dropped says so', async ($, on) => {
@@ -160,7 +180,7 @@ test('a request to pair a minute old is gone from the terminal; Allow on one the
   await switchOn(band)
   await band.press({ key: 'remote' })
   expect((await band.find({ key: 'remote' }))?.text).toBe(' ⇄ ? 30s ')
-  await band.press({ key: 'allow:p1' })
+  await band.press({ key: `pick:p1:${pairChoices('p1', 'K7M3').indexOf('K7M3')}` })
   expect(toasts.join()).toContain('had expired')
   // its minute over, the request leaves the menu and the chip before the hub's next answer
   late = true
@@ -247,6 +267,34 @@ async function asking($: any, on: any, surface = 'terminal', isLinked = true) {
   return band
 }
 const settle = () => new Promise(r => setTimeout(r, 30))
+
+test('a notice names the folder and the session\'s title, so two sessions in one folder are told apart', async ($, on) => {
+  const notices: any[] = []
+  engine(on, {
+    hub: (path, body) => (path === '/notify' && notices.push(JSON.parse(body)), STATUS),
+    // the session's transcript holds the title Claude Code wrote for it
+    run: argv => argv[0] === 'grep' && argv.includes('"(customTitle|aiTitle)":"([^"\\\\]|\\\\.)*"') ? ran('"aiTitle":"Fix the login redirect"\n') : undefined,
+  })
+  on('fs.exists', (_: unknown, e: any) => ({ value: String(e.path).endsWith('/sess-1.jsonl') }))
+  on('env.get', (_: unknown, e: any) => ({ value: e.name === 'HOME' ? '/Users/me' : '' }))
+  on('session.root', () => ({ value: '/work/shop' }))
+  on('session.surfaces', () => ({ value: ['terminal'] }))
+  on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
+  on('ui.status', () => ({ value: undefined }))
+  on('agent.list', () => ({ value: [] }))
+  on('tool.register', (_: unknown, e: { name: string }) => ({ value: { tool: e.name } }))
+  on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
+  const clock = mock.clock(on)
+  await ($ as any).session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+  const band = await $.ui.mount({ plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await switchOn(band)
+  await clock.advance(2000)
+  const call = ($ as any).tool.call({ tool: 'AskUserQuestion', questions: QUESTIONS })
+  await settle()
+  expect(notices.at(-1)).toMatchObject({ title: 'Claude asks you · /shop · Fix the login redirect', body: 'Which database?' })
+  await band.press({ key: 'ask-dismiss' })
+  await call
+})
 
 test('a question opens in the band, every one at once; picks and Other go back as the dialog words them', async ($, on) => {
   const band = await asking($, on)

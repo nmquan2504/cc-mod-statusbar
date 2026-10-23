@@ -244,7 +244,26 @@ export async function restartRemote($: any) {
   await startRemote($)
 }
 
-export async function answerPairing($: any, id: string, isAllowed: boolean) {
+// The codes the terminal offers for a request to pair: the phone's and two others, in an order
+// fixed by the request's id (each redraw the same), the hub's letters and digits. Picking the one
+// the phone shows is the Allow, so a press out of habit cannot let in a phone nobody looked at.
+const CODE_CHARS = '23456789ABCDEFGHJKMNPQRSTUVWXYZ'
+export function pairChoices(id: string, code: string): string[] {
+  let h = 2166136261
+  for (const c of id) h = Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0
+  const next = () => (h = (Math.imul(h ^ (h >>> 15), 2246822507) + 0x9e3779b9) >>> 0)
+  const all = [code]
+  while (all.length < 3) {
+    const other = Array.from({ length: 4 }, () => CODE_CHARS[next() % CODE_CHARS.length]).join('')
+    if (!all.includes(other)) all.push(other)
+  }
+  const at = next() % 3
+  ;[all[0], all[at]] = [all[at]!, all[0]!]
+  return all
+}
+
+// `isWrongCode`: a code other than the phone's was picked; the request is refused
+export async function answerPairing($: any, id: string, isAllowed: boolean, isWrongCode = false) {
   const asked = remote.status?.pending.find(p => p.id === id)
   const status = await hub($, 'POST', isAllowed ? '/allow' : '/deny', { id })
   // a request a minute old is gone: the phone was told to scan again
@@ -253,7 +272,7 @@ export async function answerPairing($: any, id: string, isAllowed: boolean) {
     remote.status = (await hub($, 'GET', '/status')) ?? remote.status
   } else {
     remote.status = status
-    $.ui.toast(isAllowed ? 'statusbar: remote: the phone is paired' : 'statusbar: remote: refused')
+    $.ui.toast(isAllowed ? 'statusbar: remote: the phone is paired' : isWrongCode ? 'statusbar: remote: that is not the code the phone shows, so it was refused; if it was your phone, scan the QR code again' : 'statusbar: remote: refused')
   }
   $.ui.invalidate('ui.render')
 }
@@ -747,7 +766,7 @@ export async function tickRemote($: any) {
   for (const p of status.pending)
     if (!remote.announced.includes(p.id)) {
       remote.announced = [...remote.announced, p.id].slice(-20)
-      $.ui.toast(`statusbar: remote: ${p.name} asks to pair, code ${p.code}. Open ⇄ to allow it within ${secondsToPair(p)} s`)
+      $.ui.toast(`statusbar: remote: ${p.name} asks to pair. Open ⇄ and pick the code the phone shows, within ${secondsToPair(p)} s`)
     }
   if (JSON.stringify(status) !== was) $.ui.invalidate('ui.render')
   const inbox = await hub($, 'GET', `/inbox?id=${encodeURIComponent(id)}`)
@@ -828,8 +847,10 @@ export async function tickRemote($: any) {
 }
 
 // A push to every subscribed phone: a turn ended, or Claude waits for the person.
+// The session's title closes the notice's title, so two sessions in one folder are told apart.
 export async function notifyRemote($: any, title: string, body: string) {
   if (!cfg.selfRemote || !remote.isJoined) return
   const id = await $.session.id().catch(() => '')
-  await hub($, 'POST', `/notify?id=${encodeURIComponent(id)}`, { title, body })
+  const named = remote.title ? `${title} · ${oneLine(remote.title, 60)}` : title
+  await hub($, 'POST', `/notify?id=${encodeURIComponent(id)}`, { title: named, body })
 }
