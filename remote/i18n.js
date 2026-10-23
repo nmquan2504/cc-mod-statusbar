@@ -51,6 +51,8 @@ const VI = {
   '{n} earlier tool calls': '{n} lần gọi tool trước đó',
   '${cost} this session': '${cost} phiên này',
   'A binary file, {size}.': 'Tệp nhị phân, {size}.',
+  'Audio': 'Âm thanh',
+  'Too big to play here: over 20 MB.': 'Quá lớn để phát ở đây: trên 20 MB.',
   'Not sent: the session did not answer. Try again.': 'Chưa gửi được: phiên không trả lời. Thử lại.',
   'Tap a change to ask Claude about it.': 'Chạm một thay đổi để hỏi Claude về nó.',
   'Ask': 'Hỏi',
