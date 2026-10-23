@@ -475,6 +475,83 @@ test('a hub started from other code: the menu says which and restarts it on two 
   expect(await band.find({ key: 'remote-restart' })).toBeUndefined()
 })
 
+test('Stop on the phone ends the running turn, as Esc does; with no turn running it does nothing', async ($, on) => {
+  let stop = false
+  const toasts: string[] = []
+  // the hub hands the session the phone's Stop once
+  const takeStop = () => {
+    const was = stop
+    stop = false
+    return was
+  }
+  engine(on, { toasts, hub: path => (path === '/inbox' ? { texts: [], stop: takeStop() } : { ...STATUS, pending: [] }) })
+  const aborted: string[] = []
+  on('turn.abort', (_: unknown, e: any) => (aborted.push(e.turnId), { value: undefined }))
+  on('turn.start', () => ({ turnId: 't9' }))
+  on('session.surfaces', () => ({ value: ['terminal'] }))
+  on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
+  on('ui.status', () => ({ value: undefined }))
+  on('agent.list', () => ({ value: [] }))
+  on('tool.register', (_: unknown, e: { name: string }) => ({ value: { tool: e.name } }))
+  on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
+  const clock = mock.clock(on)
+  const t = $ as any
+  await t.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+  const band = await $.ui.mount({ plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await switchOn(band)
+  await clock.advance(2000)
+  // idle: a Stop asks nothing of the engine
+  stop = true
+  await clock.advance(2000)
+  expect(aborted).toEqual([])
+  // a turn runs (the band drawn working): Stop ends that turn
+  await t.turn.start({ text: 'go', turnId: 't9', kind: 'engine' })
+  await $.ui.mount({ plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, isWorking: true } } as never)
+  stop = true
+  await clock.advance(2000)
+  expect(aborted).toEqual(['t9'])
+  expect(toasts.join()).toContain('stopped from the phone')
+})
+
+test('a hub on older code restarts by itself when no phone watches; a newer one, or one watched, is left', async ($, on) => {
+  const argvs: string[][] = []
+  const asked: string[] = []
+  let hub = { version: '0.2.0 · aaaaaaa', versionAt: 1_761_000_000_000, phones: 1 }
+  let isUp = true
+  engine(on, {
+    argvs,
+    run: argv => argv[0] === 'cat' ? ran('{"version":"0.2.1"}')
+      : argv[0] === 'git' && argv.includes('log') ? ran('bbbbbbb 1761190860\n') : undefined,
+    hub: path => {
+      asked.push(path)
+      if (path === '/stop') isUp = false
+      return isUp ? { ...STATUS, pending: [], ...hub } : undefined
+    },
+  })
+  on('session.surfaces', () => ({ value: ['terminal'] }))
+  on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
+  on('ui.status', () => ({ value: undefined }))
+  on('agent.list', () => ({ value: [] }))
+  on('tool.register', (_: unknown, e: { name: string }) => ({ value: { tool: e.name } }))
+  on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
+  const clock = mock.clock(on)
+  await ($ as any).session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+  const band = await $.ui.mount({ plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await switchOn(band)
+  // a phone watches: left for r in the menu
+  await clock.advance(2000)
+  expect(asked).not.toContain('/stop')
+  // a newer hub, no phone: a session on older code leaves it alone
+  hub = { version: '0.2.2 · ccccccc', versionAt: 1_762_000_000_000, phones: 0 }
+  await clock.advance(2000)
+  expect(asked).not.toContain('/stop')
+  // an older hub, no phone: restarted on this session's code
+  hub = { version: '0.2.0 · aaaaaaa', versionAt: 1_761_000_000_000, phones: 0 }
+  await clock.advance(2000)
+  expect(asked).toContain('/stop')
+  expect(argvs.some(a => a[0] === '/bin/sh' && a[2]!.includes('nohup'))).toBe(true)
+})
+
 test('from the phone a built-in runs only when it prints text or takes a value; a panel stays on the computer', () => {
   expect(phoneMayRun('humanizer', '', false)).toBe(true) // a skill hands the model a prompt
   expect(phoneMayRun('compact', '', true)).toBe(true)
@@ -590,6 +667,7 @@ test('a panel\'s command as a page on the phone: built on ask, a press carried o
   on('config.list', () => ({ value: [
     { key: 'verbose', label: 'Verbose output', kind: 'boolean', value: false, provider: { plugin: 'engine' }, isLocked: false },
     { key: 'theme', label: 'Theme', kind: 'choice', value: 'dark', options: ['dark', 'light'], provider: { plugin: 'engine' }, isLocked: true },
+    { key: 'defaultMode', label: 'Default permission mode', kind: 'choice', value: 'default', options: ['default', 'bypassPermissions'], provider: { plugin: 'engine' }, isLocked: false },
   ] as never }))
   on('config.set', (_: unknown, e: any) => (set.push(e), { value: e.value }))
   // the file as last written, read back
@@ -631,6 +709,17 @@ test('a panel\'s command as a page on the phone: built on ask, a press carried o
   await clock.advance(2000)
   expect(set).toEqual([expect.objectContaining({ key: 'verbose', value: true })])
   expect(pageOf('config').error).toBe('Your organization sets this one.')
+  // a row past the look of things waits for Allow in the terminal: Deny changes nothing
+  answer = 'Deny'
+  inbox = [{ cmd: 'config', key: 'c:defaultMode', value: 'bypassPermissions' }]
+  await clock.advance(2000)
+  expect(asked.at(-1)).toContain('Default permission mode (defaultMode) to "bypassPermissions"')
+  expect(set).toHaveLength(1)
+  answer = 'Allow'
+  inbox = [{ cmd: 'config', key: 'c:defaultMode', value: 'bypassPermissions' }]
+  await clock.advance(2000)
+  expect(set.at(-1)).toMatchObject({ key: 'defaultMode', value: 'bypassPermissions' })
+  asked.length = 0
   // /permissions: a rule added goes to .claude/settings.local.json; a malformed one is refused.
   // An ask or deny rule goes in at once; an allow rule waits for Allow in the terminal
   inbox = [{ cmd: 'permissions', key: 'add', value: 'deny\nRead(./secrets/**)' }]

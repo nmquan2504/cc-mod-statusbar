@@ -180,6 +180,18 @@ const RULE = /^[A-Za-z][\w-]*(\(.{1,280}\))?$/
 
 // A press on the phone, carried out; the answer is an error to show, or '' when it went through.
 // `then` runs what finishes later (a check of every MCP server), and the page is built again after.
+// A change from the phone that could loosen the guard asks in the terminal's own dialog first: the
+// mod's own $.ui.ask skips its AskUserQuestion hook, so the phone never sees it and cannot answer
+// for itself. True on Allow.
+async function allowedAtComputer($: any, question: string) {
+  const ALLOW = 'Allow'
+  return (await $.ui.ask(question, { header: 'Phone', options: [ALLOW, 'Deny'] }).catch(() => undefined)) === ALLOW
+}
+
+// The /config rows the phone changes at once, as they only change how things look; any other row
+// (a permission mode among them) waits for Allow in the terminal.
+const CONFIG_SAFE = new Set(['theme', 'verbose', 'autoCompact'])
+
 export async function pageAction($: any, name: PageName, key: string, value: unknown, then: (p: Promise<unknown>) => void): Promise<string> {
   if (name === 'model' && key.startsWith('m:')) {
     const m = MODELS.find(x => `m:${x.alias}` === key)
@@ -203,7 +215,21 @@ export async function pageAction($: any, name: PageName, key: string, value: unk
     const typed = row.kind === 'boolean' ? value === true || value === 'true' : row.kind === 'number' ? Number(value) : String(value ?? '')
     if (row.kind === 'number' && !Number.isFinite(typed)) return 'Not a number.'
     if (row.kind === 'choice' && Array.isArray(row.options) && !row.options.map(String).includes(String(typed))) return 'Not one of its choices.'
-    const r = await $.config.set({ key: rowKey, value: typed }).catch((e: unknown) => ({ deny: String(e) }))
+    const set = async () => {
+      const r = await $.config.set({ key: rowKey, value: typed }).catch((e: unknown) => ({ deny: String(e) }))
+      if (r?.deny) $.ui.toast(`statusbar: remote: ${row.label} not changed: ${r.deny}`)
+      else await logAudit($, `set ${rowKey} to ${JSON.stringify(typed)}, from the phone`).catch(() => undefined)
+      return r
+    }
+    if (!CONFIG_SAFE.has(rowKey)) {
+      then((async () => {
+        if (await allowedAtComputer($, `The phone asks to set ${row.label} (${rowKey}) to ${JSON.stringify(typed)}. Allow it?`)) return set()
+        await logAudit($, `refused: the phone would have set ${rowKey} to ${JSON.stringify(typed)}`).catch(() => undefined)
+        $.ui.toast(`statusbar: remote: the phone's change to ${row.label} was not made`)
+      })())
+      return 'Waiting for Allow in the terminal: only the look of things changes from here at once.'
+    }
+    const r = await set()
     return r?.deny ? `Not changed: ${r.deny}` : ''
   }
   if (name === 'permissions' && (key.startsWith('rm:') || key === 'add')) {
@@ -223,12 +249,7 @@ export async function pageAction($: any, name: PageName, key: string, value: unk
     // waits for Allow in the terminal, as pairing does; the page says so meanwhile
     if ((key === 'add' && list === 'allow') || (key !== 'add' && list === 'deny')) {
       then((async () => {
-        const ALLOW = 'Allow'
-        const answer = await $.ui.ask(`The phone asks to ${key === 'add' ? 'add the allow rule' : 'remove the deny rule'} ${rule} in .claude/settings.local.json, which lets Claude do more without asking. Allow it?`, {
-          header: 'Phone',
-          options: [ALLOW, 'Deny'],
-        }).catch(() => undefined)
-        if (answer === ALLOW) return apply()
+        if (await allowedAtComputer($, `The phone asks to ${key === 'add' ? 'add the allow rule' : 'remove the deny rule'} ${rule} in .claude/settings.local.json, which lets Claude do more without asking. Allow it?`)) return apply()
         await logAudit($, `refused: the phone ${what.replace(/^added/, 'would have added').replace(/^removed/, 'would have removed')}`).catch(() => undefined)
         $.ui.toast(`statusbar: remote: the phone's ${list} rule change was not made`)
       })())

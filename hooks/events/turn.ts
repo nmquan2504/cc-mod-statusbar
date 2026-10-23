@@ -57,6 +57,7 @@ export function registerTurn(on: On) {
     if (!(e as any).agentId) {
       rt.answerChips = []
       rt.suggestRound++
+      rt.turnId = String((e as any).turnId ?? '')
     }
     rt.turnStartedAt = await $.clock.now()
     rt.turnEndedAt = 0

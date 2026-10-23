@@ -29,6 +29,8 @@ const usage = atom({ plugin: 'cc-mod-statusbar', key: 'usage' } as const, null)
 export type RemoteStatus = {
   // the mod's version the hub was started from ("0.2.1 · d0a0466"); absent from a hub before it
   version?: string
+  // when that version's commit was made (ms), 0 outside a clone; absent from a hub before it
+  versionAt?: number
   url: string
   link: string
   error: string
@@ -81,6 +83,8 @@ export const remote = {
   midTurnAt: 0,
   // the session's transcript file, found once (see transcriptFile)
   transcriptFile: '',
+  // a hub on older code was restarted unasked in this load (see tickRemote)
+  isAutoRestarted: false,
   // the session's title, from its transcript: the name /rename gave it, else the one Claude Code
   // wrote for it; '' until one is written (see sessionTitleIn)
   title: '',
@@ -227,6 +231,9 @@ export async function stopRemote($: any) {
 // The hub runs code other than this session's: started before a pull, or by a session that loaded
 // another version. A hub from before the hubs said their version counts as other.
 export const hubIsOther = () => Boolean(remote.status && modVersionShort() && remote.status.version !== modVersionShort())
+// ...and older: this session's commit is the later one, or the hub predates saying when its was made.
+// A session on older code never restarts a newer hub unasked, so two sessions cannot take turns.
+const hubIsOlder = () => hubIsOther() && rt.modVersion.at > 0 && (remote.status?.versionAt === undefined || rt.modVersion.at > remote.status.versionAt)
 
 // Stop the hub, wait for it to go (its socket answers no more), and start it from this session's
 // code. The tunnel's address and the pairing key change: every phone scans and is allowed again.
@@ -728,6 +735,15 @@ export async function tickRemote($: any) {
   remote.status = status
   remote.isJoined = true
   if (status.url) remote.isStarting = false
+  // the hub runs older code than this session loaded (a pull, then a reload) and no phone watches
+  // or asks to pair: restart it on this session's code, once a load; with a phone watching, r in the
+  // menu does it when the person chooses
+  if (hubIsOlder() && !status.phones && !status.pending.length && !remote.isAutoRestarted && !remote.isStarting) {
+    remote.isAutoRestarted = true
+    $.ui.toast(`statusbar: remote: restarting the hub on ${modVersionShort()}, as no phone watches; phones pair again`)
+    await restartRemote($)
+    return
+  }
   for (const p of status.pending)
     if (!remote.announced.includes(p.id)) {
       remote.announced = [...remote.announced, p.id].slice(-20)
@@ -736,6 +752,11 @@ export async function tickRemote($: any) {
   if (JSON.stringify(status) !== was) $.ui.invalidate('ui.render')
   const inbox = await hub($, 'GET', `/inbox?id=${encodeURIComponent(id)}`)
   if (Array.isArray(inbox?.texts)) remote.queue = [...remote.queue, ...inbox.texts.filter((t: unknown) => typeof t === 'string')]
+  // Stop on the phone: the running turn ends as Esc ends it; the texts waiting for it stay queued
+  if (inbox?.stop === true && rt.isBusy && rt.turnId) {
+    const r = await $.turn.abort({ turnId: rt.turnId }).then(() => '', (err: unknown) => String(err))
+    $.ui.toast(r ? `statusbar: remote: the turn did not stop (${oneLine(r, 100)})` : 'statusbar: remote: stopped from the phone')
+  }
   // the phone answered Claude's question: only the question's own texts count as keys
   const a = inbox?.answer
   if (a && ask.pending && a.id === ask.pending.id) {

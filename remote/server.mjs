@@ -44,12 +44,13 @@ mkdirSync(DIR, { recursive: true, mode: 0o700 })
 chmodSync(DIR, 0o700)
 const SOCK = join(DIR, 'hub.sock')
 // the mod's version this hub was started from, as the mod's modVersionShort writes it ("0.2.1 ·
-// d0a0466"): a session that loaded another tells the person to restart the hub
-const HUB_VERSION = (() => {
-  let version = '', commit = ''
+// d0a0466"), and when that commit was made (ms; 0 outside a clone), so a session on newer code may
+// restart it unasked
+const [HUB_VERSION, HUB_VERSION_AT] = (() => {
+  let version = '', commit = '', at = 0
   try { version = String(JSON.parse(readFileSync(join(HERE, '..', '.claude-plugin', 'plugin.json'), 'utf8')).version ?? '') } catch {}
-  try { commit = execFileSync('git', ['-C', HERE, 'log', '-1', '--format=%h'], { encoding: 'utf8', timeout: 5000 }).trim() } catch {}
-  return [version, commit].filter(Boolean).join(' · ')
+  try { [commit, at] = execFileSync('git', ['-C', HERE, 'log', '-1', '--format=%h %ct'], { encoding: 'utf8', timeout: 5000 }).trim().split(' ').map((v, i) => (i ? Number(v) * 1000 || 0 : v)) } catch {}
+  return [[version, commit].filter(Boolean).join(' · '), at]
 })()
 const log = text => { try { writeFileSync(join(DIR, 'hub.log'), `${new Date().toISOString()} ${text}\n`, { flag: 'a' }) } catch {} }
 
@@ -300,6 +301,13 @@ async function answerOp(dev, id, op, a, res) {
     case 'state':
       await nextVersion(Number(a.since ?? -1), res)
       return [200, stateOf()]
+    // Stop: the session ends its running turn at its next call
+    case 'stop': {
+      const s = sessions.get(session)
+      if (!s) return [400, { error: 'That session is gone.' }]
+      s.stop = true
+      return [200, { ok: true }]
+    }
     case 'reply': {
       const text = typeof a.text === 'string' ? a.text.trim().slice(0, 8000) : ''
       const s = sessions.get(session)
@@ -489,6 +497,7 @@ function statusOf() {
   return {
     pid: process.pid,
     version: HUB_VERSION,
+    versionAt: HUB_VERSION_AT,
     url: tunnelUrl,
     link: tunnelUrl ? `${tunnelUrl}/#k=${TOKEN}` : '',
     error: tunnelError,
@@ -525,10 +534,12 @@ const ctl = createServer(async (req, res) => {
     const answer = s?.answer
     const secrets = s?.secrets ?? []
     const pages = s?.pages ?? []
+    const stop = s?.stop === true
     if (s) {
       delete s.answer
       delete s.secrets
       delete s.pages
+      delete s.stop
     }
     // the texts stay on the phone as sent until the session's next snapshot says where they are
     if (texts.length) {
@@ -536,7 +547,7 @@ const ctl = createServer(async (req, res) => {
       s.text = ''
       bump()
     }
-    return send(res, 200, { texts, answer, secrets, pages })
+    return send(res, 200, { texts, answer, secrets, pages, stop })
   }
   if (route === 'POST /bye') {
     if (sessions.delete(id)) bump()

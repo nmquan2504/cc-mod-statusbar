@@ -419,6 +419,13 @@ function renderChat() {
     const head = w.appendChild(el('div', 'head'))
     head.appendChild(el('span', 'spin')).append(icon('spark'))
     head.append(el('span', '', 'Working…'), el('span', 'elapsed', ''))
+    // Stop: the turn ends as Esc ends it at the computer
+    const stop = head.appendChild(el('button', 'stop', 'Stop'))
+    stop.onclick = async () => {
+      stop.disabled = true
+      const r = await api('stop', { session: snap.id })
+      toast(r.s === 200 ? { title: 'Stopping', body: 'The session ends its turn in a moment.' } : { title: 'Not stopped', body: r.b?.error || 'The session did not answer. Try again.' })
+    }
     if (snap.nowTool) w.append(el('div', 'now', snap.nowTool))
     for (const t of snap.tasks || []) {
       const row = w.appendChild(el('div', `task ${t.status === 'completed' ? 'done' : t.status === 'in_progress' ? 'doing' : ''}`))
