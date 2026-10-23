@@ -132,7 +132,7 @@ test('with the hub up: the QR code, a phone asking to pair with its code, Allow 
   // ⇄ sits right after the usage figures, before the rest of the right group
   const bar = await textOf(band)
   expect(bar.indexOf('"key":"usage"')).toBeLessThan(bar.indexOf('"key":"remote"'))
-  expect(bar.indexOf('"key":"remote"')).toBeLessThan(bar.indexOf('"key":"mode"'))
+  expect(bar.indexOf('"key":"remote"')).toBeLessThan(bar.indexOf('"key":"guard"'))
   expect(drawn).toContain('Android, Chrome asks to pair, code K7M3')
   expect(drawn).toContain('"60 s"')
   expect(drawn).toContain('█▀') // the QR code's rows

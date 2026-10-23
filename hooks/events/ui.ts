@@ -30,7 +30,7 @@ export function registerUi(on: On) {
 
   // ---- the bar ---------------------------------------------------------------
   //  ╭───────────────────────────────────────────────────────────────────────────╮
-  //  │ [ + ][ ⁄ ][ ● Opus 5.5 ]  guardrails-hands-on ⎇ main  …  5h █▍   12% wk ██▍  33% [ ‖ manual ][ ◈ 2/4 ] │
+  //  │ [ + ][ ⁄ ][ ● Opus 5.5 ][ ‖ manual ]  guardrails-hands-on ⎇ main  …  5h █▍   12% wk ██▍  33% [ ◈ 2/4 ] │
   //  ╰───────────────────────────────────────────────────────────────────────────╯
   // Chips are square buttons (a label on a colored cell background) and stay Buttons; the gauges
   // are truecolor cells in one color by the percentage, where the surface draws them.

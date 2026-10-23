@@ -14,7 +14,7 @@ import { registerUi } from './events/ui'
 // ---------------------------------------------------------------------------
 // cc-mod-statusbar: a clickable status bar in the band above the prompt.
 //
-//   [+] [⁄] [● Opus 5.5] [◕ xhigh] /guardrails-hands-on ⎇ main   arena   5h [ 23% ] wk [ 41% ] [⌁ 1] [‖ manual] [◈]
+//   [+] [⁄] [● Opus 5.5] [◕ xhigh] [‖ manual] /guardrails-hands-on ⎇ main   arena   5h [ 23% ] wk [ 41% ] [⌁ 1] [◈]
 //
 // Where it lives:
 //   events/     the hooks, one file per group, registered below in their old order

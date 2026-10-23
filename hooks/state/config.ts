@@ -16,7 +16,7 @@ export const cfg = {
   barGuard: true,
   arcade: true,
   // the items' order, left to right, as BAR_ITEMS keys; those before the arena sit left of it
-  barOrder: 'barModel,barEffort,barFolder,barGit,arcade,barUsage,barRemote,barImages,barMcp,barMode,barGuard',
+  barOrder: 'barModel,barEffort,barMode,barFolder,barGit,arcade,barUsage,barRemote,barImages,barMcp,barGuard',
   // on: the 4-cell gauge and the figure (5h ▰▱▱▱ 21%); off: the figure alone (5h 21%)
   usageGauge: true,
   gitMarks: true,
@@ -64,9 +64,14 @@ export function readOptions(stored: Readonly<Record<string, unknown>>) {
   }
 }
 
+// The bar's order as an earlier version shipped it (the mode at the right end): one saved
+// unchanged was never moved by hand, so it takes the order shipped now.
+const OLD_BAR_ORDERS = ['barModel,barEffort,barFolder,barGit,arcade,barUsage,barRemote,barImages,barMcp,barMode,barGuard']
+
 export async function loadSettings($: any) {
   const stored = await $.store.get(SETTINGS_KEY).catch(() => undefined)
   if (stored && typeof stored === 'object') readOptions(stored as Record<string, unknown>)
+  if (OLD_BAR_ORDERS.includes(cfg.barOrder)) cfg.barOrder = DEFAULTS.barOrder
 }
 
 // Every save keeps what it replaces, newest last, so Settings can put the one before back.
@@ -152,6 +157,7 @@ export const SETTINGS: ((
 export const BAR_ITEMS: { key: CfgKey; label: string }[] = [
   { key: 'barModel', label: '● model' },
   { key: 'barEffort', label: '◔ effort' },
+  { key: 'barMode', label: '‖ mode' },
   { key: 'barFolder', label: '/folder' },
   { key: 'barGit', label: '⎇ git' },
   { key: 'arcade', label: '¬✻ arena' },
@@ -159,7 +165,6 @@ export const BAR_ITEMS: { key: CfgKey; label: string }[] = [
   { key: 'barRemote', label: '⇄ remote' },
   { key: 'barImages', label: '▣ images' },
   { key: 'barMcp', label: '⌁ mcp' },
-  { key: 'barMode', label: '‖ mode' },
   { key: 'barGuard', label: '◈ guardrails' },
 ]
 
