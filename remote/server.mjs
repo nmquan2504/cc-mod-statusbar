@@ -301,6 +301,18 @@ async function answerOp(dev, id, op, a, res) {
     case 'state':
       await nextVersion(Number(a.since ?? -1), res)
       return [200, stateOf()]
+    // a queued text taken back: gone from the inbox if the session has not taken it yet, else held
+    // for the session, which drops it from its own queue at its next call
+    case 'unqueue': {
+      const s = sessions.get(session)
+      const text = typeof a.text === 'string' ? a.text.trim().slice(0, 8000) : ''
+      if (!s || !text) return [400, { error: text ? 'That session is gone.' : 'empty' }]
+      const at = s.inbox.indexOf(text)
+      if (at >= 0) s.inbox.splice(at, 1)
+      else s.unqueue = [...(s.unqueue ?? []), text].slice(-20)
+      bump()
+      return [200, { ok: true }]
+    }
     // Stop: the session ends its running turn at its next call
     case 'stop': {
       const s = sessions.get(session)
@@ -535,11 +547,13 @@ const ctl = createServer(async (req, res) => {
     const secrets = s?.secrets ?? []
     const pages = s?.pages ?? []
     const stop = s?.stop === true
+    const unqueue = s?.unqueue ?? []
     if (s) {
       delete s.answer
       delete s.secrets
       delete s.pages
       delete s.stop
+      delete s.unqueue
     }
     // the texts stay on the phone as sent until the session's next snapshot says where they are
     if (texts.length) {
@@ -547,7 +561,7 @@ const ctl = createServer(async (req, res) => {
       s.text = ''
       bump()
     }
-    return send(res, 200, { texts, answer, secrets, pages, stop })
+    return send(res, 200, { texts, answer, secrets, pages, stop, unqueue })
   }
   if (route === 'POST /bye') {
     if (sessions.delete(id)) bump()

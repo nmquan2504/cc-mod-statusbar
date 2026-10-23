@@ -552,6 +552,48 @@ test('a hub on older code restarts by itself when no phone watches; a newer one,
   expect(argvs.some(a => a[0] === '/bin/sh' && a[2]!.includes('nohup'))).toBe(true)
 })
 
+test('a text queued from the phone can be taken back before the turn ends; the rest goes in', async ($, on) => {
+  const snapshots: any[] = []
+  let inbox: any = { texts: [] }
+  engine(on, {
+    hub: (path, body) => {
+      if (path === '/session') snapshots.push(JSON.parse(body))
+      if (path !== '/inbox') return { ...STATUS, pending: [] }
+      const given = inbox
+      inbox = { texts: [] }
+      return given
+    },
+  })
+  const submitted: string[] = []
+  on('prompt.submit', (_: unknown, e: any) => (submitted.push(e.text), { text: e.text }))
+  on('session.surfaces', () => ({ value: ['terminal'] }))
+  on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
+  on('ui.status', () => ({ value: undefined }))
+  on('agent.list', () => ({ value: [] }))
+  on('tool.register', (_: unknown, e: { name: string }) => ({ value: { tool: e.name } }))
+  on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
+  const clock = mock.clock(on)
+  await ($ as any).session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+  const band = await $.ui.mount({ plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await switchOn(band)
+  // Claude works: two texts from the phone wait
+  await $.ui.mount({ plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, isWorking: true } } as never)
+  // a tick sends its snapshot, then reads the inbox: the next snapshot shows what came in
+  inbox = { texts: ['run the tests', 'then open a PR'] }
+  await clock.advance(2000)
+  await clock.advance(2000)
+  expect(snapshots.at(-1).queued).toEqual(['run the tests', 'then open a PR'])
+  // ✕ on the first: gone from the queue at the next call
+  inbox = { texts: [], unqueue: ['run the tests'] }
+  await clock.advance(2000)
+  await clock.advance(2000)
+  expect(snapshots.at(-1).queued).toEqual(['then open a PR'])
+  // the turn ends: only the one left goes in
+  await $.ui.mount({ plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await clock.advance(2000)
+  expect(submitted).toEqual(['then open a PR'])
+})
+
 test('from the phone a built-in runs only when it prints text or takes a value; a panel stays on the computer', () => {
   expect(phoneMayRun('humanizer', '', false)).toBe(true) // a skill hands the model a prompt
   expect(phoneMayRun('compact', '', true)).toBe(true)
