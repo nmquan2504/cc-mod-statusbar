@@ -597,6 +597,8 @@ async function renderFolder(root) {
   const data = r.b || {}
   list.replaceChildren()
   if (r.s !== 200) return list.append(el('div', 'none', data.error || 'Could not read the folder.'))
+  // a folder in a git repository: its branch after the path
+  if (data.branch) crumbs.appendChild(el('span', 'fbranch')).append(icon('branch'), document.createTextNode(` ${data.branch}`))
   if (!data.rows.length) return list.append(el('div', 'none', 'Empty folder.'))
   for (const row of data.rows) {
     const item = list.appendChild(el('button', `trow-file${row.isLocked ? ' locked' : ''}`))
@@ -703,7 +705,19 @@ async function showFile(path) {
   const lines = data.text.replace(/\n$/, '').split('\n')
   body.append(el('div', 'meta pad', `${lines.length} lines · ${size(data.size)}${data.isCut ? ' · the first 512 KB' : ''}`))
   const code = body.appendChild(el('div', 'codeview'))
-  code.append(el('pre', 'gutter', lines.map((_, i) => i + 1).join('\n')))
+  const gutter = code.appendChild(el('pre', 'gutter', lines.map((_, i) => i + 1).join('\n')))
+  // a tap on a line number marks that line and opens a box under the file to ask Claude about it
+  const mark = code.appendChild(el('div', 'linemark'))
+  mark.hidden = true
+  gutter.onclick = e => {
+    const style = getComputedStyle(gutter)
+    const lh = parseFloat(style.lineHeight) || 18, pad = parseFloat(style.paddingTop) || 0
+    const n = LineAsk.lineAt(e.offsetY, pad, lh, lines.length)
+    mark.hidden = false
+    mark.style.top = `${pad + (n - 1) * lh}px`
+    mark.style.height = `${lh}px`
+    openLineAsk(body, path, n, lines[n - 1])
+  }
   const src = code.appendChild(el('pre', 'src'))
   const block = src.appendChild(el('code', 'hljs', lines.join('\n')))
   const name = data.name.toLowerCase()
@@ -713,6 +727,68 @@ async function showFile(path) {
   if (!hljs || !hljs.getLanguage(lang)) return
   // highlight.js escapes the text it is given; its output holds only its own spans
   block.innerHTML = hljs.highlight(lines.join('\n'), { language: lang, ignoreIllegals: true }).value
+}
+
+// The box under a file for asking Claude about one line: the file as @path, the line's number and
+// text, then what you wrote, sent as your prompt. Its status follows the session: sent, working,
+// waiting for the turn before it, done (render calls tickLineAsk on each state).
+let lineAsk = null // { session, status, sawBusy }
+function openLineAsk(body, path, n, lineText) {
+  let bar = body.querySelector('.lineask')
+  if (!bar) {
+    bar = body.appendChild(el('div', 'lineask'))
+    bar.append(el('div', 'what'), el('div', 'row'), el('div', 'status'))
+    const box = bar.querySelector('.row').appendChild(el('textarea'))
+    box.rows = 2
+    box.placeholder = 'Ask Claude about this line'
+    const go = bar.querySelector('.row').appendChild(el('button', 'go', 'Send'))
+    go.onclick = async () => {
+      const ask = box.value.trim()
+      if (!ask || !snap) return box.focus()
+      const at = bar.dataset
+      const text = LineAsk.lineAskText(mentionOf(at.path), at.line, at.text, ask)
+      go.disabled = true
+      lineAsk = { session: snap.id, status: 'sending', sawBusy: false, wasBusy: Boolean(snap.busy) }
+      tickLineAsk()
+      const r = await api('reply', { text })
+      go.disabled = false
+      if (r.s !== 200) {
+        lineAsk = null
+        bar.querySelector('.status').replaceChildren(el('span', 'err', r.b?.error || 'Not sent: the session did not answer. Try again.'))
+        return
+      }
+      box.value = ''
+      lineAsk.status = 'sent'
+      tickLineAsk()
+    }
+  }
+  Object.assign(bar.dataset, { path, line: String(n), text: lineText })
+  bar.querySelector('.what').textContent = `Line ${n} · ${shortPath(path)}`
+  bar.querySelector('textarea').focus()
+}
+function tickLineAsk() {
+  const node = document.querySelector('#viewer:not([hidden]) .lineask .status')
+  if (!lineAsk || !node) return
+  const s = state?.sessions.find(x => x.id === lineAsk.session)
+  const working = label => {
+    const row = el('span', 'busy')
+    row.append(el('span', 'spin'), document.createTextNode(label))
+    row.querySelector('.spin').append(icon('spark'))
+    return row
+  }
+  const phase = LineAsk.lineAskPhase(lineAsk, Boolean(s?.busy))
+  if (phase === 'sending') return node.replaceChildren(working(' Sending…'))
+  if (phase === 'waits') return node.replaceChildren(working(' Waits for the turn before it to end…'))
+  if (phase === 'working') return node.replaceChildren(working(' Claude is working on it…'))
+  const done = el('span', 'done', 'Done. ')
+  const open = el('button', 'link', 'Open the chat')
+  open.onclick = () => {
+    $('viewer').hidden = true
+    $('files').hidden = true
+    toBottom()
+  }
+  node.replaceChildren(done, open)
+  lineAsk = null
 }
 
 function openViewer(title) {
@@ -841,6 +917,7 @@ async function sendAnswer(isDismissed) {
 
 // ---- one drawing for every update ----------------------------------------------------------------
 function render() {
+  tickLineAsk()
   snap = state.sessions.find(s => s.id === picked) || state.sessions[0] || null
   if (snap) picked = snap.id
   if ($('drawer').classList.contains('open')) renderDrawer()
@@ -1115,9 +1192,13 @@ document.addEventListener('click', e => {
 })
 
 // a file picked from the Folder tab: @path from the session's folder, quoted when it has a space
-function pickFile(path) {
+// @path as a prompt mentions it: from the session's folder when the file is in it
+function mentionOf(path) {
   const rel = snap.cwd && path.startsWith(`${snap.cwd}/`) ? path.slice(snap.cwd.length + 1) : path
-  insertText(`${/\s/.test(rel) ? `@"${rel}"` : `@${rel}`} `)
+  return /\s/.test(rel) ? `@"${rel}"` : `@${rel}`
+}
+function pickFile(path) {
+  insertText(`${mentionOf(path)} `)
   isPicking = false
   $('files').hidden = true
 }

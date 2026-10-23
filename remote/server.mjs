@@ -195,7 +195,7 @@ function placeOf(s, path) {
   return undefined
 }
 
-function treeOf(session, path) {
+async function treeOf(session, path) {
   const s = sessions.get(session)?.snapshot
   if (!s) return { status: 404, body: { error: 'That session is gone.' } }
   const place = placeOf(s, path)
@@ -219,7 +219,10 @@ function treeOf(session, path) {
     rows.push({ name: d.name, path: abs, isDir: st.isDirectory(), size: st.isFile() ? st.size : 0, isLocked: SENSITIVE.test(relPath) || isOutside })
   }
   rows.sort((a, b) => Number(b.isDir) - Number(a.isDir) || a.name.localeCompare(b.name))
-  return { status: 200, body: { path: place.target, root: place.root, rows } }
+  // a folder in a git repository: its branch, or the commit a detached HEAD stands on
+  const branch = (await run(['git', '-C', place.target, 'symbolic-ref', '--short', '-q', 'HEAD'], place.target)).trim()
+  const detached = branch ? '' : (await run(['git', '-C', place.target, 'rev-parse', '--short', 'HEAD'], place.target)).trim()
+  return { status: 200, body: { path: place.target, root: place.root, rows, branch: branch || (detached && `detached at ${detached}`) } }
 }
 
 function fileOf(session, path) {
@@ -374,7 +377,7 @@ async function answerOp(dev, id, op, a, res) {
       return img ? [200, { type: img.type, b64: img.data.toString('base64') }] : [404, { error: 'no such image' }]
     }
     case 'tree': {
-      const r = treeOf(session, String(a.path ?? ''))
+      const r = await treeOf(session, String(a.path ?? ''))
       return [r.status, r.body]
     }
     case 'file': {
@@ -412,6 +415,7 @@ const STATIC = {
   '/': ['app.html', 'text/html; charset=utf-8'],
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/e2e.js': ['e2e.js', 'text/javascript; charset=utf-8'],
+  '/lineask.mjs': ['lineask.mjs', 'text/javascript; charset=utf-8'],
   '/sw.js': ['sw.js', 'text/javascript; charset=utf-8'],
   '/icon.svg': ['icon.svg', 'image/svg+xml'],
   '/vendor/highlight.min.js': ['vendor/highlight.min.js', 'text/javascript; charset=utf-8'],
