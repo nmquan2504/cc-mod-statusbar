@@ -15,7 +15,7 @@ const el = (tag, cls, text) => {
 // Kept in this browser alone (localStorage), so each phone has its own; the page works without them.
 const PREFS_KEY = 'qsb-prefs'
 const prefs = (() => {
-  const base = { lang: globalThis.I18N?.langOf(navigator.language) ?? 'en', theme: 'system', voiceVi: '', voiceEn: '', rate: 1, readNotices: false, notifyOff: false }
+  const base = { lang: globalThis.I18N?.langOf(navigator.language) ?? 'en', theme: 'system', voiceVi: '', voiceEn: '', rate: 1, readNotices: false, noticeWords: 'title', notifyOff: false }
   try { return { ...base, ...JSON.parse(localStorage.getItem(PREFS_KEY) || '{}') } } catch { return base }
 })()
 function savePrefs() {
@@ -771,7 +771,8 @@ function speak(text) {
 // read, not over it. A page in the background may not be let speak; the push shows as ever.
 function readNotice(n) {
   if (!prefs.readNotices || !canSpeak || !globalThis.Speak) return
-  const text = [n.title, n.body].filter(Boolean).join('. ').replace(/\s·\s/g, ', ').replace(/(^|\s)\/(?=\w)/g, '$1')
+  // the title a line of its own, so the answer's markdown starts its own lines
+  const text = [n.title, noticeBody(n)].filter(Boolean).join('.\n').replace(/\s·\s/g, ', ').replace(/(^|\s)\/(?=\w)/g, '$1')
   // a speech the browser left paused (the page was in the background) goes on first
   speechSynthesis.resume()
   Speak.segments(Speak.speechText(text)).forEach((part, i) => {
@@ -779,6 +780,17 @@ function readNotice(n) {
     if (i === 0) said.onerror = e => { if (e.error === 'not-allowed') noteSpeechBlocked() }
     speechSynthesis.speak(said)
   })
+}
+
+// What a notice reads after its title, as Settings says: nothing (the default); one line, the
+// message's first sentence; or the whole of it: for a turn's end, Claude's last answer as the
+// session sent it (the notice carries its first 200 characters), for a question, the question
+function noticeBody(n) {
+  const body = n.body || ''
+  if (prefs.noticeWords === 'short') return body.split(/(?<=[.!?…])\s/)[0].slice(0, 160)
+  if (prefs.noticeWords !== 'full') return ''
+  const last = state?.sessions.find(x => x.id === n.session)?.transcript?.at(-1)
+  return /^Done\b/.test(n.title) && last?.k === 'claude' ? last.text : body
 }
 
 // A page may speak only after a tap: Chrome asks for one since the page opened, Safari for a first
@@ -2367,6 +2379,7 @@ function renderSettings() {
         speechSynthesis.speak(utterance(I18N.SAMPLES[`notice_${prefs.lang}`], prefs.lang))
       }
     })
+    if (prefs.readNotices) seg(notes, [['title', tx('Title only')], ['short', tx('Short (1 line)')], ['full', tx('Full')]], prefs.noticeWords, v => set('noticeWords', v))
   }
 
   const off = body.appendChild(el('button', 'plain unpair', tx('Unpair this phone')))
