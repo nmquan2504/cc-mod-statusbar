@@ -15,6 +15,8 @@ test('a first install starts the setup script in the background and names the fo
   expect(ran[0]?.slice(0, 2)).toEqual(['/bin/sh', '-c'])
   expect(ran[0]?.[3]).toBe('/mod/remote/zerotts-setup.sh')
   expect(ran[0]?.[2]).toContain('nohup sh "$0"')
+  // the setup goes off with &, at a line's end: "& ;" is a shell's syntax error
+  expect(ran[0]?.[2]).not.toMatch(/&\s*;/)
   expect(text).toContain('Installing ZeroTTS in the background')
   expect(text).toContain('/home/me/.cache/cc-mod-statusbar/zerotts/setup.log')
 })

@@ -21,7 +21,7 @@ export async function installZeroTts($: any) {
     'pgrep -f zerotts-setup.sh >/dev/null && { echo "running $home"; exit 0; }',
     'nohup sh "$0" >"$home/setup.log" 2>&1 </dev/null &',
     'echo "started $home"',
-  ].join('; ')
+  ].join('\n') // lines: a ; after the & that sends the setup off is a syntax error
   const r = await $.process.run(['/bin/sh', '-c', sh, script]).catch(() => undefined)
   const [state, home] = String(r?.stdout ?? '').trim().split(' ')
   if (state === 'ready') return `ZeroTTS is installed in ${home}. On the phone, pick it in Settings, Vietnamese voice.`
@@ -42,7 +42,7 @@ export async function uninstallZeroTts($: any) {
     'size=$(du -sh "$home" 2>/dev/null | cut -f1)',
     'rm -rf "$home"',
     'echo "removed $home $size"',
-  ].join('; ')
+  ].join('\n')
   const r = await $.process.run(['/bin/sh', '-c', sh]).catch(() => undefined)
   const [state, home, size] = String(r?.stdout ?? '').trim().split(' ')
   if (state === 'removed') return `ZeroTTS removed from ${home}${size ? ` (${size} freed)` : ''}. The phone reads with its own voices again.`
