@@ -50,7 +50,7 @@
   @keyframes pulse { 50% { opacity: .35; } }
 
   /* the conversation */
-  main { padding: calc(var(--top) + 12px) 12px calc(var(--foot) + 12px + var(--kb)); }
+  main { padding: calc(var(--top) + 12px) 12px calc(var(--foot) + 6px + var(--kb)); }
   .b { max-width: 88%; margin: 0 0 10px; padding: 8px 12px; border-radius: 18px; overflow-wrap: anywhere; }
   .b.me { margin-left: auto; background: var(--me); color: var(--me-text); border-bottom-right-radius: 6px; white-space: pre-wrap; width: fit-content; }
   .b.me a { color: var(--me-text); }
@@ -81,7 +81,7 @@
   .tout { margin: 2px 0 6px 13px; padding: 4px 8px; border-left: 2px solid var(--line); font: 11.5px/1.45 var(--mono); color: var(--dim); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 50vh; overflow-y: auto; }
   .tout .add { color: var(--ok); } .tout .del { color: var(--bad); }
   .tout .open-diff { color: var(--link); margin-top: 4px; cursor: pointer; }
-  .working { margin: 0 0 10px 4px; color: var(--claude); font: 13px/1.5 var(--mono); }
+  .working { margin: 0 0 0 4px; color: var(--claude); font: 13px/1.5 var(--mono); }
   .working .head { display: flex; align-items: center; gap: 6px; }
   .working .stop { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin-left: 4px; padding: 0; border: 0; border-radius: 50%; background: var(--claude); flex: none; }
   /* a thin ring turning around Stop while the turn runs */
@@ -91,7 +91,9 @@
   .working .spin { display: inline-flex; animation: spin 2s linear infinite; }
   .working .spin svg.ic { width: 14px; height: 14px; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .working .now { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* the tool running: a tool line as the chat draws them (.tools, .trow), in the text's colour */
+  .working .tools { margin: 0 0 2px 2px; }
+  .working .trow.now { opacity: 1; color: var(--text); cursor: default; max-width: 100%; }
   .working .task { display: flex; align-items: center; gap: 6px; color: var(--dim); } .working .task.doing { color: var(--claude); } .working .task.done span { text-decoration: line-through; }
   .empty { color: var(--dim); text-align: center; padding: 30vh 16px 0; }
 
