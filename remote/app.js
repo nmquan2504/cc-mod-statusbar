@@ -428,7 +428,13 @@ function renderChat() {
   if (snap.busy) {
     // the tool running and the task list first, the Working line last: it stays just above the box
     const w = root.appendChild(el('div', 'working'))
-    if (snap.nowTool) w.append(el('div', 'now', snap.nowTool))
+    // the tool running, drawn as the tool lines above it are ("Bash(npm test)"), only brighter
+    const now = /^(\S+)\s*([\s\S]*)$/.exec(String(snap.nowTool || ''))
+    if (now) {
+      const row = w.appendChild(el('div', 'tools')).appendChild(el('div', 'trow now'))
+      row.append(el('span', 'bullet run'))
+      row.appendChild(el('span', 'name')).append(el('strong', '', now[1]), document.createTextNode(now[2] ? `(${now[2]})` : ''))
+    }
     for (const t of snap.tasks || []) {
       const row = w.appendChild(el('div', `task ${t.status === 'completed' ? 'done' : t.status === 'in_progress' ? 'doing' : ''}`))
       row.append(icon(t.status === 'completed' ? 'boxChecked' : 'box'), el('span', '', t.subject))
