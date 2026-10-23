@@ -83,7 +83,9 @@
   .tout .open-diff { color: var(--link); margin-top: 4px; cursor: pointer; }
   .working { margin: 0 0 10px 4px; color: var(--claude); font: 13px/1.5 var(--mono); }
   .working .head { display: flex; align-items: center; gap: 6px; }
-  .working .stop { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin-left: 2px; padding: 0; border: 0; border-radius: 50%; background: var(--claude); flex: none; }
+  .working .stop { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin-left: 4px; padding: 0; border: 0; border-radius: 50%; background: var(--claude); flex: none; }
+  /* a thin ring turning around Stop while the turn runs */
+  .working .stop::before { content: ''; position: absolute; inset: -4px; border-radius: 50%; border: 1.5px solid transparent; border-top-color: var(--claude); border-right-color: var(--claude); animation: spin .9s linear infinite; }
   .working .stop .sq { width: 8px; height: 8px; border-radius: 1.5px; background: var(--bg); }
   .working .stop:disabled { opacity: .5; }
   .working .spin { display: inline-flex; animation: spin 2s linear infinite; }
@@ -184,9 +186,24 @@
   .trow-file .ctxdot { color: var(--claude); font-size: 11px; }
   .trow-file.locked { opacity: .55; }
   .meta.pad { padding: 8px 0; }
-  .codeview { display: flex; margin: 0 -12px; border-top: 1px solid var(--line); font: 12px/1.5 var(--mono); }
+  .codeview { position: relative; display: flex; margin: 0 -12px; border-top: 1px solid var(--line); font: 12px/1.5 var(--mono); }
   .codeview pre { margin: 0; border: 0; border-radius: 0; padding: 8px; font: inherit; background: none; }
-  .codeview .gutter { color: var(--dim); text-align: right; user-select: none; border-right: 1px solid var(--line); flex: none; }
+  .codeview .gutter { color: var(--dim); text-align: right; user-select: none; border-right: 1px solid var(--line); flex: none; cursor: pointer; }
+  .codeview .linemark { position: absolute; left: 0; right: 0; background: rgba(217, 119, 87, .18); pointer-events: none; }
+  /* the box under a file that asks Claude about a line */
+  .lineask { position: sticky; bottom: 0; margin: 8px -12px 0; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); background: var(--panel); border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+  .lineask .what { font: 12px var(--mono); color: var(--dim); }
+  .lineask .row { display: flex; gap: 8px; align-items: flex-end; }
+  .lineask textarea { flex: 1; height: auto; min-height: 44px; border-radius: 12px; }
+  .lineask .go { border: 0; border-radius: 18px; background: var(--claude); color: #fff; padding: 9px 16px; font-weight: 600; }
+  .lineask .go:disabled { opacity: .5; }
+  .lineask .status { font-size: 13px; color: var(--dim); min-height: 18px; }
+  .lineask .busy { display: inline-flex; align-items: center; gap: 4px; color: var(--claude); }
+  .lineask .spin { display: inline-flex; animation: spin 2s linear infinite; }
+  .lineask .spin svg.ic { width: 13px; height: 13px; }
+  .lineask .err { color: var(--bad); }
+  .lineask .link { border: 0; background: none; color: var(--link); padding: 0; font: inherit; }
+  .fbranch { margin-left: auto; display: inline-flex; align-items: center; gap: 2px; color: var(--dim); }
   .codeview .src { flex: 1; min-width: 0; overflow-x: auto; }
   .codeview .src code.hljs { background: none; padding: 0; font: inherit; }
 
@@ -371,5 +388,6 @@
 </div>
 <script src="/e2e.js"></script>
 <script src="/app.js"></script>
+<script type="module" src="/lineask.mjs"></script>
 </body>
 </html>
