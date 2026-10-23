@@ -1190,6 +1190,18 @@ async function showFile(path, atLine) {
     img.src = await imageUrl('file', { path, raw: true })
     return
   }
+  // a sound file: a player, the file fetched sealed as an image is
+  if (data.kind === 'audio') {
+    body.append(el('div', 'meta pad', `${tx('Audio')} · ${size(data.size)}`))
+    if (data.isTooBig) return body.append(el('div', 'none', tx('Too big to play here: over 20 MB.')))
+    const player = body.appendChild(el('audio', 'player'))
+    player.controls = true
+    player.preload = 'auto'
+    const url = await imageUrl('file', { path, raw: true })
+    if (!url) return player.replaceWith(el('div', 'none', tx('Could not open the file.')))
+    player.src = url
+    return
+  }
   if (data.kind === 'binary') return body.append(el('div', 'none', tx('A binary file, {size}.', { size: size(data.size) })))
   const lines = data.text.replace(/\n$/, '').split('\n')
   body.append(el('div', 'meta pad', `${tx('{n} lines', { n: lines.length })} · ${size(data.size)}${data.isCut ? ` · ${tx('the first 512 KB')}` : ''}`))

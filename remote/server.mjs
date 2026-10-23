@@ -102,7 +102,7 @@ const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'no-referrer',
   'X-Frame-Options': 'DENY',
-  'Content-Security-Policy': "default-src 'self'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+  'Content-Security-Policy': "default-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
 }
 function send(res, status, body, type = 'application/json; charset=utf-8', extra = {}) {
   if (res.headersSent) return
@@ -180,6 +180,9 @@ async function diffOf(session, path) {
   return run(['git', 'diff', '--no-color', '--no-index', '--', '/dev/null', abs], s.cwd)
 }
 const IMAGE_TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml' }
+// a sound file the phone plays, sent whole as an image is; past AUDIO_MAX its size alone
+const AUDIO_TYPES = { '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.opus': 'audio/ogg', '.flac': 'audio/flac', '.webm': 'audio/webm' }
+const AUDIO_MAX = 20 * 1024 * 1024
 
 // ---- browsing a session's folders: its own, those added, and the files it holds in context ----
 // The same paths the mod's file menu shows locked (hooks/lib/catalog.ts): the project's secrets and
@@ -281,6 +284,10 @@ function fileOf(session, path) {
   if (!st.isFile()) return { status: 400, body: { error: 'Not a file.' } }
   const ext = extname(place.target).toLowerCase()
   if (IMAGE_TYPES[ext]) return { status: 200, body: { kind: 'image', size: st.size, name: basename(place.target) }, image: { file: place.target, type: IMAGE_TYPES[ext] } }
+  if (AUDIO_TYPES[ext]) {
+    const isTooBig = st.size > AUDIO_MAX
+    return { status: 200, body: { kind: 'audio', size: st.size, name: basename(place.target), isTooBig }, image: isTooBig ? undefined : { file: place.target, type: AUDIO_TYPES[ext] } }
+  }
   // a file with a NUL byte in its first 8 KB is binary: its size alone
   const head = Buffer.alloc(Math.min(8192, st.size))
   const fd = openSync(place.target, 'r')
