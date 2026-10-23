@@ -15,6 +15,8 @@ export const rt = {
   suggestRound: 0,
   // the main loop's running turn, as turn.start named it: what Stop on the phone ends
   turnId: '',
+  // the tasks already completed when the running turn started: the phone leaves them out
+  doneBefore: new Set<string>(),
   // The main loop's turn: when it began and ended, and the session's cost when it began.
   turnStartedAt: 0,
   turnEndedAt: 0,

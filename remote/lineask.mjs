@@ -26,6 +26,25 @@ export function lineAskText(mention, from, to, text, ask) {
   return `${mention} ${linesLabel(from, to)}:\n${fence}\n${text}\n${fence}\n${ask}`
 }
 
+// The lines a diff hunk touches in the new file, from its header ("@@ -12,4 +12,6 @@"): 12 to 17. A
+// hunk that only removes keeps the line it was at.
+export function hunkLines(header) {
+  const m = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(header)
+  if (!m) return null
+  const from = Number(m[1]), count = m[2] === undefined ? 1 : Number(m[2])
+  return { from, to: Math.max(from, from + count - 1) }
+}
+
+// The prompt about a hunk: the file as @path, the lines it touches, the hunk as a diff, then what
+// was asked.
+export function hunkAskText(mention, hunk, ask) {
+  const lines = hunkLines(hunk.split('\n')[0])
+  const where = lines ? `, the change at ${linesLabel(lines.from, lines.to)}` : ', this change'
+  const longest = Math.max(0, ...(hunk.match(/`+/g) ?? []).map(run => run.length))
+  const fence = '`'.repeat(Math.max(3, longest + 1))
+  return `${mention}${where}:\n${fence}diff\n${hunk}\n${fence}\n${ask}`
+}
+
 // What the box says once sent, read again at each state from the hub: 'sending' until the hub took
 // it; 'waits' while the turn it was sent during runs on; 'working' until its own turn has run;
 // 'done' once it has. `ask` is { status, wasBusy, sawBusy }, updated in place.
@@ -39,4 +58,4 @@ export function lineAskPhase(ask, isBusy) {
   return isBusy || !ask.sawBusy ? 'working' : 'done'
 }
 
-globalThis.LineAsk = { lineAt, pickLines, linesLabel, lineAskText, lineAskPhase }
+globalThis.LineAsk = { lineAt, pickLines, linesLabel, lineAskText, lineAskPhase, hunkLines, hunkAskText }

@@ -234,6 +234,14 @@ test('a prompt shows as typed whatever the engine put around it, and a notice ho
   ])
 })
 
+test('the transcript keeps the last `max` turns and says how many there are', () => {
+  const list = Array.from({ length: 5 }, (_, n) => [{ role: 'user', text: `q${n}`, toolUses: [] }, { role: 'assistant', text: `a${n}`, toolUses: [] }]).flat()
+  const info = { turns: 0 }
+  const items = transcriptOf(list, '/w', [], [], [], 2, info)
+  expect(info.turns).toBe(5)
+  expect(items.filter(i => i.k === 'user').map(i => (i as { text: string }).text)).toEqual(['q3', 'q4'])
+})
+
 test('the session title: the last /rename name, else the last title Claude Code wrote', () => {
   expect(sessionTitleIn(['"aiTitle":"First guess"', '"aiTitle":"Fix the \\"login\\" bug"'])).toBe('Fix the "login" bug')
   expect(sessionTitleIn(['"aiTitle":"Fix login"', '"customTitle":"auth work"', '"aiTitle":"Later guess"'])).toBe('auth work')
