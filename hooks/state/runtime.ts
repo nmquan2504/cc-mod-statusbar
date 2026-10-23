@@ -13,6 +13,8 @@ export const rt = {
   // turn starts; and the round it answers, moved on by a turn, a chip sent or ✕
   answerChips: [] as string[],
   suggestRound: 0,
+  // the main loop's running turn, as turn.start named it: what Stop on the phone ends
+  turnId: '',
   // The main loop's turn: when it began and ended, and the session's cost when it began.
   turnStartedAt: 0,
   turnEndedAt: 0,
