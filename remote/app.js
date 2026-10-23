@@ -520,6 +520,14 @@ function openSheet() {
   sheet.hidden = false
 }
 
+// <html> carries `layered` while a layer is open: the drawer, a sheet or a page (app.html's styles
+// keep the chat still under it). Watched rather than set at each opening: layers open in many places.
+function syncLayered() {
+  const isOpen = Boolean(document.querySelector('.drawer.open, .sheet:not([hidden]), .page:not([hidden])'))
+  document.documentElement.classList.toggle('layered', isOpen)
+}
+new MutationObserver(syncLayered).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['hidden', 'class'] })
+
 function closeLayers() {
   $('drawer').classList.remove('open')
   $('sheet').hidden = true
