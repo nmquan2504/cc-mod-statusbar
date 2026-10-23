@@ -200,8 +200,18 @@ function inline(text, into) {
   if (at < text.length) into.append(document.createTextNode(text.slice(at)))
   return into
 }
-// your words in a bubble: each [Image #n] pasted with them a link that opens the picture here
+// your words in a bubble: a fenced block (```) drawn as a code block, as in Claude's bubbles, and
+// each [Image #n] pasted with them a link that opens the picture here
+const FENCED = /(?:^|\n)[ \t]*```[^\n]*\n([\s\S]*?)\n[ \t]*```[ \t]*(?=\n|$)/
 function prompted(text, into) {
+  // split keeps the captured code at the odd places
+  String(text).split(FENCED).forEach((part, i) => {
+    if (i % 2) into.append(el('pre', '', part))
+    else if (part.replace(/^\n+|\n+$/g, '')) promptedText(part.replace(/^\n+|\n+$/g, ''), into)
+  })
+  return into
+}
+function promptedText(text, into) {
   let at = 0
   for (const m of text.matchAll(/\[Image #(\d+)\]/g)) {
     const img = (snap.images || []).find(i => String(i.n) === m[1])
@@ -332,7 +342,8 @@ function askRow(t, into) {
 function toolRow(t, into) {
   if (t.qa) return askRow(t, into)
   const isOpen = opened.has(t.id)
-  const row = into.appendChild(el('div', `trow${isOpen ? ' open' : ''}`))
+  // a tool still running is drawn brighter than those done
+  const row = into.appendChild(el('div', `trow${isOpen ? ' open' : ''}${t.out === undefined ? ' running' : ''}`))
   row.append(el('span', `bullet ${t.out === undefined ? 'run' : t.isError ? 'bad' : 'ok'}`))
   const name = row.appendChild(el('span', 'name'))
   name.append(el('strong', '', t.name), document.createTextNode(t.arg ? `(${t.arg})` : ''))
@@ -378,7 +389,11 @@ function renderChat() {
     }
     tools = null
     if (t.k === 'user') root.append(prompted(t.text, el('div', 'b me')))
-    else root.appendChild(el('div', 'b claude')).append(markdown(t.text))
+    else {
+      const b = root.appendChild(el('div', 'b claude'))
+      b.append(markdown(t.text))
+      answerText.set(b, t.text)
+    }
   }
   // under Claude's last answer: Claude Code's guess at your next prompt, else what Haiku
   // proposes, three at most; a tap puts it in the reply box (chipToBox)
@@ -392,10 +407,10 @@ function renderChat() {
     }
   }
   // sent as the prompt, not in the transcript yet: drawn as the bubble it will be
-  for (const text of snap.sending || []) root.append(inline(text, el('div', 'b me')))
+  for (const text of snap.sending || []) root.append(prompted(text, el('div', 'b me')))
   // waiting for a turn to end, dimmed; with none running it goes in at the next tick, a bubble as any
   for (const text of snap.queued || []) {
-    const b = root.appendChild(inline(text, el('div', snap.busy ? 'b me queued' : 'b me')))
+    const b = root.appendChild(prompted(text, el('div', snap.busy ? 'b me queued' : 'b me')))
     if (!snap.busy) continue
     b.append(el('span', 'note', 'waits for this turn to end'))
     // ✕ takes it back before it goes in; gone at once here, and from the session at its next call
@@ -426,15 +441,9 @@ function renderChat() {
     b.append(el('div', 'go', 'Answer it at the computer'))
   }
   if (snap.busy) {
-    // the tool running and the task list first, the Working line last: it stays just above the box
+    // the task list first, the Working line last: it stays just above the box (the tool running is
+    // the chat's own last tool line, drawn brighter)
     const w = root.appendChild(el('div', 'working'))
-    // the tool running, drawn as the tool lines above it are ("Bash(npm test)"), only brighter
-    const now = /^(\S+)\s*([\s\S]*)$/.exec(String(snap.nowTool || ''))
-    if (now) {
-      const row = w.appendChild(el('div', 'tools')).appendChild(el('div', 'trow now'))
-      row.append(el('span', 'bullet run'))
-      row.appendChild(el('span', 'name')).append(el('strong', '', now[1]), document.createTextNode(now[2] ? `(${now[2]})` : ''))
-    }
     for (const t of snap.tasks || []) {
       const row = w.appendChild(el('div', `task ${t.status === 'completed' ? 'done' : t.status === 'in_progress' ? 'doing' : ''}`))
       row.append(icon(t.status === 'completed' ? 'boxChecked' : 'box'), el('span', '', t.subject))
@@ -533,6 +542,54 @@ function syncLayered() {
   document.documentElement.classList.toggle('layered', isOpen)
 }
 new MutationObserver(syncLayered).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['hidden', 'class'] })
+
+// ---- a long press on Claude's answer copies it: on a code block, that block; elsewhere in the
+// bubble, the whole answer as Claude wrote it (markdown) ----------------------------------------
+const answerText = new WeakMap() // a Claude bubble -> the answer's text
+const HOLD_TO_COPY_MS = 500
+async function copyText(value) {
+  try {
+    await navigator.clipboard.writeText(value)
+    return true
+  } catch {
+    // no clipboard API (an older browser, a page not in focus): a hidden box and the copy command
+    const box = document.body.appendChild(el('textarea'))
+    box.value = value
+    box.style.cssText = 'position:fixed;opacity:0;top:0'
+    box.select()
+    const isDone = document.execCommand('copy')
+    box.remove()
+    return isDone
+  }
+}
+{
+  let timer = 0, x = 0, y = 0
+  const stop = () => {
+    clearTimeout(timer)
+    timer = 0
+    document.querySelectorAll('.copying').forEach(n => n.classList.remove('copying'))
+  }
+  $('chat').addEventListener('pointerdown', e => {
+    const bubble = e.target.closest('.b.claude')
+    if (!bubble || !answerText.has(bubble)) return
+    const block = e.target.closest('pre')
+    const target = block && bubble.contains(block) ? block : bubble
+    x = e.clientX
+    y = e.clientY
+    target.classList.add('copying')
+    timer = setTimeout(async () => {
+      timer = 0
+      const isCopied = await copyText(target === bubble ? answerText.get(bubble) : block.textContent)
+      target.classList.remove('copying')
+      navigator.vibrate?.(15)
+      toast(isCopied ? { title: 'Copied', body: target === bubble ? 'The whole answer' : 'The code block' } : { title: 'Not copied', body: 'The browser refused the clipboard.' })
+    }, HOLD_TO_COPY_MS)
+  })
+  $('chat').addEventListener('pointermove', e => { if (timer && Math.hypot(e.clientX - x, e.clientY - y) > 10) stop() })
+  for (const name of ['pointerup', 'pointercancel']) $('chat').addEventListener(name, () => { if (timer) stop() })
+  // the long press is the copy: no menu, no selection
+  $('chat').addEventListener('contextmenu', e => { if (e.target.closest('.b.claude')) e.preventDefault() })
+}
 
 function closeLayers() {
   $('drawer').classList.remove('open')
@@ -721,17 +778,22 @@ async function showFile(path) {
   body.append(el('div', 'meta pad', `${lines.length} lines · ${size(data.size)}${data.isCut ? ' · the first 512 KB' : ''}`))
   const code = body.appendChild(el('div', 'codeview'))
   const gutter = code.appendChild(el('pre', 'gutter', lines.map((_, i) => i + 1).join('\n')))
-  // a tap on a line number marks that line and opens a box under the file to ask Claude about it
+  // a tap on a line number marks that line and opens a box under the file to ask Claude about it;
+  // a tap on another number then marks the range between them
   const mark = code.appendChild(el('div', 'linemark'))
   mark.hidden = true
+  let picked = null
   gutter.onclick = e => {
     const style = getComputedStyle(gutter)
     const lh = parseFloat(style.lineHeight) || 18, pad = parseFloat(style.paddingTop) || 0
     const n = LineAsk.lineAt(e.offsetY, pad, lh, lines.length)
+    // the box shut: the next tap starts afresh
+    if (!body.querySelector('.lineask')) picked = null
+    picked = LineAsk.pickLines(picked, n)
     mark.hidden = false
-    mark.style.top = `${pad + (n - 1) * lh}px`
-    mark.style.height = `${lh}px`
-    openLineAsk(body, path, n, lines[n - 1])
+    mark.style.top = `${pad + (picked.from - 1) * lh}px`
+    mark.style.height = `${(picked.to - picked.from + 1) * lh}px`
+    openLineAsk(body, path, picked, lines.slice(picked.from - 1, picked.to).join('\n'))
   }
   const src = code.appendChild(el('pre', 'src'))
   const block = src.appendChild(el('code', 'hljs', lines.join('\n')))
@@ -744,11 +806,11 @@ async function showFile(path) {
   block.innerHTML = hljs.highlight(lines.join('\n'), { language: lang, ignoreIllegals: true }).value
 }
 
-// The box under a file for asking Claude about one line: the file as @path, the line's number and
-// text, then what you wrote, sent as your prompt. Its status follows the session: sent, working,
-// waiting for the turn before it, done (render calls tickLineAsk on each state).
+// The box under a file for asking Claude about a line or a range: the file as @path, the lines'
+// numbers and text, then what you wrote, sent as your prompt. Its status follows the session: sent,
+// working, waiting for the turn before it, done (render calls tickLineAsk on each state).
 let lineAsk = null // { session, status, sawBusy }
-function openLineAsk(body, path, n, lineText) {
+function openLineAsk(body, path, picked, linesText) {
   let bar = body.querySelector('.lineask')
   if (!bar) {
     // the same frame as the reply area: the box the whole width, the status and send under it
@@ -785,7 +847,7 @@ function openLineAsk(body, path, n, lineText) {
       const ask = box.value.trim()
       if (!ask || !snap) return box.focus()
       const at = bar.dataset
-      const text = LineAsk.lineAskText(mentionOf(at.path), at.line, at.text, ask)
+      const text = LineAsk.lineAskText(mentionOf(at.path), Number(at.from), Number(at.to), bar.picked, ask)
       go.disabled = true
       lineAsk = { session: snap.id, status: 'sending', sawBusy: false, wasBusy: Boolean(snap.busy) }
       tickLineAsk()
@@ -802,10 +864,15 @@ function openLineAsk(body, path, n, lineText) {
       tickLineAsk()
     }
   }
-  Object.assign(bar.dataset, { path, line: String(n), text: lineText })
-  bar.querySelector('.what').textContent = `Line ${n} · ${shortPath(path)}`
+  Object.assign(bar.dataset, { path, from: String(picked.from), to: String(picked.to) })
+  // the lines' text, kept on the element: a range may be long for an attribute
+  bar.picked = linesText
+  const label = LineAsk.linesLabel(picked.from, picked.to)
+  const what = bar.querySelector('.what')
+  what.textContent = `${label[0].toUpperCase()}${label.slice(1)} · ${shortPath(path)}`
+  if (picked.from === picked.to) what.append(el('span', 'hint', ' · tap another number for a range'))
   const box = bar.querySelector('textarea')
-  box.placeholder = `Ask Claude about line ${n}`
+  box.placeholder = `Ask Claude about ${label}`
   box.focus()
 }
 function tickLineAsk() {

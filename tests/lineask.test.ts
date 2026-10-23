@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { lineAskPhase, lineAskText, lineAt } from '../remote/lineask.mjs'
+import { lineAskPhase, lineAskText, lineAt, linesLabel, pickLines } from '../remote/lineask.mjs'
 import type { LineAskState } from '../remote/lineask.mjs'
 
 // The phone's box for asking Claude about one line of a file (remote/lineask.mjs; the page wires it
@@ -16,12 +16,27 @@ test('a tap on the gutter lands on the line under it, held to the file', () => {
   expect(lineAt(5000, 8, 18, 40)).toBe(40)
 })
 
-test('the prompt: the file as @path, the line and its text fenced, then the question', () => {
-  expect(lineAskText('@src/auth.ts', 42, 'if (!token) return next()', 'why skip the check here?')).toBe(
+test('a second line number tapped makes a range, either way round; a third starts again', () => {
+  const one = pickLines(null, 12)
+  expect(one).toEqual({ from: 12, to: 12 })
+  expect(pickLines(one, 20)).toEqual({ from: 12, to: 20 })
+  expect(pickLines(one, 4)).toEqual({ from: 4, to: 12 })
+  // the same line again stays one line; a tap with a range marked starts over
+  expect(pickLines(one, 12)).toEqual({ from: 12, to: 12 })
+  expect(pickLines({ from: 12, to: 20 }, 30)).toEqual({ from: 30, to: 30 })
+  expect(linesLabel(12, 12)).toBe('line 12')
+  expect(linesLabel(12, 20)).toBe('lines 12-20')
+})
+
+test('the prompt: the file as @path, the lines and their text fenced, then the question', () => {
+  expect(lineAskText('@src/auth.ts', 42, 42, 'if (!token) return next()', 'why skip the check here?')).toBe(
     '@src/auth.ts line 42:\n```\nif (!token) return next()\n```\nwhy skip the check here?',
   )
-  // a path with a space keeps its quotes; a line holding backticks gets a longer fence
-  expect(lineAskText('@"docs/read me.md"', 3, 'Run ```npm test``` first', 'reword this')).toBe(
+  expect(lineAskText('@src/auth.ts', 41, 43, 'try {\n  check(token)\n}', 'simplify this')).toBe(
+    '@src/auth.ts lines 41-43:\n```\ntry {\n  check(token)\n}\n```\nsimplify this',
+  )
+  // a path with a space keeps its quotes; lines holding backticks get a longer fence
+  expect(lineAskText('@"docs/read me.md"', 3, 3, 'Run ```npm test``` first', 'reword this')).toBe(
     '@"docs/read me.md" line 3:\n````\nRun ```npm test``` first\n````\nreword this',
   )
 })

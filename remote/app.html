@@ -91,9 +91,12 @@
   .working .spin { display: inline-flex; animation: spin 2s linear infinite; }
   .working .spin svg.ic { width: 14px; height: 14px; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  /* the tool running: a tool line as the chat draws them (.tools, .trow), in the text's colour */
-  .working .tools { margin: 0 0 2px 2px; }
-  .working .trow.now { opacity: 1; color: var(--text); cursor: default; max-width: 100%; }
+  /* the tool running: its line in the text's colour, where those done are dimmed */
+  .trow.running { opacity: 1; color: var(--text); }
+  /* a long press copies Claude's answer (app.js): no text selection or callout to fight it, and the
+     part being held dims until it is copied */
+  .b.claude { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  .b.claude.copying, .b.claude pre.copying { opacity: .6; transition: opacity .5s; }
   .working .task { display: flex; align-items: center; gap: 6px; color: var(--dim); } .working .task.doing { color: var(--claude); } .working .task.done span { text-decoration: line-through; }
   .empty { color: var(--dim); text-align: center; padding: 30vh 16px 0; }
 
@@ -106,6 +109,9 @@
   pre { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; overflow-x: auto; font: 12px/1.4 var(--mono); white-space: pre; margin: 6px 0; }
   code { font: 13px var(--mono); background: var(--bg); padding: 0 3px; border-radius: 4px; }
   .b.me code { background: rgba(0, 0, 0, .2); }
+  /* a code block in your bubble reads as one in Claude's */
+  .b.me pre { color: var(--text); }
+  .b.me pre code { background: none; }
   .tablewrap { overflow-x: auto; margin: 0 0 8px; }
   .md table { border-collapse: collapse; font-size: 13px; }
   .md th, .md td { border: 1px solid var(--line); padding: 3px 8px; text-align: left; vertical-align: top; }
@@ -205,6 +211,7 @@
   /* the box under a file that asks Claude about a line: the reply area's frame (.composer) */
   .lineask { position: sticky; bottom: 0; margin: 8px -12px 0; padding: 6px 10px calc(8px + env(safe-area-inset-bottom)); background: var(--bg); }
   .lineask .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 2px 6px 6px; }
+  .lineask .hint { opacity: .7; }
   .lineask .what { min-width: 0; font: 12px var(--mono); color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .lineask .close { flex: none; width: 28px; height: 28px; border: 0; border-radius: 50%; background: var(--panel); color: var(--dim); display: inline-flex; align-items: center; justify-content: center; padding: 0; }
   .lineask .close svg.ic { width: 14px; height: 14px; }
