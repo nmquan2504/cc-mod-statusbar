@@ -144,15 +144,18 @@ export async function drawSettingsMenu($: any, els: any, _isTerminal: boolean, _
         <Text dimColor>  from the clipboard, in place of these; Undo puts these back</Text>
       </Button>
       <Text dimColor>Kept for every session in this mod's store.</Text>
-      <Button key="set:update" plain hotkey="v" onPress={() => updateNow($)}>
-        <Text color="claude">⟳ Check for update</Text>
-        <Text dimColor>  fetches the mod's repository, pulls what is new and reloads the plugins</Text>
-      </Button>
-      <Box marginTop={1}>
-        <Text dimColor>
-          {`cc-mod-statusbar ${modVersionText() || 'version unknown'}`}
-          {rt.isModPulled ? <Text color="warning">{'  a newer version is pulled; /reload-plugins loads it'}</Text> : null}
-        </Text>
+      {/* a blank line, then Check for update with the version under its label ("v: " is 3 cells) */}
+      <Box flexDirection="column" marginTop={1}>
+        <Button key="set:update" plain hotkey="v" onPress={() => updateNow($)}>
+          <Text color="claude">⟳ Check for update</Text>
+          <Text dimColor>  fetches the mod's repository, pulls what is new and reloads the plugins</Text>
+        </Button>
+        <Box paddingLeft={3}>
+          <Text dimColor>
+            {`cc-mod-statusbar ${modVersionText() || 'version unknown'}`}
+            {rt.isModPulled ? <Text color="warning">{'  a newer version is pulled; /reload-plugins loads it'}</Text> : null}
+          </Text>
+        </Box>
       </Box>
     </Box>
   )
