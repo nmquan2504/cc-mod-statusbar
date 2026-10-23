@@ -9,7 +9,7 @@ import { probeMode } from '../features/mode'
 import { tickPrompts } from '../features/prompts'
 import { isRemoteWaiting, pendingPairs, tickRemote } from '../features/remote'
 import { refreshBar } from '../features/status'
-import { UPDATE_EVERY, checkModUpdate } from '../features/update'
+import { UPDATE_EVERY, checkModUpdate, readModVersion } from '../features/update'
 import { cache, vaultSessionStart } from '../features/vault'
 import { readAgents, readServers, readWork } from '../features/work'
 import { cfg, loadSettings } from '../state/config'
@@ -39,6 +39,7 @@ export function registerSession(on: On) {
     await vaultSessionStart($)
     await registerHiAgent($).catch(() => undefined)
     await readMcp($).catch(() => undefined)
+    await readModVersion($).catch(() => undefined)
     resetArena()
     $.clock.every(120, () => {
       if (rt.isBusy && cfg.arcade) stepArena()

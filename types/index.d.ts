@@ -121,6 +121,7 @@ declare module 'claude-code' {
       filter: string
       images: ImageRow[]
       typed: string[]
+      loadedVersion: string
     }
   }
 }

@@ -65,4 +65,8 @@ export const rt = {
   serverHealth: {} as Record<number, { code: number; at: number }>,
   // Commits on the mod's own upstream that its folder lacks: the ↑ mod chip, from an hourly fetch.
   modBehind: 0,
+  // The version this session loaded (see readModVersion), and whether ↑ mod has since pulled a
+  // newer one into the folder, which /reload-plugins loads.
+  modVersion: { version: '', commit: '', at: 0 },
+  isModPulled: false,
 }

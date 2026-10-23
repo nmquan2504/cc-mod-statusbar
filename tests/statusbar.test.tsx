@@ -404,6 +404,34 @@ test('the commands you type most head the commands menu', async ($, on) => {
   expect(await band.find({ key: 'top:graphify' })).toBeDefined()
 })
 
+test('settings names the version loaded; a reload that loads another commit says so', async ($, on) => {
+  const toasts: string[] = []
+  let head = '994a88c 1761190860'
+  engine(on, {
+    toasts,
+    run: argv => argv[0] === 'cat' && argv[1]!.endsWith('/.claude-plugin/plugin.json') ? { exitCode: 0, stdout: '{"name":"cc-mod-statusbar","version":"0.1.0"}', stderr: '' }
+      : argv[0] === 'git' && argv.includes('log') ? { exitCode: 0, stdout: `${head}\n`, stderr: '' } : undefined,
+  })
+  settingsStore(on)
+  mock.clock(on)
+  on('agent.list', () => ({ value: [] }))
+  on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
+  on('ui.status', () => ({ value: undefined }))
+  on('tool.register', (_: unknown, e: { name: string }) => ({ value: { tool: e.name } }))
+  on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
+  await $.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+  expect(toasts.join()).not.toContain('now on') // a session's first load is no update
+  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await band.press({ key: 'add' })
+  await band.press({ key: 'settings' })
+  expect(await textOf(band)).toContain('cc-mod-statusbar 0.1.0 · 994a88c, ')
+  // a pull, then /reload-plugins: session.start runs again with the session's state kept
+  head = '1234567 1761200000'
+  await $.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+  expect(toasts.join()).toContain('statusbar: now on 0.1.0 · 1234567, ')
+  expect(toasts.join()).toContain('(was 0.1.0 · 994a88c, ')
+})
+
 test('settings: the most used commands run from 5 to 10, 5 by default', async ($, on) => {
   const commands = Array.from({ length: 12 }, (_, i) => ({ name: `cmd${i}`, description: `command ${i}`, source: 'user' }))
   engine(on, { commands })
