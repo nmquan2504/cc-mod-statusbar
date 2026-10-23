@@ -112,9 +112,22 @@ test('the bar: +, /, model, folder and branch, two gauges, mode and the shield',
   }
 })
 
-test('the mode comes from the permission_mode a prompt carries', async ($, on) => {
+// The 1-second clock, started, with the permission checks answering as the mode would.
+async function probedEngine($: any, on: any, check: (e: { tool: string }) => object) {
   engine(on)
-  await ($ as any).classic.UserPromptSubmit({ prompt: 'hi', permission_mode: 'plan' })
+  on('tool.check', (_: unknown, e: { tool: string }) => check(e))
+  const clock = mock.clock(on)
+  on('agent.list', () => ({ value: [] }))
+  on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
+  on('ui.status', () => ({ value: undefined }))
+  on('tool.register', (_: unknown, e: { name: string }) => ({ value: { tool: e.name } }))
+  on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
+  await $.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+  await clock.advance(1000)
+}
+
+test('the mode comes from the permission checks', async ($, on) => {
+  await probedEngine($, on, e => e.tool === 'Edit' ? { decision: 'deny', reason: 'Claude Code is in plan mode' } : { decision: 'ask' })
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   expect((await band.find({ key: 'mode' }))?.text).toContain('plan')
 })
@@ -1285,19 +1298,17 @@ test('with every check passing and the sandbox on, the shield menu has nothing t
 })
 
 test('in bypass mode the fix opens the mode menu', async ($, on) => {
-  engine(on)
-  await ($ as any).classic.UserPromptSubmit({ prompt: 'hi', permission_mode: 'bypassPermissions' })
+  await probedEngine($, on, () => ({ decision: 'allow' })) // Edit and Bash both allowed: bypass
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   await band.press({ key: 'guard' })
   await band.press({ key: 'fix:mode' })
   expect(await textOf(band)).toContain('Permission mode')
 })
 
-test('the shield follows the settings with its menu shut: at once on ConfigChange, and every 5 seconds', async ($, on) => {
+test('the shield follows the settings with its menu shut, every 5 seconds', async ($, on) => {
   // settings that change under the bar; engine() reads opts.settings each time
   const live: { settings: object } = { settings: {} }
   engine(on, { get settings() { return live.settings } } as never)
-  on('classic.ConfigChange', () => ({}))
   const clock = mock.clock(on)
   on('agent.list', () => ({ value: [] }))
   on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
@@ -1309,11 +1320,11 @@ test('the shield follows the settings with its menu shut: at once on ConfigChang
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   const score = async () => (await band.find({ key: 'guard' }))?.text ?? ''
   expect(await score()).toContain('1/3') // no deny rules, no hooks
-  // a deny rule lands in a settings file: ConfigChange says so
+  // a deny rule lands in a settings file: the 5-second read finds it
   live.settings = { permissions: { deny: ['Read(./.env)'] } }
-  await t.classic.ConfigChange({ source: 'local_settings', file_path: '/work/shop/.claude/settings.local.json' })
+  for (let i = 0; i < 5; i++) await clock.advance(1000)
   expect(await score()).toContain('2/3')
-  // a hook lands with no ConfigChange: the 5-second read finds it
+  // then a hook
   live.settings = { permissions: { deny: ['Read(./.env)'] }, hooks: { PreToolUse: [] } }
   for (let i = 0; i < 5; i++) await clock.advance(1000)
   expect(await score()).toBe(' ◈ ') // all three pass: the score goes

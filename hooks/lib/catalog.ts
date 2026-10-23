@@ -44,15 +44,15 @@ export const MODELS = [
   { alias: 'fable', label: 'Fable 5.1', color: 'planMode', note: '' },
 ]
 
-// The permission modes: `id` as a settings hook's `permission_mode` spells it, `re` as the hint
-// under the prompt names it, `icon` and `color` as Claude Code draws it.
+// The permission modes: `re` as the hint under the prompt names it, `icon` and `color` as Claude
+// Code draws it.
 export const MODES = [
-  { mode: 'manual', id: 'default', label: 'manual (default)', re: /manual mode/i, icon: '‖', color: 'text', note: 'asks before edits and commands' },
-  { mode: 'acceptEdits', id: 'acceptEdits', label: 'accept edits', re: /accept edits/i, icon: '»', color: 'autoAccept', note: 'edits files, asks for commands' },
-  { mode: 'plan', id: 'plan', label: 'plan', re: /plan mode/i, icon: '‖', color: 'planMode', note: 'reads and plans only' },
-  { mode: 'auto', id: 'auto', label: 'auto', re: /auto mode/i, icon: '›', color: 'warning', note: 'a classifier reviews risky steps' },
-  { mode: 'bypass', id: 'bypassPermissions', label: 'bypass permissions', re: /bypass permissions/i, icon: '!', color: 'error', note: 'no prompts' },
-  { mode: 'dontAsk', id: 'dontAsk', label: "don't ask", re: /don.?t ask/i, icon: '⊘', color: 'inactive', note: 'only pre-approved tools' },
+  { mode: 'manual', label: 'manual (default)', re: /manual mode/i, icon: '‖', color: 'text', note: 'asks before edits and commands' },
+  { mode: 'acceptEdits', label: 'accept edits', re: /accept edits/i, icon: '»', color: 'autoAccept', note: 'edits files, asks for commands' },
+  { mode: 'plan', label: 'plan', re: /plan mode/i, icon: '‖', color: 'planMode', note: 'reads and plans only' },
+  { mode: 'auto', label: 'auto', re: /auto mode/i, icon: '›', color: 'warning', note: 'a classifier reviews risky steps' },
+  { mode: 'bypass', label: 'bypass permissions', re: /bypass permissions/i, icon: '!', color: 'error', note: 'no prompts' },
+  { mode: 'dontAsk', label: "don't ask", re: /don.?t ask/i, icon: '⊘', color: 'inactive', note: 'only pre-approved tools' },
 ]
 
 export const SKIP_DIRS = new Set(['.git', 'node_modules', '.baseline'])

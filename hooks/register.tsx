@@ -6,7 +6,6 @@ import { registerPrompt } from './events/prompt'
 import { registerRemote } from './events/remote'
 import { registerSecretTools } from './events/secret-tools'
 import { registerSession } from './events/session'
-import { registerSettingsHooks } from './events/settings-hooks'
 import { registerTools } from './events/tools'
 import { registerTurn } from './events/turn'
 import { registerUi } from './events/ui'
@@ -34,7 +33,6 @@ export const register: Register = on => {
   registerAsk(on)
   registerPrompt(on)
   registerTurn(on)
-  registerSettingsHooks(on)
   registerUi(on)
   registerRemote(on)
 }
