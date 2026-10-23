@@ -1,5 +1,5 @@
 import { outputStyles } from '../../features/assist'
-import { modVersionText } from '../../features/update'
+import { modVersionText, updateNow } from '../../features/update'
 
 import { BAR_ITEMS, BAR_PRESETS, DEFAULTS, HISTORY_KEY, SETTINGS, SETTINGS_KEY, applyBarPreset, barOrder, barPresetNow, cfg, importSettings, moveBarItem, restorePreviousSettings, saveSettings, settingsText } from '../../state/config'
 import { hhmm } from '../../lib/format'
@@ -144,6 +144,10 @@ export async function drawSettingsMenu($: any, els: any, _isTerminal: boolean, _
         <Text dimColor>  from the clipboard, in place of these; Undo puts these back</Text>
       </Button>
       <Text dimColor>Kept for every session in this mod's store.</Text>
+      <Button key="set:update" plain hotkey="v" onPress={() => updateNow($)}>
+        <Text color="claude">⟳ Check for update</Text>
+        <Text dimColor>  fetches the mod's repository, pulls what is new and reloads the plugins</Text>
+      </Button>
       <Text dimColor>
         {`cc-mod-statusbar ${modVersionText() || 'version unknown'}`}
         {rt.isModPulled ? <Text color="warning">{'  a newer version is pulled; /reload-plugins loads it'}</Text> : null}

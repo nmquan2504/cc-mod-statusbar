@@ -34,6 +34,8 @@ export const cfg = {
   summarySeconds: 60,
   // + then Polish writes the prompt in English as well
   polishEnglish: false,
+  // with no suggestion of Claude Code's own after an answer, Haiku proposes the chips
+  haikuChips: true,
   // rm -rf, git push --force and the like always ask the person, whatever the mode
   dangerConfirm: true,
   // a turn stopped by the 5-hour or weekly limit gets "continue" once the window resets (usage menu)
@@ -145,6 +147,7 @@ export const SETTINGS: ((
   { key: 'turnSummary', kind: 'switch', label: 'Turn summary', note: 'after a long turn, Haiku writes what was done and the result (tasks menu)' },
   { key: 'summarySeconds', kind: 'number', label: 'Summary after', note: 'seconds a turn runs', step: 10, min: 0, max: 600, unit: ' s' },
   { key: 'polishEnglish', kind: 'switch', label: 'Polish in English', note: '+ then Polish also translates the prompt to English' },
+  { key: 'haikuChips', kind: 'switch', label: 'Haiku chips', note: "when Claude Code suggests nothing after an answer, Haiku proposes what to send (one call a turn); off: Claude Code's own suggestion alone" },
   { key: 'hiSchedule', kind: 'switch', label: 'Auto-start 5h window', note: 'a hidden Haiku agent says hi every 5 hours from the start hour below, Vietnam time, so each window opens on the hour; status in the usage menu' },
   { key: 'hiStartHour', kind: 'number', label: 'Schedule starts at', note: 'each day, Vietnam time (UTC+7)', step: 1, min: 0, max: 23, unit: 'h' },
   { key: 'hiStartMinute', kind: 'number', label: 'Schedule starts at, minute', note: 'past that hour, in steps of 15', step: 15, min: 0, max: 45, unit: 'm' },

@@ -1,5 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
-import { contextOf, midTurnsIn, phoneCommand, phoneMayRun, transcriptOf } from '../hooks/features/remote'
+import { contextOf, midTurnsIn, phoneCommand, phoneMayRun, sessionTitleIn, transcriptOf } from '../hooks/features/remote'
 import { isOneTap } from '../hooks/features/ask'
 import { qrMatrix, qrRows } from '../hooks/lib/qr'
 
@@ -201,12 +201,21 @@ test('a prompt shows as typed whatever the engine put around it, and a notice ho
     { role: 'user', text: '<some_new_tag>\nsetup notes\n</some_new_tag>\nok', toolUses: [] },
     { role: 'user', text: '<task-notification>\n<summary>ok\nfix it</summary>\n</task-notification>', toolUses: [] },
     { role: 'user', text: '<future_tag>older prompt</future_tag>\nnot kept', toolUses: [] },
+    // a prompt from before they were kept: the fallback knows the IDE's file
+    { role: 'user', text: '<ide_opened_file>The user opened a.ts.</ide_opened_file>\nresumed', toolUses: [] },
   ], '/w', [], [], ['fix it', 'ok'])
   expect(items).toEqual([
     { k: 'user', text: 'fix it' },
     { k: 'user', text: 'ok' },
     { k: 'user', text: '<future_tag>older prompt</future_tag>\nnot kept' },
+    { k: 'user', text: 'resumed' },
   ])
+})
+
+test('the session title: the last /rename name, else the last title Claude Code wrote', () => {
+  expect(sessionTitleIn(['"aiTitle":"First guess"', '"aiTitle":"Fix the \\"login\\" bug"'])).toBe('Fix the "login" bug')
+  expect(sessionTitleIn(['"aiTitle":"Fix login"', '"customTitle":"auth work"', '"aiTitle":"Later guess"'])).toBe('auth work')
+  expect(sessionTitleIn([])).toBe('')
 })
 
 // ---- Claude's AskUserQuestion, asked in the band ---------------------------------------------
@@ -597,8 +606,8 @@ test('a folder given to /add-dir reaches the phone once Claude may read there', 
   const clock = mock.clock(on)
   await ($ as any).session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
   const band = await $.ui.mount({ plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
-  await $.command.run({ command: 'add-dir', args: '/work/lib' })
-  await $.command.run({ command: 'add-dir', args: '/etc' })
+  await ($ as any).command.run({ command: 'add-dir', args: '/work/lib' })
+  await ($ as any).command.run({ command: 'add-dir', args: '/etc' })
   await switchOn(band) // joining reads the folders
   await clock.advance(2000)
   expect(snapshots.at(-1).roots).toEqual(['/work/shop', '/work/lib'])
