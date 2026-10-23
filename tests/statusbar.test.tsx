@@ -935,8 +935,9 @@ test('arena: a monster that reaches Claude counts as a hit, ✗ beside the kills
   on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
   const t = $ as any
   await t.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
-  // the narrowest arena (16 cells at 116 columns) and Edit monsters, two hits each: some get through
-  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, isWorking: true, bodyColumns: 116 } } as never)
+  // a narrow arena that stays full width once the kills reach three digits (119 columns), and Edit
+  // monsters, two hits each: some get through
+  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, isWorking: true, bodyColumns: 119 } } as never)
   // the door never empty: two Edit calls a tick. Claude stops most of them, so a hit is a
   // matter of chance; when one lands, ✗ joins the kills and Claude shows red in the same frame
   let sawHit = false
@@ -1101,13 +1102,13 @@ test('settings, On the bar: ‹ › move an item, past the arena to the other gr
   // the first item has no ‹, the last no ›
   expect(await band.find({ key: 'left:barModel' })).toBeUndefined()
   expect(await band.find({ key: 'right:barGuard' })).toBeUndefined()
-  // the shield, six places left: past the arena, into the left group
-  for (let i = 0; i < 6; i++) await band.press({ key: 'left:barGuard' })
+  // the shield, five places left: past the arena, into the left group
+  for (let i = 0; i < 5; i++) await band.press({ key: 'left:barGuard' })
   // the folder one place right: past the branch, so the two split into their own buttons
   await band.press({ key: 'right:barFolder' })
   // ⇄ moves as any item does: one place right, past the images
   await band.press({ key: 'right:barRemote' })
-  expect((store.get('settings') as { barOrder: string }).barOrder).toBe('barModel,barEffort,barGit,barFolder,barGuard,arcade,barUsage,barImages,barRemote,barMcp,barMode')
+  expect((store.get('settings') as { barOrder: string }).barOrder).toBe('barModel,barEffort,barMode,barGit,barFolder,barGuard,arcade,barUsage,barImages,barRemote,barMcp')
   const menu = await textOf(band)
   expect(menu.indexOf('◈ guardrails')).toBeLessThan(menu.indexOf('¬✻ arena'))
   await band.press({ key: 'close-menu' })
@@ -2077,4 +2078,23 @@ test('the band shows the chips once a turn ends; a press sends the chip, a /comm
   expect(await band.find({ key: 'chip:0' })).toBeUndefined()
   expect(await band.find({ key: 'chips-dismiss' })).toBeUndefined()
   expect(submitted).toEqual(['Merge pr'])
+})
+
+test('an order saved as the old default puts the mode after the effort', async ($, on) => {
+  const store = settingsStore(on)
+  store.set('settings', { barOrder: 'barModel,barEffort,barFolder,barGit,arcade,barUsage,barRemote,barImages,barMcp,barMode,barGuard' })
+  await probedEngine($, on, () => ({ decision: 'ask' }))
+  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, bodyColumns: 160 } } as never)
+  const bar = await textOf(band)
+  expect(bar.indexOf('manual')).toBeGreaterThan(-1)
+  expect(bar.indexOf('manual')).toBeLessThan(bar.indexOf('shop'))
+})
+
+test('an order moved by hand is kept as saved', async ($, on) => {
+  const store = settingsStore(on)
+  store.set('settings', { barOrder: 'barModel,barEffort,barFolder,barGit,arcade,barUsage,barRemote,barImages,barMcp,barGuard,barMode' })
+  await probedEngine($, on, () => ({ decision: 'ask' }))
+  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, bodyColumns: 160 } } as never)
+  const bar = await textOf(band)
+  expect(bar.indexOf('manual')).toBeGreaterThan(bar.indexOf('shop'))
 })
