@@ -148,10 +148,12 @@ export async function drawSettingsMenu($: any, els: any, _isTerminal: boolean, _
         <Text color="claude">⟳ Check for update</Text>
         <Text dimColor>  fetches the mod's repository, pulls what is new and reloads the plugins</Text>
       </Button>
-      <Text dimColor>
-        {`cc-mod-statusbar ${modVersionText() || 'version unknown'}`}
-        {rt.isModPulled ? <Text color="warning">{'  a newer version is pulled; /reload-plugins loads it'}</Text> : null}
-      </Text>
+      <Box marginTop={1}>
+        <Text dimColor>
+          {`cc-mod-statusbar ${modVersionText() || 'version unknown'}`}
+          {rt.isModPulled ? <Text color="warning">{'  a newer version is pulled; /reload-plugins loads it'}</Text> : null}
+        </Text>
+      </Box>
     </Box>
   )
 }

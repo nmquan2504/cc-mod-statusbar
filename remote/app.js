@@ -464,6 +464,9 @@ function renderDrawer() {
 }
 function openDrawer() {
   renderDrawer()
+  // the mod's version, as the session picked loaded it (each session may run its own)
+  const v = (state.sessions.find(s => s.id === picked) || state.sessions[0])?.version
+  $('version').textContent = v ? `v${v}` : ''
   $('scrim').hidden = false
   $('drawer').classList.add('open')
 }

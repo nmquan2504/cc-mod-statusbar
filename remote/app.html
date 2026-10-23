@@ -137,6 +137,7 @@
   .srow .name { font-weight: 700; }
   .srow .sub { color: var(--dim); font-size: 13px; }
   .srow .desc { font-size: 14px; }
+  .drawer-foot .ver { color: var(--dim); font-size: 12px; text-align: center; }
   .drawer-foot { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
   .plain { border: 1px solid var(--line); background: none; border-radius: 10px; padding: 9px 12px; text-align: left; }
   .plain.warn { color: var(--bad); border-color: var(--bad); }
@@ -314,6 +315,7 @@
   <div class="drawer-foot">
     <button id="notify" class="plain" hidden>Notify me when Claude finishes</button>
     <button id="unpair" class="plain">Unpair this phone</button>
+    <div id="version" class="ver"></div>
   </div>
 </aside>
 <div id="sheet" class="sheet" hidden></div>
