@@ -1,6 +1,6 @@
 {
   "name": "cc-mod-statusbar",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "description": "A clickable status bar above the prompt: add context, slash commands, model, usage gauges, permission mode and the guardrails in force.",
   "author": {
     "name": "Quan Nguyen"
