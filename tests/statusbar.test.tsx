@@ -976,7 +976,8 @@ test('arena: a monster that reaches Claude counts as a hit, ✗ beside the kills
     await clock.advance(120)
     if ((await arenaText(band)).includes('✗')) {
       sawHit = true
-      expect(await arenaText(band)).toMatch(/\d+ ✝ · 1 ✗/)
+      // two monsters may land in the same frame: the first ✗ seen counts one hit or more
+      expect(await arenaText(band)).toMatch(/\d+ ✝ · [1-9]\d* ✗/)
       expect(await textOf(band)).toContain('"color":"error","bold":true},"children":["¬✻"]')
     }
   }
@@ -1949,7 +1950,7 @@ test('every 30 seconds each server is asked over HTTP; one that does not answer,
   expect((await band.find({ key: 'srv:8766' }))?.text).toContain('✘ 502')
 })
 
-test('new commits on the mod\'s upstream: a minute in, ↑ mod shows; a press asks, pulls fast-forward only, and the chip goes', async ($, on) => {
+test('new commits on the mod\'s upstream: a minute in, ↑ mod shows; a press pulls fast-forward only and reloads', async ($, on) => {
   const ran: string[][] = []
   const toasts: string[] = []
   engine(on, {
@@ -1961,11 +1962,8 @@ test('new commits on the mod\'s upstream: a minute in, ↑ mod shows; a press as
       return argv[3] === 'rev-list' ? { exitCode: 0, stdout: '2\n', stderr: '' } : { exitCode: 0, stdout: '', stderr: '' }
     },
   })
-  const asked: string[] = []
-  on('tool.call', { tool: 'AskUserQuestion' }, (_: unknown, e: any) => {
-    asked.push(e.questions[0].question)
-    return { result: { questions: e.questions, answers: { [e.questions[0].question]: 'Pull' } } }
-  })
+  const commands: string[] = []
+  on('command.run', (_: unknown, e: any) => (commands.push(e.command), { text: '' }))
   on('agent.list', () => ({ value: [] }))
   on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
   on('ui.status', () => ({ value: undefined }))
@@ -1980,9 +1978,11 @@ test('new commits on the mod\'s upstream: a minute in, ↑ mod shows; a press as
   expect(ran.map(a => a[3])).toEqual(['fetch', 'rev-list'])
   expect((await band.find({ key: 'update' }))?.text).toBe(' ↑ mod ')
   await band.press({ key: 'update' })
-  expect(asked[0]).toContain('2 new commits')
-  expect(ran[2]?.slice(3)).toEqual(['pull', '--ff-only', '--quiet'])
-  expect(toasts.join('\n')).toContain('/reload-plugins')
+  // fetched again at the press, then pulled with no question, and the plugins reloaded
+  expect(ran.map(a => a[3])).toEqual(['fetch', 'rev-list', 'fetch', 'rev-list', 'pull'])
+  expect(ran.at(-1)?.slice(3)).toEqual(['pull', '--ff-only', '--quiet'])
+  expect(toasts.join('\n')).toContain('pulled 2 new commits; reloading')
+  expect(commands).toEqual(['reload-plugins'])
   expect(await band.find({ key: 'update' })).toBeUndefined()
 })
 

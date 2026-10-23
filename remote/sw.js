@@ -8,15 +8,21 @@ self.addEventListener('push', e => {
     self.E2E.call('notice')
       .then(r => (r.s === 200 ? r.b : Promise.reject(new Error(String(r.s)))))
       .catch(() => ({ title: 'Claude', body: 'Claude finished or needs you.' }))
-      .then(n => self.registration.showNotification(n.title, { body: n.body, tag: 'qsb', renotify: true, icon: '/icon.svg' })),
+      .then(n => self.registration.showNotification(n.title, { body: n.body, tag: 'qsb', renotify: true, icon: '/icon.svg', data: { session: n.session || '' } })),
   )
 })
+// a tap opens the session the notice came from: the open app is told, else it opens on it
 self.addEventListener('notificationclick', e => {
   e.notification.close()
+  const session = e.notification.data?.session || ''
   e.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
       const open = list.find(c => new URL(c.url).origin === self.location.origin)
-      return open ? open.focus() : self.clients.openWindow('/')
+      if (open) {
+        if (session) open.postMessage({ open: session })
+        return open.focus()
+      }
+      return self.clients.openWindow(session ? `/?s=${encodeURIComponent(session)}` : '/')
     }),
   )
 })

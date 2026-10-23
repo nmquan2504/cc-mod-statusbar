@@ -59,6 +59,12 @@ const opened = new Set() // the tool rows opened to their output
 let askDraft = { id: '', picks: {}, other: {} }
 let askHiddenId = ''
 try { picked = localStorage.getItem('qsb-session') || '' } catch {}
+// a push notification opened with the app shut: /?s=<session> picks the session it came from
+const openedFor = new URLSearchParams(location.search).get('s')
+if (openedFor) {
+  picked = openedFor
+  history.replaceState(null, '', '/')
+}
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 // ---- pairing --------------------------------------------------------------------------------
@@ -142,7 +148,8 @@ async function follow() {
     state = r.b
     since = state.version
     if (state.notice.at > lastNotice) {
-      if (lastNotice) toast(state.notice)
+      const from = state.notice.session
+      if (lastNotice) toast(state.notice, from ? () => openSession(from) : undefined)
       lastNotice = state.notice.at
     }
     $('gate').hidden = true
@@ -445,7 +452,9 @@ function renderDrawer() {
   if (!state.sessions.length) box.append(el('div', 'meta', 'No session has the remote on now.'))
   for (const s of state.sessions) {
     const row = box.appendChild(el('button', `srow${s.id === picked ? ' on' : ''}`))
-    row.append(el('span', s.busy ? 'dot busy' : 'dot'))
+    // orange: a question or a permission prompt waits for you there
+    const isWaiting = Boolean(s.ask) || (s.permissions || []).length > 0
+    row.append(el('span', isWaiting ? 'dot wait' : s.busy ? 'dot busy' : 'dot'))
     const text = row.appendChild(el('div'))
     const sub = el('div', 'sub')
     if (s.branch) sub.append(icon('branch'), document.createTextNode(` ${s.branch} · `))
@@ -454,12 +463,7 @@ function renderDrawer() {
     // the session's title (its /rename name, else Claude Code's), above its branch
     if (s.title) text.append(el('div', 'desc', s.title))
     text.append(sub)
-    row.onclick = () => {
-      picked = s.id
-      try { localStorage.setItem('qsb-session', picked) } catch {}
-      closeLayers()
-      render()
-    }
+    row.onclick = () => openSession(s.id)
   }
 }
 function openDrawer() {
@@ -479,7 +483,8 @@ function openSheet() {
   const line = sheet.appendChild(el('div', 'meta'))
   if (snap.branch) line.append(icon('branch'), document.createTextNode(` ${snap.branch} · `))
   line.append(document.createTextNode([snap.model, snap.mode && `mode ${snap.mode}`].filter(Boolean).join(' · ')))
-  if (snap.cwd) sheet.append(el('div', 'meta', snap.cwd))
+  // the home folder written as ~
+  if (snap.cwd) sheet.append(el('div', 'meta', snap.home && (snap.cwd === snap.home || snap.cwd.startsWith(`${snap.home}/`)) ? `~${snap.cwd.slice(snap.home.length)}` : snap.cwd))
   sheet.append(el('div', 'meta', snap.busy && snap.turnStartedAt ? `Working for ${clock(Date.now() - snap.turnStartedAt)}` : 'Idle'))
   const chips = sheet.appendChild(el('div', 'chips'))
   const usage = snap.usage || {}
@@ -854,11 +859,58 @@ function render() {
   isFirstDraw = false
 }
 
-function toast(n) {
-  const t = el('div', 'toast')
+// Shows that session, from the drawer, a notice's toast or a push notification.
+function openSession(id) {
+  if (!id) return
+  picked = id
+  try { localStorage.setItem('qsb-session', picked) } catch {}
+  closeLayers()
+  render()
+}
+
+// A toast for 5 s. `onTap`: what a tap on it does (a notice opens its session). A swipe left or
+// right of more than 80 px throws it away; a shorter one puts it back.
+function toast(n, onTap) {
+  const t = el('div', onTap ? 'toast tap' : 'toast')
   t.append(el('strong', '', n.title), el('div', 'meta', n.body))
   document.body.append(t)
-  setTimeout(() => t.remove(), 5000)
+  const timer = setTimeout(() => t.remove(), 5000)
+  let x0 = 0, dx = 0, isDown = false
+  t.addEventListener('pointerdown', e => {
+    isDown = true
+    x0 = e.clientX
+    dx = 0
+    t.setPointerCapture(e.pointerId)
+    t.style.transition = 'none'
+  })
+  t.addEventListener('pointermove', e => {
+    if (!isDown) return
+    dx = e.clientX - x0
+    t.style.transform = `translateX(${dx}px)`
+    t.style.opacity = String(Math.max(0.2, 1 - Math.abs(dx) / 300))
+  })
+  const end = () => {
+    if (!isDown) return
+    isDown = false
+    t.style.transition = 'transform .15s ease, opacity .15s ease'
+    if (Math.abs(dx) > 80) {
+      clearTimeout(timer)
+      t.style.transform = `translateX(${dx > 0 ? '' : '-'}120%)`
+      t.style.opacity = '0'
+      setTimeout(() => t.remove(), 150)
+      return
+    }
+    t.style.transform = ''
+    t.style.opacity = ''
+    // a tap: the finger barely moved
+    if (Math.abs(dx) < 8 && onTap) {
+      clearTimeout(timer)
+      t.remove()
+      onTap()
+    }
+  }
+  t.addEventListener('pointerup', end)
+  t.addEventListener('pointercancel', end)
 }
 
 // ---- controls ----------------------------------------------------------------------------------
@@ -1381,6 +1433,8 @@ function setupNotify() {
   const btn = $('notify')
   if (!('serviceWorker' in navigator)) return
   navigator.serviceWorker.register('/sw.js').catch(() => undefined)
+  // a push notification tapped while the app is open: its session
+  navigator.serviceWorker.addEventListener('message', e => openSession(e.data?.open))
   if (!('PushManager' in window)) {
     if (isIos && !isStandalone) {
       btn.hidden = false

@@ -26,19 +26,6 @@ export async function checkModUpdate($: any): Promise<number | undefined> {
   return n
 }
 
-// Pulls the new commits (fast-forward only, so a local change is never merged over), after a yes.
-export async function pullModUpdate($: any) {
-  const root: string = $.plugin.root
-  const n = rt.modBehind
-  const PULL = 'Pull'
-  const answer = await $.ui.ask(`${n} new commit${n === 1 ? '' : 's'} for cc-mod-statusbar on its upstream. Pull them into ${root}?`, {
-    header: '↑ mod',
-    options: [PULL, 'Not now'],
-  }).catch(() => undefined)
-  if (answer !== PULL) return
-  if (await pullMod($)) $.ui.toast('statusbar: mod updated; run /reload-plugins to load it')
-}
-
 // git pull --ff-only in the mod's folder: true once pulled; a failure says why in a toast.
 async function pullMod($: any) {
   const r = await $.process.run(['git', '-C', $.plugin.root, 'pull', '--ff-only', '--quiet'], { timeoutMs: 60_000 }).catch(() => undefined)
@@ -53,8 +40,9 @@ async function pullMod($: any) {
   return true
 }
 
-// Settings, Check for update: fetch now, pull what the upstream has (fast-forward only), and run
-// /reload-plugins so the session loads it. The press is the yes: nothing more is asked.
+// Settings, Check for update, and a press on ↑ mod: fetch now, pull what the upstream has
+// (fast-forward only, so a local change is never merged over), and run /reload-plugins so the
+// session loads it. The press is the yes: nothing more is asked.
 export async function updateNow($: any) {
   $.ui.toast('statusbar: checking for an update…')
   const n = await checkModUpdate($)

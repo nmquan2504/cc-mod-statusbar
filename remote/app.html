@@ -46,6 +46,7 @@
   .badge { position: absolute; top: 3px; right: 1px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; background: var(--claude); color: #fff; font: 700 11px/17px -apple-system, sans-serif; }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--dim); flex: none; display: inline-block; }
   .dot.busy { background: var(--claude); animation: pulse 1.2s infinite; }
+  .dot.wait { background: var(--warn); }
   @keyframes pulse { 50% { opacity: .35; } }
 
   /* the conversation */
@@ -265,6 +266,8 @@
   .meter .mh { display: flex; justify-content: space-between; font-size: 14px; }
   .meter .track { height: 8px; border-radius: 4px; background: var(--bg); border: 1px solid var(--line); margin: 6px 0 4px; overflow: hidden; }
   .meter .fill { height: 100%; background: var(--ok); } .meter .fill.warn { background: var(--warn); } .meter .fill.bad { background: var(--bad); }
+  .toast.tap { cursor: pointer; }
+  .toast { touch-action: pan-y; user-select: none; -webkit-user-select: none; }
   .toast { position: fixed; left: 12px; right: 12px; top: calc(var(--top) + 8px); z-index: 40; background: var(--panel); border: 1px solid var(--claude); border-radius: 12px; padding: 10px 12px; }
   .paste { display: flex; gap: 8px; margin-top: 16px; }
   .paste input { flex: 1; min-width: 0; height: 42px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 0 12px; font: 13px var(--mono); }
