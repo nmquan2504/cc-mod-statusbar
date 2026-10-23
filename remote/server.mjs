@@ -11,7 +11,7 @@
 // link's #fragment is a 256-bit key K that never leaves the phone. A phone proves it holds K with an
 // HMAC, the hub answers with its half of an ECDH and an HMAC of its own, and both derive the phone's
 // AES-GCM key from the ECDH secret salted with K; the phone then waits, with a 4-character code, until
-// the person presses Allow in a terminal. Cloudflare sees sizes and times, never content. Started detached by
+// the person picks that code in a terminal (the mod offers it among two others), which posts /allow. Cloudflare sees sizes and times, never content. Started detached by
 // the first mod (`node server.mjs <dir> <idleMinutes>`); it stops itself when no session has
 // called in for two minutes, or no phone has for idleMinutes. Node 18 or newer; no packages.
 import { execFile, execFileSync, spawn } from 'node:child_process'

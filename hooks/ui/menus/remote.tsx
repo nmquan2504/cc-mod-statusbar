@@ -1,5 +1,5 @@
 import { ARM_MS } from '../../features/permissions'
-import { CLOUDFLARED_DOWNLOAD, answerPairing, checkCloudflared, forgetDevices, hideSession, hubIsOther, installCloudflared, pendingPairs, remote, restartRemote, secondsToPair, spinnerFrame, startRemote, stopRemote, waitedFor } from '../../features/remote'
+import { CLOUDFLARED_DOWNLOAD, answerPairing, pairChoices, checkCloudflared, forgetDevices, hideSession, hubIsOther, installCloudflared, pendingPairs, remote, restartRemote, secondsToPair, spinnerFrame, startRemote, stopRemote, waitedFor } from '../../features/remote'
 import { modVersionShort } from '../../features/update'
 import { oneLine } from '../../lib/format'
 import { qrMatrix, qrRows } from '../../lib/qr'
@@ -59,7 +59,7 @@ export async function drawRemoteMenu($: any, els: any, _isTerminal: boolean, ent
     return (
       <Box flexDirection="column">
         <Text dimColor>Opens every Claude Code session on this machine on your phone, through a Cloudflare quick tunnel.</Text>
-        <Text dimColor>A phone that scans the code still waits for you to press Allow here, with the code it shows.</Text>
+        <Text dimColor>A phone that scans the code still waits for you to pick here, among three, the code it shows.</Text>
         <Text dimColor>Needs node and cloudflared (brew install cloudflared).</Text>
         {remote.isStarting
           ? waiting('Starting the hub and the tunnel')
@@ -87,11 +87,13 @@ export async function drawRemoteMenu($: any, els: any, _isTerminal: boolean, ent
       {s.isLocked ? <Text color="error">Pairing is locked after 10 wrong links. Stop and start again.</Text> : null}
       {pendingPairs().map(p => (
         <Box key={`pend:${p.id}`} flexDirection="row" gap={1}>
-          <Text color="warning" bold>{`${p.name} asks to pair, code ${p.code}`}</Text>
+          <Text color="warning" bold>{`${p.name} asks to pair: pick the code it shows`}</Text>
           <Text dimColor>{`${secondsToPair(p)} s`}</Text>
-          <Button key={`allow:${p.id}`} plain onPress={() => answerPairing($, p.id, true)}>
-            <Text backgroundColor="success" color="inverseText" bold>{' Allow '}</Text>
-          </Button>
+          {pairChoices(p.id, p.code).map((c, i) => (
+            <Button key={`pick:${p.id}:${i}`} plain onPress={() => answerPairing($, p.id, c === p.code, c !== p.code)}>
+              <Text backgroundColor="success" color="inverseText" bold>{` ${c} `}</Text>
+            </Button>
+          ))}
           <Button key={`deny:${p.id}`} plain onPress={() => answerPairing($, p.id, false)}>
             <Text backgroundColor="error" color="inverseText" bold>{' Deny '}</Text>
           </Button>

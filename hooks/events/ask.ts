@@ -20,7 +20,8 @@ export function registerAsk(on: On) {
     }
     ask.pending = { id: String(e.tool_use_id ?? Date.now()), questions, draft: { picks: {}, other: {} } }
     await showAsk($)
-    void notifyRemote($, 'Claude asks you', oneLine(String(questions[0]?.question ?? ''), 200)).catch(() => undefined)
+    const folder = String(await $.session.cwd().catch(() => '')).split('/').pop() ?? ''
+    void notifyRemote($, folder ? `Claude asks you · /${folder}` : 'Claude asks you', oneLine(String(questions[0]?.question ?? ''), 200)).catch(() => undefined)
     try {
       await waitForAnswer($, next.signal)
       const r = ask.pending?.result
