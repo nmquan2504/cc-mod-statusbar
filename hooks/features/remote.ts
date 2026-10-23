@@ -6,7 +6,6 @@ import { buildPage, isPage, pageAction } from './pages'
 import type { Page, PageName } from './pages'
 import { waitingPrompts } from './prompts'
 import { TOP_GROUP, USE_KEY, groupOf } from './commands'
-import { modVersionText } from './update'
 import { forgetSecret, listSecrets, saveTyped } from './vault'
 import { cfg } from '../state/config'
 import { ME, rt } from '../state/runtime'
@@ -671,8 +670,6 @@ async function snapshotOf($: any) {
     permissions: waitingPrompts(Date.now()),
     // the pages the phone opened in the last ten minutes
     pages: Object.values(remote.pages).filter(p => Date.now() - p!.at < 600_000),
-    // the mod's version this session loaded, for the session sheet
-    version: modVersionText(),
   }
 }
 
