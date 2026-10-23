@@ -296,6 +296,33 @@ test('a notice names the folder and the session\'s title, so two sessions in one
   await call
 })
 
+test('the Done notice names the files the turn changed', async ($, on) => {
+  const notices: any[] = []
+  engine(on, { hub: (path, body) => (path === '/notify' && notices.push(JSON.parse(body)), STATUS) })
+  on('tool.call', () => ({ result: {} }))
+  on('turn.start', () => ({ turnId: 't1' }))
+  on('turn.complete', () => ({ text: 'ok' }))
+  on('session.surfaces', () => ({ value: ['terminal'] }))
+  on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
+  on('ui.status', () => ({ value: undefined }))
+  on('agent.list', () => ({ value: [] }))
+  on('tool.register', (_: unknown, e: { name: string }) => ({ value: { tool: e.name } }))
+  on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
+  const clock = mock.clock(on)
+  const t = $ as any
+  await t.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+  const band = await $.ui.mount({ plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await switchOn(band)
+  await clock.advance(2000)
+  await t.turn.start({ text: 'fix it', turnId: 't1', kind: 'engine' })
+  await t.tool.call({ tool: 'Edit', file_path: '/work/shop/src/app.ts', old_string: 'a', new_string: 'b' })
+  await t.tool.call({ tool: 'Write', file_path: '/work/shop/README.md', content: 'x' })
+  await t.turn.complete({ text: 'ok', reason: 'answer', answer: 'Fixed.' })
+  await settle()
+  expect(notices.at(-1)?.title).toMatch(/^Done · \/shop · .+ · 2 files$/)
+  expect(notices.at(-1)?.body).toBe('Fixed.')
+})
+
 test('a question opens in the band, every one at once; picks and Other go back as the dialog words them', async ($, on) => {
   const band = await asking($, on)
   const call = ($ as any).tool.call({ tool: 'AskUserQuestion', questions: QUESTIONS })

@@ -106,8 +106,11 @@ export function registerTurn(on: On) {
       // the phone hears of every main-loop turn's end, with the start of Claude's answer
       if (cfg.selfRemote && !e.agentId) {
         const folder = (await read($, bar)).folder
+        // what the turn changed and cost: "Done · /shop · 1m 12s · 3 files · $0.42"
+        const files = (await read($, edited)).length
+        const changed = files ? ` · ${files} file${files === 1 ? '' : 's'}` : ''
         void readRemoteMessages($, true)
-          .then(() => notifyRemote($, `Done · /${folder} · ${clockOf(took)}`, oneLine(String(e.answer ?? ''), 200) || 'Claude finished.'))
+          .then(() => notifyRemote($, `Done · /${folder} · ${clockOf(took)}${changed}${spent}`, oneLine(String(e.answer ?? ''), 200) || 'Claude finished.'))
           .catch(() => undefined)
       }
       // behind the turn's end, never holding it up
