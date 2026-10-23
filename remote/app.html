@@ -131,6 +131,16 @@
 
   /* the drawer, the session sheet, the files page */
   .scrim { position: fixed; inset: 0; z-index: 20; background: rgba(0, 0, 0, .45); }
+  /* A layer open (the drawer, a sheet, a page): the chat behind it does not scroll, and a swipe that
+     reaches a layer's end stops there, so Chrome's address bar does not slide away under it. While
+     the bar slides anyway, the viewport grows before a fixed layer does: each layer draws its own
+     colour below its bottom too, so the chat never shows through the gap. */
+  html.layered, html.layered body { overflow: hidden; overscroll-behavior: none; }
+  .scrim, .drawer, .sheet, .page, .dropup, .sessions { overscroll-behavior: contain; }
+  .scrim, .drawer { touch-action: none; }
+  .drawer .sessions { touch-action: pan-y; }
+  .scrim { box-shadow: 0 40vh 0 rgba(0, 0, 0, .45); }
+  .drawer, .page, .sheet { box-shadow: 0 40vh 0 var(--bg); }
   .drawer { position: fixed; top: 0; bottom: 0; left: 0; z-index: 21; width: min(84vw, 320px); background: var(--bg); border-right: 1px solid var(--line); padding: calc(12px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; transform: translateX(-102%); transition: transform .2s ease; }
   .drawer.open { transform: none; }
   .drawer h3 { margin: 4px 4px 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); }
