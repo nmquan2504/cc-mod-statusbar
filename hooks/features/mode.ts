@@ -1,18 +1,4 @@
-import { atom, read, update } from 'claude-code'
-import { MODES } from '../lib/catalog'
 import { rt } from '../state/runtime'
-
-// The atoms this file reads or writes (each file declares its own: the engine reads an atom only
-// where a const of the same file made it; the same plugin and key are the same value).
-const bar = atom({ plugin: 'cc-mod-statusbar', key: 'bar' } as const, {
-  model: '', effort: null, folder: '', branch: null, dirty: 0, ahead: 0, behind: 0, five: null, week: null, mode: 'manual',
-})
-
-// The permission mode a settings-hook event carried, kept for the bar.
-export async function keepMode($: any, id: string | undefined) {
-  const found = MODES.find(m => m.id === id)
-  if (found && found.mode !== (await read($, bar)).mode) await update($, bar, b => ({ ...b, mode: found.mode }))
-}
 
 // The permission mode right now. The hint line is read from the frame on screen and can be a
 // frame behind, so ask the permission checks instead: nothing runs and no dialog opens.

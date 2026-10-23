@@ -54,7 +54,7 @@ export function registerSession(on: On) {
       // usage moves with every API response, a turn's end is too late for a long turn
       if (++ticks % 5 === 0) void refreshBar($).catch(() => undefined)
       // the shield's score follows the settings with its menu shut: a settings file edited by hand,
-      // by Claude or by /permissions (ConfigChange below says so at once, when it reaches this mod)
+      // by Claude or by /permissions
       if (ticks % 5 === 0) void readGuard($).catch(() => undefined)
       // a running background command's log, read for an error line
       if (ticks % 5 === 0) void scanBackground($).catch(() => undefined)
