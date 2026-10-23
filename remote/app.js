@@ -736,12 +736,24 @@ let lineAsk = null // { session, status, sawBusy }
 function openLineAsk(body, path, n, lineText) {
   let bar = body.querySelector('.lineask')
   if (!bar) {
+    // the same frame as the reply area: the box the whole width, the status and send under it
     bar = body.appendChild(el('div', 'lineask'))
-    bar.append(el('div', 'what'), el('div', 'row'), el('div', 'status'))
-    const box = bar.querySelector('.row').appendChild(el('textarea'))
-    box.rows = 2
-    box.placeholder = 'Ask Claude about this line'
-    const go = bar.querySelector('.row').appendChild(el('button', 'go', 'Send'))
+    const frame = el('div', 'composer')
+    bar.append(el('div', 'what'), frame)
+    const box = frame.appendChild(el('textarea'))
+    box.rows = 1
+    // grows with what is typed, up to 160px, as the reply box does
+    box.oninput = () => {
+      box.style.height = '24px'
+      const h = Math.max(24, box.scrollHeight)
+      box.style.height = `${Math.min(h, 160)}px`
+      box.style.overflowY = h > 160 ? 'auto' : 'hidden'
+    }
+    const row = frame.appendChild(el('div', 'tools-row'))
+    row.append(el('div', 'status'))
+    const go = row.appendChild(el('button', 'send'))
+    go.setAttribute('aria-label', 'Send')
+    go.append(icon('arrowUp'))
     go.onclick = async () => {
       const ask = box.value.trim()
       if (!ask || !snap) return box.focus()
@@ -758,13 +770,16 @@ function openLineAsk(body, path, n, lineText) {
         return
       }
       box.value = ''
+      box.oninput()
       lineAsk.status = 'sent'
       tickLineAsk()
     }
   }
   Object.assign(bar.dataset, { path, line: String(n), text: lineText })
   bar.querySelector('.what').textContent = `Line ${n} · ${shortPath(path)}`
-  bar.querySelector('textarea').focus()
+  const box = bar.querySelector('textarea')
+  box.placeholder = `Ask Claude about line ${n}`
+  box.focus()
 }
 function tickLineAsk() {
   const node = document.querySelector('#viewer:not([hidden]) .lineask .status')
