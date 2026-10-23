@@ -6,6 +6,7 @@ import { buildPage, isPage, pageAction } from './pages'
 import type { Page, PageName } from './pages'
 import { waitingPrompts } from './prompts'
 import { TOP_GROUP, USE_KEY, groupOf } from './commands'
+import { modVersionText } from './update'
 import { forgetSecret, listSecrets, saveTyped } from './vault'
 import { cfg } from '../state/config'
 import { ME, rt } from '../state/runtime'
@@ -78,6 +79,9 @@ export const remote = {
   midTurnAt: 0,
   // the session's transcript file, found once (see transcriptFile)
   transcriptFile: '',
+  // the session's title, from its transcript: the name /rename gave it, else the one Claude Code
+  // wrote for it; '' until one is written (see sessionTitleIn)
+  title: '',
   commandsAt: 0,
   // Claude Code's own suggestion for the next prompt (the dim line, Tab to take); '' with none
   suggestion: '',
@@ -299,6 +303,24 @@ async function midTurnOf($: any, count: number, isFinal: boolean): Promise<MidTu
   return remote.midTurn
 }
 
+// The session's title from its transcript's title rows (grep -o): the last name /rename gave it,
+// else the last one Claude Code wrote; '' with neither.
+export function sessionTitleIn(rows: readonly string[]) {
+  const last = (key: string) => {
+    const row = [...rows].reverse().find(r => r.startsWith(`"${key}":`))
+    try { return row ? String(JSON.parse(row.slice(key.length + 3))).trim() : '' } catch { return '' }
+  }
+  return last('customTitle') || last('aiTitle')
+}
+async function readTitle($: any) {
+  const id: string = await $.session.id().catch(() => '')
+  const file = id ? await transcriptFile($, id) : ''
+  if (!file) return
+  const r = await $.process.run(['grep', '-o', '-E', '"(customTitle|aiTitle)":"([^"\\\\]|\\\\.)*"', file]).catch(() => undefined)
+  const title = sessionTitleIn(String(r?.stdout ?? '').split('\n').filter(Boolean))
+  if (title) remote.title = oneLine(title, 120)
+}
+
 async function storedMidTurn($: any, id: string): Promise<MidTurn[]> {
   const stored = id ? await $.store.get(midTurnKey(id)).catch(() => undefined) : undefined
   return Array.isArray(stored) ? stored : []
@@ -352,11 +374,12 @@ const cut = (t: string, n: number) => (t.length > n ? `${t.slice(0, n)}\n… ${t
 const lineCount = (t: string) => (t ? t.split('\n').length : 0)
 
 // What the engine adds around a prompt, which the terminal does not show: reminders,
-// notifications, the Claude in Chrome instructions on a session's first prompt, and a slash
+// notifications, the Claude in Chrome instructions on a session's first prompt, the file open in
+// an IDE, and a slash
 // command's markup put back as /name args.
 function promptText(text: string) {
   return text
-    .replace(/<(system-reminder|task-notification|local-command-caveat|browser_instruction)>[\s\S]*?<\/\1>/g, '')
+    .replace(/<(system-reminder|task-notification|local-command-caveat|browser_instruction|ide_opened_file|ide_selection)>[\s\S]*?<\/\1>/g, '')
     .replace(/<command-name>([\s\S]*?)<\/command-name>\s*(?:<command-message>[\s\S]*?<\/command-message>)?\s*(?:<command-args>([\s\S]*?)<\/command-args>)?/g, (_m, name: string, args?: string) => `${name.trim()} ${args?.trim() ?? ''}`)
     .replace(/<\/?local-command-[a-z]+>/g, '')
     .trim()
@@ -600,6 +623,7 @@ export async function readRemoteMessages($: any, isFinal = false) {
   remote.context = { ...remote.context, ...contextOf(list, cwd, home), dirs }
   await readMemory($)
   await readCommands($)
+  await readTitle($)
   remote.transcript = transcriptOf(list, cwd, remote.cmdLog, await midTurnOf($, list.length, isFinal), await read($, typedPrompts))
   remote.lastAt = Date.now()
   // a sent text the transcript now shows, or one two minutes old, leaves the sending list
@@ -613,6 +637,7 @@ async function snapshotOf($: any) {
   const turn = await read($, lastTurn)
   return {
     folder: b.folder,
+    title: remote.title,
     branch: b.branch,
     model: shortModel(b.model),
     effort: b.effort ?? null,
@@ -646,6 +671,8 @@ async function snapshotOf($: any) {
     permissions: waitingPrompts(Date.now()),
     // the pages the phone opened in the last ten minutes
     pages: Object.values(remote.pages).filter(p => Date.now() - p!.at < 600_000),
+    // the mod's version this session loaded, for the session sheet
+    version: modVersionText(),
   }
 }
 

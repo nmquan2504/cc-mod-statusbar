@@ -373,14 +373,14 @@ function renderChat() {
     else root.appendChild(el('div', 'b claude')).append(markdown(t.text))
   }
   // under Claude's last answer: Claude Code's guess at your next prompt, else what Haiku
-  // proposes, three at most; a press sends it as if typed and sent
+  // proposes, three at most; a tap puts it in the reply box (chipToBox)
   const chips = snap.busy ? [] : snap.suggestions || []
   if (chips.length) {
     const row = root.appendChild(el('div', 'suggests'))
     for (const s of chips) {
       const chip = row.appendChild(el('button', 'suggest'))
       chip.append(icon('spark'), el('span', '', s))
-      chip.onclick = () => sendText(s)
+      chip.onclick = () => chipToBox(s)
     }
   }
   // sent as the prompt, not in the transcript yet: drawn as the bubble it will be
@@ -450,7 +450,10 @@ function renderDrawer() {
     const sub = el('div', 'sub')
     if (s.branch) sub.append(icon('branch'), document.createTextNode(` ${s.branch} · `))
     sub.append(document.createTextNode(s.busy ? 'working' : 'idle'))
-    text.append(el('div', 'name', titleOf(s)), sub)
+    text.append(el('div', 'name', titleOf(s)))
+    // the session's title (its /rename name, else Claude Code's), above its branch
+    if (s.title) text.append(el('div', 'desc', s.title))
+    text.append(sub)
     row.onclick = () => {
       picked = s.id
       try { localStorage.setItem('qsb-session', picked) } catch {}
@@ -484,6 +487,7 @@ function openSheet() {
   chip('wk', usage.week, 50, 80)
   chip('ctx', usage.ctx, 70, 85)
   if (typeof usage.cost === 'number') chips.append(el('span', 'chip', `$${usage.cost.toFixed(2)} this session`))
+  if (snap.version) sheet.append(el('div', 'meta', `cc-mod-statusbar ${snap.version}`))
   $('scrim').hidden = false
   sheet.hidden = false
 }
@@ -943,8 +947,17 @@ text.addEventListener('input', fitText)
 // a tap anywhere in the frame but its buttons puts the keyboard in the box
 document.querySelector('.composer').addEventListener('click', e => { if (!e.target.closest('button')) text.focus() })
 $('send').onclick = () => sendText(text.value, true)
-// a text sent, from the box or a chip: /usage, /secret and the pages open here; the rest goes to the session
-// `isBox`: it came from the reply box, which empties once it goes; a chip leaves a draft alone
+// A chip tapped: it goes on a line of its own at the end of the reply box, after any draft, for
+// Send to take; the box is not focused, so the keyboard stays down.
+function chipToBox(s) {
+  const kept = text.value.replace(/\s+$/, '')
+  text.value = kept ? `${kept}\n${s}` : s
+  fitText()
+  updateSlash()
+}
+
+// a text sent from the box: /usage, /secret and the pages open here; the rest goes to the session
+// `isBox`: it came from the reply box, which empties once it goes
 async function sendText(raw, isBox = false) {
   const value = String(raw ?? '').trim()
   if (!value || !snap) return

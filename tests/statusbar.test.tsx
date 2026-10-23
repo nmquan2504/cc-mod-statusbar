@@ -1985,6 +1985,36 @@ test('new commits on the mod\'s upstream: a minute in, ↑ mod shows; a press as
   expect(await band.find({ key: 'update' })).toBeUndefined()
 })
 
+test('Settings, Check for update: up to date says so; new commits are pulled fast-forward and the plugins reloaded', async ($, on) => {
+  const ran: string[][] = []
+  const toasts: string[] = []
+  const commands: string[] = []
+  let behind = '0'
+  engine(on, {
+    toasts,
+    run: argv => {
+      if (argv[0] !== 'git' || argv[1] !== '-C' || !['fetch', 'rev-list', 'pull'].includes(argv[3]!)) return undefined
+      ran.push(argv)
+      return argv[3] === 'rev-list' ? { exitCode: 0, stdout: `${behind}\n`, stderr: '' } : { exitCode: 0, stdout: '', stderr: '' }
+    },
+  })
+  settingsStore(on)
+  on('command.run', (_: unknown, e: any) => (commands.push(e.command), { text: '' }))
+  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await band.press({ key: 'add' })
+  await band.press({ key: 'settings' })
+  await band.press({ key: 'set:update' })
+  expect(ran.map(a => a[3])).toEqual(['fetch', 'rev-list'])
+  expect(toasts.join('\n')).toContain('statusbar: up to date')
+  expect(commands).toEqual([])
+  behind = '3'
+  await band.press({ key: 'set:update' })
+  expect(ran.map(a => a[3])).toEqual(['fetch', 'rev-list', 'fetch', 'rev-list', 'pull'])
+  expect(ran.at(-1)!.slice(3)).toEqual(['pull', '--ff-only', '--quiet'])
+  expect(toasts.join('\n')).toContain('pulled 3 new commits; reloading')
+  expect(commands).toEqual(['reload-plugins'])
+})
+
 test('settings copy as JSON with no secret; a paste takes them in place of these, garbage changes nothing, Undo puts them back', async ($, on) => {
   let clipboard = ''
   const toasts: string[] = []
@@ -2077,6 +2107,7 @@ test('Haiku is asked for three prompts at most; its reply becomes chips; Claude 
 
 test('after an answer the chips are Claude Code\'s suggestion, else Haiku\'s three seconds on; a press sends one', async ($, on) => {
   engine(on)
+  settingsStore(on)
   const clock = mock.clock(on)
   const submitted: string[] = []
   const ran: string[] = []
@@ -2129,6 +2160,16 @@ test('after an answer the chips are Claude Code\'s suggestion, else Haiku\'s thr
   expect(await band.find({ key: 'chip:0' })).toBeUndefined()
   expect(await band.find({ key: 'chips-dismiss' })).toBeUndefined()
   expect(submitted).toEqual(['run the tests'])
+  // Haiku chips switched off in Settings: no call, no chip, unless Claude Code suggests
+  await band.press({ key: 'add' })
+  await band.press({ key: 'settings' })
+  await band.press({ key: 'set:haikuChips' })
+  await band.press({ key: 'close-menu' })
+  await t.turn.start({ text: 'go', turnId: 't5', kind: 'engine' })
+  await t.turn.complete({ text: 'ok', reason: 'answer', answer: 'Done.' })
+  await clock.advance(3000)
+  expect(asked).toHaveLength(2)
+  expect(await band.find({ key: 'chip:0' })).toBeUndefined()
 })
 
 test('an order saved as the old default puts the mode after the effort', async ($, on) => {

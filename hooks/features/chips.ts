@@ -2,6 +2,7 @@ import { ASSIST_MODEL } from './assist'
 import { suggestPrompt, suggestionChips, suggestionsFrom } from '../lib/suggest'
 import { noteAddDir, remote } from './remote'
 import { scrub } from './vault'
+import { cfg } from '../state/config'
 import { rt } from '../state/runtime'
 
 // The chips under Claude's last answer, while no turn runs: Claude Code's own next-prompt
@@ -17,7 +18,7 @@ export function suggestNext($: any, request: string, answer: string) {
   const round = ++rt.suggestRound
   const isStale = () => round !== rt.suggestRound || rt.isBusy || Boolean(remote.suggestion)
   $.clock.after(SUGGEST_WAIT_MS, async () => {
-    if (isStale()) return
+    if (isStale() || !cfg.haikuChips) return
     const r = await $.model.complete({ model: ASSIST_MODEL, prompt: suggestPrompt(scrub(request), scrub(answer)), maxTokens: 200, timeoutMs: 15_000 }).catch(() => undefined)
     if (isStale() || !r?.isAnswered) return
     rt.answerChips = suggestionsFrom(r.text)
