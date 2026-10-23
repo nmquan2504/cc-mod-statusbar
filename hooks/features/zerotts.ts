@@ -11,7 +11,34 @@ export async function zeroTtsSessionStart($: any) {
   await $.command.register({ name: 'zerotts-uninstall', description: "Remove ZeroTTS from the Mac; the phone goes back to its own voices" })
 }
 
-// Starts the install in the background, or says it is in already; the log is setup.log beside it
+// Where the install stands: ready, failed (with the log's last line) or running (with its step,
+// and how far the model's download is)
+const STATUS_SH = [
+  'home="${QSB_TTS_HOME:-$HOME/.cache/cc-mod-statusbar/zerotts}"',
+  'log="$home/setup.log"',
+  'if [ -f "$home/ready" ]; then echo "ready"',
+  'elif [ -f "$home/failed" ]; then echo "failed $(tail -c 400 "$log" 2>/dev/null | tr \'\\r\' \'\\n\' | grep -v \'^ *$\' | tail -1)"',
+  'elif grep -q "Downloading the model" "$log" 2>/dev/null; then echo "model $(tail -c 300 "$log" | tr \'\\r\' \'\\n\' | grep -o \'[0-9]*%\' | tail -1)"',
+  'else echo "python"; fi',
+].join('\n')
+export async function zeroTtsStatus($: any) {
+  const r = await $.process.run(['/bin/sh', '-c', STATUS_SH]).catch(() => undefined)
+  const line = String(r?.stdout ?? '').trim()
+  const [state = '', ...rest] = line.split(' ')
+  return { state, detail: rest.join(' ') }
+}
+
+// The voice loaded on the hub, when one runs: { isLoaded, voices, error } or undefined
+async function warmZeroTts($: any) {
+  return (await hub($, 'POST', '/tts-warm').catch(() => undefined)) as { isLoaded?: boolean; voices?: string[]; error?: string } | undefined
+}
+const loadedNote = (w: { isLoaded?: boolean; voices?: string[]; error?: string } | undefined) =>
+  !w ? 'the remote is off: it loads the voice the first time the phone asks'
+    : w.isLoaded ? `loaded on the remote (${w.voices?.length ?? 0} voices)`
+      : `the remote could not load it${w.error ? `: ${w.error}` : ''}`
+
+// Starts the install in the background and follows it with a toast at each step, then loads the
+// voice on the remote; or, installed already, loads it and says so
 export async function installZeroTts($: any) {
   const script = `${$.plugin.root}/remote/zerotts-setup.sh`
   const sh = [
@@ -24,10 +51,41 @@ export async function installZeroTts($: any) {
   ].join('\n') // lines: a ; after the & that sends the setup off is a syntax error
   const r = await $.process.run(['/bin/sh', '-c', sh, script]).catch(() => undefined)
   const [state, home] = String(r?.stdout ?? '').trim().split(' ')
-  if (state === 'ready') return `ZeroTTS is installed in ${home}. On the phone, pick it in Settings, Vietnamese voice.`
-  if (state === 'running') return `ZeroTTS is installing already; see ${home}/setup.log.`
-  if (state === 'started') return `Installing ZeroTTS in the background (a Python of its own and about 900 MB of model) in ${home}; a few minutes. Follow ${home}/setup.log. When it is done, pick it on the phone in Settings, Vietnamese voice.`
+  if (state === 'ready') return `ZeroTTS is installed in ${home}; ${loadedNote(await warmZeroTts($))}. On the phone it is the default voice (Settings, Automatic).`
+  if (state === 'running' || state === 'started') {
+    void followInstall($).catch(() => undefined)
+    return state === 'running'
+      ? `ZeroTTS is installing already; a toast tells each step. Log: ${home}/setup.log.`
+      : `Installing ZeroTTS in the background (a Python of its own and about 900 MB of model) in ${home}; a toast tells each step, and the voice loads when it is done. Log: ${home}/setup.log.`
+  }
   return `Could not start the install${r?.stderr ? `: ${String(r.stderr).trim().slice(0, 200)}` : '.'}`
+}
+
+// A toast at each step of the install (the Python, the model by quarters), then the voice loaded;
+// 15 minutes at most
+let isFollowing = false
+async function followInstall($: any) {
+  if (isFollowing) return
+  isFollowing = true
+  try {
+    let said = ''
+    for (let i = 0; i < 180; i++) {
+      await $.clock.sleep(5000)
+      const s = await zeroTtsStatus($)
+      if (s.state === 'ready') {
+        $.ui.toast('statusbar: ZeroTTS installed; loading the voice…')
+        $.ui.toast(`statusbar: ZeroTTS ready, ${loadedNote(await warmZeroTts($))}`)
+        return
+      }
+      if (s.state === 'failed') return $.ui.toast(`statusbar: ZeroTTS install failed: ${s.detail || 'see setup.log'}`)
+      const pct = Number.parseInt(s.detail, 10)
+      const step = s.state === 'model' ? `downloading the model${Number.isFinite(pct) ? ` ${Math.floor(pct / 25) * 25}%` : ''}` : 'installing its Python'
+      if (step !== said) $.ui.toast(`statusbar: ZeroTTS: ${step}`)
+      said = step
+    }
+  } finally {
+    isFollowing = false
+  }
 }
 
 // Stops the voice (the hub, when one runs) and an install still running, then deletes the folder.
