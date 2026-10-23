@@ -15,8 +15,13 @@ const el = (tag, cls, text) => {
 // Kept in this browser alone (localStorage), so each phone has its own; the page works without them.
 const PREFS_KEY = 'qsb-prefs'
 const prefs = (() => {
-  const base = { lang: globalThis.I18N?.langOf(navigator.language) ?? 'en', theme: 'system', voiceVi: '', voiceEn: '', rate: 1, readNotices: false, noticeWords: 'title', notifyOff: false }
-  try { return { ...base, ...JSON.parse(localStorage.getItem(PREFS_KEY) || '{}') } } catch { return base }
+  const base = { v: 2, lang: globalThis.I18N?.langOf(navigator.language) ?? 'en', theme: 'system', voiceVi: '', voiceEn: '', rate: 1, readNotices: false, noticeWords: 'status', notifyOff: false }
+  try {
+    const kept = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}')
+    // kept before the status became the default, when every phone saved the title then default
+    if ((kept.v ?? 1) < 2) Object.assign(kept, { v: 2, noticeWords: 'status' })
+    return { ...base, ...kept }
+  } catch { return base }
 })()
 function savePrefs() {
   try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)) } catch {}
@@ -772,7 +777,7 @@ function speak(text) {
 function readNotice(n) {
   if (!prefs.readNotices || !canSpeak || !globalThis.Speak) return
   // the title a line of its own, so the answer's markdown starts its own lines
-  const text = [n.title, noticeBody(n)].filter(Boolean).join('.\n').replace(/\s·\s/g, ', ').replace(/(^|\s)\/(?=\w)/g, '$1')
+  const text = prefs.noticeWords === 'status' ? noticeStatus(n) : [n.title, noticeBody(n)].filter(Boolean).join('.\n').replace(/\s·\s/g, ', ').replace(/(^|\s)\/(?=\w)/g, '$1')
   // a speech the browser left paused (the page was in the background) goes on first
   speechSynthesis.resume()
   Speak.segments(Speak.speechText(text)).forEach((part, i) => {
@@ -780,6 +785,14 @@ function readNotice(n) {
     if (i === 0) said.onerror = e => { if (e.error === 'not-allowed') noteSpeechBlocked() }
     speechSynthesis.speak(said)
   })
+}
+
+// A notice as a few words in the language picked: Claude has responded, or needs you (a permission
+// prompt, a question), and the session's folder
+function noticeStatus(n) {
+  const name = state?.sessions.find(x => x.id === n.session)?.folder || ''
+  const said = /^Done\b/.test(n.title) ? tx('Claude has responded') : tx('Claude needs you')
+  return name ? `${said}, ${name}` : said
 }
 
 // What a notice reads after its title, as Settings says: nothing (the default); one line, the
@@ -2379,7 +2392,7 @@ function renderSettings() {
         speechSynthesis.speak(utterance(I18N.SAMPLES[`notice_${prefs.lang}`], prefs.lang))
       }
     })
-    if (prefs.readNotices) seg(notes, [['title', tx('Title only')], ['short', tx('Short (1 line)')], ['full', tx('Full')]], prefs.noticeWords, v => set('noticeWords', v))
+    if (prefs.readNotices) seg(notes, [['status', tx('Status')], ['title', tx('Title only')], ['short', tx('One line')], ['full', tx('Full')]], prefs.noticeWords, v => set('noticeWords', v))
   }
 
   const off = body.appendChild(el('button', 'plain unpair', tx('Unpair this phone')))
