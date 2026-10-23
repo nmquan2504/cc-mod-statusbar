@@ -11,6 +11,7 @@ import { isRemoteWaiting, pendingPairs, tickRemote } from '../features/remote'
 import { refreshBar } from '../features/status'
 import { UPDATE_EVERY, checkModUpdate, readModVersion } from '../features/update'
 import { cache, vaultSessionStart } from '../features/vault'
+import { zeroTtsSessionStart } from '../features/zerotts'
 import { readAgents, readServers, readWork } from '../features/work'
 import { cfg, loadSettings } from '../state/config'
 import { rt } from '../state/runtime'
@@ -37,6 +38,7 @@ export function registerSession(on: On) {
     await refreshBar($)
     await readGuard($)
     await vaultSessionStart($)
+    await zeroTtsSessionStart($).catch(() => undefined)
     await registerHiAgent($).catch(() => undefined)
     await readMcp($).catch(() => undefined)
     await readModVersion($).catch(() => undefined)

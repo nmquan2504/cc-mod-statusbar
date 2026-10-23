@@ -252,8 +252,17 @@ const VI = {
   'Vietnamese voice': 'Giọng tiếng Việt',
   'English voice': 'Giọng tiếng Anh',
   'Best on this phone': 'Tốt nhất trên máy',
+  'Automatic: ZeroTTS': 'Tự động: ZeroTTS',
+  'Automatic: best on this phone': 'Tự động: giọng tốt nhất của máy',
   'Play a sample': 'Nghe thử',
   'Speed': 'Tốc độ',
+  'ZeroTTS, on the Mac': 'ZeroTTS, trên Mac',
+  'On this phone': 'Trên điện thoại',
+  'ZeroTTS not used': 'Không dùng được ZeroTTS',
+  "The phone's voice reads instead.": 'Giọng của điện thoại đọc thay.',
+  'ZeroTTS, a Vietnamese voice made on the Mac: run /zerotts-install in the terminal to add it (about 900 MB).': 'ZeroTTS, giọng tiếng Việt tạo trên Mac: chạy /zerotts-install trong terminal để thêm (khoảng 900 MB).',
+  'ZeroTTS is installing on the Mac.': 'ZeroTTS đang được cài trên Mac.',
+  'The ZeroTTS install on the Mac failed: see its setup.log, then run /zerotts-install again.': 'Cài ZeroTTS trên Mac bị lỗi: xem setup.log, rồi chạy lại /zerotts-install.',
   'This browser cannot read aloud.': 'Trình duyệt này không đọc to được.',
   'For better voices, download an Enhanced or Premium voice in Settings, Accessibility, Spoken Content, Voices.': 'Muốn giọng hay hơn, tải giọng Enhanced hoặc Premium trong Cài đặt, Trợ năng, Nội dung được đọc, Giọng nói.',
   'Notifications': 'Thông báo',
@@ -329,6 +338,9 @@ const VI_SENT = {
   'an unknown kind of secret needs a NAME, a host and a header': 'loại bí mật lạ cần NAME, host và header',
   'no keychain available': 'không có keychain',
   'the keychain refused it': 'keychain từ chối',
+  'ZeroTTS is not installed on the Mac.': 'ZeroTTS chưa được cài trên Mac.',
+  'The voice stopped.': 'Giọng đọc đã dừng.',
+  'The voice did not answer.': 'Giọng đọc không trả lời.',
 }
 // ... and those with a name or a value in them
 const VI_SENT_SHAPES = [
@@ -340,6 +352,8 @@ const VI_SENT_SHAPES = [
   [/^(\S+) saved to the (.+); it goes only to (\S+)$/, '$1 đã lưu vào $2; chỉ gửi tới $3'],
   [/^"(.+)" is not a valid NAME \(A-Z, 0-9, _\)\.?$/, '"$1" không phải NAME hợp lệ (A-Z, 0-9, _)'],
   [/^The page could not be read: (.*)$/s, 'Không đọc được trang: $1'],
+  [/^\/zerotts-install installs software on the Mac; run it at the computer$/, '/zerotts-install cài phần mềm lên Mac; hãy chạy nó trên máy tính'],
+  [/^\/zerotts-uninstall removes software from the Mac; run it at the computer$/, '/zerotts-uninstall gỡ phần mềm khỏi Mac; hãy chạy nó trên máy tính'],
 ]
 
 // A message the hub or the mod sent, in `lang`; one it does not know comes as written

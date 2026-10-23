@@ -140,7 +140,7 @@ async function hubDir($: any) {
   return remote.dir
 }
 
-async function hub($: any, method: string, path: string, body?: unknown) {
+export async function hub($: any, method: string, path: string, body?: unknown) {
   if (!(await hubDir($))) return undefined
   const r = await $.http.fetch(`http://hub${path}`, {
     method,
@@ -629,6 +629,8 @@ const PHONE_BUILTINS = new Set([
   'claude-in-chrome', 'run',
 ])
 const PHONE_WITH_VALUE = new Set(['model', 'effort', 'output-style', 'add-dir'])
+// this mod's own commands that run only at the computer: the phone lists them as computer only
+const AT_COMPUTER_OWN = new Set(['zerotts-install', 'zerotts-uninstall'])
 // true when the phone may run it; else why not
 export function phoneMayRun(name: string, args: string, isBuiltin: boolean): true | string {
   if (!isBuiltin || PHONE_BUILTINS.has(name)) return true
@@ -662,7 +664,7 @@ async function readCommands($: any) {
     const name = String(c.name), isBuiltin = c.source === 'builtin'
     // a panel the phone draws as a page of its own (pages.ts) is neither computer only nor in need of a value
     const isPhonePage = isBuiltin && isPage(name)
-    return { name, description: oneLine(String(c.description ?? ''), 120), group: groupOf(c), isBuiltin, isComputerOnly: isBuiltin && !isPhonePage && !PHONE_BUILTINS.has(name) && !PHONE_WITH_VALUE.has(name), needsArgs: isBuiltin && !isPhonePage && PHONE_WITH_VALUE.has(name), isPage: isPhonePage, isOwn: c.plugin === ME }
+    return { name, description: oneLine(String(c.description ?? ''), 120), group: groupOf(c), isBuiltin, isComputerOnly: (isBuiltin && !isPhonePage && !PHONE_BUILTINS.has(name) && !PHONE_WITH_VALUE.has(name)) || (c.plugin === ME && AT_COMPUTER_OWN.has(name)), needsArgs: isBuiltin && !isPhonePage && PHONE_WITH_VALUE.has(name), isPage: isPhonePage, isOwn: c.plugin === ME }
   })
     .sort((a, b) => a.group.localeCompare(b.group) || a.name.localeCompare(b.name))
   const counts = ((await $.store.get(USE_KEY).catch(() => undefined)) ?? {}) as Record<string, { n: number; last: number }>
@@ -853,6 +855,8 @@ export async function tickRemote($: any) {
     if (what.kind === 'own') {
       if (what.name === 'secrets') return log(await listSecrets($).catch(() => 'could not list the secrets'), false)
       if (what.name === 'secret-forget') return log(await forgetSecret($, what.args).catch(() => 'could not delete the secret'), false)
+      if (what.name === 'zerotts-install') return log('/zerotts-install installs software on the Mac; run it at the computer', true)
+      if (what.name === 'zerotts-uninstall') return log('/zerotts-uninstall removes software from the Mac; run it at the computer', true)
       return log(`/${what.name} opens a dialog on the computer; add a secret from the + menu here instead`, true)
     }
     if (what.kind === 'run') {

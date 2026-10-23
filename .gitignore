@@ -3,3 +3,4 @@ node_modules/
 .claude-plugin/types/
 .env
 .env.*
+__pycache__/
