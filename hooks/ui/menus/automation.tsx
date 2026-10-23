@@ -53,7 +53,7 @@ export async function drawAutomation($: any, els: any) {
         </Box>
       ) : cfg.autoContinue ? <Text dimColor>  nothing waiting</Text> : null}
       <Button key="auto:hi" plain hotkey="h" onPress={() => flip('hiSchedule')}>
-        {sw(cfg.hiSchedule)} <Text bold>Schedule hi</Text>
+        {sw(cfg.hiSchedule)} <Text bold>Auto-start 5h window</Text>
         <Text dimColor>{`  every 5 hours from ${hiStart()}, Vietnam time; the start time is in + then Settings`}</Text>
       </Button>
       {cfg.hiSchedule ? (
