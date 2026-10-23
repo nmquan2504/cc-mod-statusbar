@@ -142,15 +142,33 @@ function showPairLeft() {
 }
 
 // ---- the long poll ---------------------------------------------------------------------------
+// The hub not answering: a line under the head says so after a few seconds, and after
+// LINK_GONE_MS that the link has likely ended (a hub started again has a new address and key).
+const LINK_GONE_MS = 45_000
+let failedSince = 0
+function showOffline(ms) {
+  const line = $('offline')
+  line.hidden = ms < 4000
+  if (line.hidden) return
+  const isGone = ms >= LINK_GONE_MS
+  line.classList.toggle('gone', isGone)
+  line.replaceChildren()
+  if (!isGone) line.appendChild(el('span', 'spin')).append(icon('spark'))
+  line.append(document.createTextNode(isGone ? 'The link seems to have ended. If the remote was started again, scan its new QR code in the terminal.' : ' Reconnecting…'))
+}
 async function follow() {
   let since = -1
   for (;;) {
     const r = await E2E.call('state', { since }).catch(err => err)
     if (r instanceof E2E.Unpaired) return gate('Not paired. Scan the QR code in the terminal again.', '', true)
     if (r instanceof Error || r.s !== 200) {
+      failedSince ||= Date.now()
+      showOffline(Date.now() - failedSince)
       await sleep(3000)
       continue
     }
+    failedSince = 0
+    showOffline(0)
     state = r.b
     since = state.version
     noteUnread()
@@ -370,6 +388,11 @@ function toolRow(t, into) {
     const open = out.appendChild(el('div', 'open-diff', 'Open the whole diff'))
     open.onclick = () => showDiff(diffPath)
   }
+  // a call that failed: its call and what it said, quoted over the reply box, to ask about it
+  if (t.isError) {
+    const ask = out.appendChild(el('div', 'open-diff', 'Ask Claude about this error'))
+    ask.onclick = () => setQuote(`${t.name} failed`, `${t.name}(${t.arg})\n${t.out || ''}`.trim(), ERROR_QUOTE_MAX)
+  }
 }
 
 function renderChat() {
@@ -554,6 +577,15 @@ async function highlightChat() {
   }
 }
 
+function ctxRing(pct) {
+  const p = Math.max(0, Math.min(100, Math.round(pct)))
+  const ring = el('span', `ctxring${p >= 85 ? ' bad' : p >= 70 ? ' warn' : ''}`)
+  ring.title = `context ${p}%`
+  ring.style.setProperty('--p', String(p))
+  ring.append(el('span', '', String(p)))
+  return ring
+}
+
 function renderDrawer() {
   const box = $('sessions')
   box.replaceChildren()
@@ -571,6 +603,9 @@ function renderDrawer() {
     // the session's title (its /rename name, else Claude Code's), above its branch
     if (s.title) text.append(el('div', 'desc', s.title))
     text.append(sub)
+    // how full its context window is: a ring, amber from 70%, red from 85%
+    const ctx = s.usage?.ctx
+    if (typeof ctx === 'number') row.append(ctxRing(ctx))
     row.onclick = () => openSession(s.id)
   }
 }
@@ -701,9 +736,11 @@ async function copyText(value) {
 // The quote over the reply box: who wrote it and its first two lines, ✕ to drop it. It goes before
 // the reply as "> " lines (its first QUOTE_MAX characters), a blank line, then what you wrote.
 const QUOTE_MAX = 600
-let quoted = null // { who, text }
-function setQuote(who, text) {
-  quoted = { who, text }
+let quoted = null // { who, text, max }
+// an error is quoted longer: its last lines say most
+const ERROR_QUOTE_MAX = 2000
+function setQuote(who, text, max = QUOTE_MAX) {
+  quoted = { who, text, max }
   $('quote-who').textContent = who
   $('quote-text').textContent = text
   $('quote').hidden = false
@@ -717,7 +754,7 @@ function dropQuote() {
 }
 function withQuote(value) {
   if (!quoted) return value
-  const cut = quoted.text.length > QUOTE_MAX ? `${quoted.text.slice(0, QUOTE_MAX)}…` : quoted.text
+  const cut = quoted.text.length > quoted.max ? `${quoted.text.slice(0, quoted.max)}…` : quoted.text
   return `${cut.split('\n').map(l => `> ${l}`).join('\n')}\n\n${value}`
 }
 
@@ -1079,6 +1116,10 @@ function openAskBox(body, { what, hint = '', placeholder, compose }) {
     }
     const row = frame.appendChild(el('div', 'tools-row'))
     row.append(el('div', 'status'))
+    const mic = row.appendChild(el('button', 'icon mic'))
+    mic.setAttribute('aria-label', 'Speak')
+    mic.append(icon('mic'))
+    wireMic(mic, box, () => box.oninput())
     const go = row.appendChild(el('button', 'send'))
     go.setAttribute('aria-label', 'Send')
     go.append(icon('arrowUp'))
@@ -1506,34 +1547,35 @@ document.querySelector('.composer').addEventListener('click', e => { if (!e.targ
 $('send').onclick = () => sendText(text.value, true)
 $('unquote').onclick = dropQuote
 
-// The mic: the browser's speech recognition (Chrome, Safari) writes what you say into the box, in
-// the phone's language; a second tap stops it. Hidden where the browser has none.
-{
-  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition
-  const mic = $('mic')
-  if (!Recognition) mic.hidden = true
-  else {
-    let rec = null
-    mic.hidden = false
-    mic.onclick = () => {
-      if (rec) return rec.stop()
-      rec = new Recognition()
-      rec.lang = navigator.language || 'en-US'
-      rec.interimResults = false
-      rec.onresult = e => {
-        const said = [...e.results].map(r => r[0].transcript).join(' ').trim()
-        if (said) insertText(`${text.value && !/\s$/.test(text.value) ? ' ' : ''}${said}`)
-      }
-      rec.onerror = e => { if (e.error !== 'aborted' && e.error !== 'no-speech') toast({ title: 'No voice input', body: e.error === 'not-allowed' ? 'Allow the microphone for this page.' : e.error }) }
-      rec.onend = () => {
-        rec = null
-        mic.classList.remove('on')
-      }
-      mic.classList.add('on')
-      rec.start()
+// The mic: the browser's speech recognition (Chrome, Safari) writes what you say into a box, in
+// the phone's language; a second tap stops it. Hidden where the browser has none. The reply area
+// has one, and so has the box under a file or a diff.
+const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition
+function wireMic(mic, box, fit) {
+  if (!Recognition) return void (mic.hidden = true)
+  let rec = null
+  mic.hidden = false
+  mic.onclick = () => {
+    if (rec) return rec.stop()
+    rec = new Recognition()
+    rec.lang = navigator.language || 'en-US'
+    rec.interimResults = false
+    rec.onresult = e => {
+      const said = [...e.results].map(r => r[0].transcript).join(' ').trim()
+      if (!said) return
+      box.value = `${box.value}${box.value && !/\s$/.test(box.value) ? ' ' : ''}${said}`
+      fit()
     }
+    rec.onerror = e => { if (e.error !== 'aborted' && e.error !== 'no-speech') toast({ title: 'No voice input', body: e.error === 'not-allowed' ? 'Allow the microphone for this page.' : e.error }) }
+    rec.onend = () => {
+      rec = null
+      mic.classList.remove('on')
+    }
+    mic.classList.add('on')
+    rec.start()
   }
 }
+wireMic($('mic'), text, fitText)
 
 // ↑ ↓ over Newest: your message before, or after, the top of the chat as you read it
 function syncPromptNav() {

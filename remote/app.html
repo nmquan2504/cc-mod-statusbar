@@ -206,6 +206,17 @@
   /* a diff's hunks, each a block to tap and ask about */
   .hblock { border-radius: 6px; cursor: pointer; }
   .hblock.on { background: rgba(217, 119, 87, .14); outline: 1px solid rgba(217, 119, 87, .5); }
+  /* the hub not answering: a line under the head */
+  .offline { position: fixed; top: var(--top); left: 0; right: 0; z-index: 9; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--line); color: var(--warn); font-size: 13px; text-align: center; }
+  .offline.gone { color: var(--bad); }
+  .offline .spin { display: inline-flex; animation: spin 2s linear infinite; }
+  .offline .spin svg.ic { width: 13px; height: 13px; }
+  /* a session's context in the drawer: a ring filled to its percent */
+  .ctxring { flex: none; align-self: center; position: relative; width: 26px; height: 26px; border-radius: 50%; background: conic-gradient(var(--ok) calc(var(--p) * 1%), var(--line) 0); display: inline-flex; align-items: center; justify-content: center; }
+  .ctxring.warn { background: conic-gradient(var(--warn) calc(var(--p) * 1%), var(--line) 0); }
+  .ctxring.bad { background: conic-gradient(var(--bad) calc(var(--p) * 1%), var(--line) 0); }
+  .ctxring::before { content: ''; position: absolute; inset: 3px; border-radius: 50%; background: var(--bg); }
+  .ctxring span { position: relative; font: 600 9px var(--mono); color: var(--dim); }
   .pnav { position: fixed; right: 14px; bottom: calc(var(--foot) + 54px + var(--kb)); z-index: 11; display: flex; flex-direction: column; gap: 6px; }
   .pnav button { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); display: inline-flex; align-items: center; justify-content: center; padding: 0; }
   .pnav svg.ic { width: 16px; height: 16px; }
@@ -390,6 +401,7 @@
     <button id="title" class="title" aria-label="Session details"><span id="dot" class="dot"></span><span id="title-text" class="title-text">Claude</span><span class="caret" data-icon="chevronDown"></span></button>
     <button id="open-files" class="icon" aria-label="Files and images" data-icon="folder"><span id="files-badge" class="badge" hidden></span></button>
   </header>
+  <div id="offline" class="offline" role="status" hidden></div>
   <main id="chat"></main>
   <footer>
     <div class="composer">
