@@ -752,6 +752,11 @@ export async function tickRemote($: any) {
   if (JSON.stringify(status) !== was) $.ui.invalidate('ui.render')
   const inbox = await hub($, 'GET', `/inbox?id=${encodeURIComponent(id)}`)
   if (Array.isArray(inbox?.texts)) remote.queue = [...remote.queue, ...inbox.texts.filter((t: unknown) => typeof t === 'string')]
+  // a queued text the phone took back: one of that text goes, unless it went in already
+  for (const t of Array.isArray(inbox?.unqueue) ? inbox.unqueue : []) {
+    const at = remote.queue.findIndex(q => q.trim() === String(t).trim())
+    if (at >= 0) remote.queue = remote.queue.filter((_, i) => i !== at)
+  }
   // Stop on the phone: the running turn ends as Esc ends it; the texts waiting for it stay queued
   if (inbox?.stop === true && rt.isBusy && rt.turnId) {
     const r = await $.turn.abort({ turnId: rt.turnId }).then(() => '', (err: unknown) => String(err))

@@ -55,7 +55,8 @@
   .b.me { margin-left: auto; background: var(--me); color: var(--me-text); border-bottom-right-radius: 6px; white-space: pre-wrap; width: fit-content; }
   .b.me a { color: var(--me-text); }
   .b.me a.imglink { font-weight: 600; text-underline-offset: 3px; }
-  .b.me.queued { opacity: .55; }
+  .b.me.queued { opacity: .55; position: relative; padding-right: 34px; }
+  .b.me.queued .unq { position: absolute; top: 4px; right: 4px; width: 26px; height: 26px; border: 0; border-radius: 13px; background: rgba(0, 0, 0, .25); color: var(--me-text); font-size: 13px; line-height: 26px; padding: 0; }
   .b.me .note { display: block; font-size: 12px; opacity: .85; margin-top: 2px; }
   .b.claude { margin-right: auto; background: var(--panel); border: 1px solid var(--line); border-bottom-left-radius: 6px; width: fit-content; min-width: 0; }
   .suggests { display: flex; flex-wrap: wrap; gap: 6px; margin: -2px 0 12px 4px; }
@@ -82,7 +83,9 @@
   .tout .open-diff { color: var(--link); margin-top: 4px; cursor: pointer; }
   .working { margin: 0 0 10px 4px; color: var(--claude); font: 13px/1.5 var(--mono); }
   .working .head { display: flex; align-items: center; gap: 6px; }
-  .working .stop { margin-left: auto; padding: 3px 12px; border: 1px solid var(--bad); border-radius: 12px; background: none; color: var(--bad); font: 600 13px/1.4 var(--sans, inherit); }
+  .working .stop { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin-left: 2px; padding: 0; border: 0; border-radius: 50%; background: var(--claude); flex: none; }
+  .working .stop .sq { width: 8px; height: 8px; border-radius: 1.5px; background: var(--bg); }
+  .working .stop:disabled { opacity: .5; }
   .working .spin { display: inline-flex; animation: spin 2s linear infinite; }
   .working .spin svg.ic { width: 14px; height: 14px; }
   @keyframes spin { to { transform: rotate(360deg); } }

@@ -395,7 +395,17 @@ function renderChat() {
   // waiting for a turn to end, dimmed; with none running it goes in at the next tick, a bubble as any
   for (const text of snap.queued || []) {
     const b = root.appendChild(inline(text, el('div', snap.busy ? 'b me queued' : 'b me')))
-    if (snap.busy) b.append(el('span', 'note', 'waits for this turn to end'))
+    if (!snap.busy) continue
+    b.append(el('span', 'note', 'waits for this turn to end'))
+    // ✕ takes it back before it goes in; gone at once here, and from the session at its next call
+    const x = b.appendChild(el('button', 'unq', '✕'))
+    x.setAttribute('aria-label', 'Take back')
+    x.onclick = async e => {
+      e.stopPropagation()
+      b.remove()
+      const r = await api('unqueue', { text })
+      if (r.s !== 200) toast({ title: 'Not taken back', body: r.b?.error || 'The session did not answer. Try again.' })
+    }
   }
   if (snap.ask) {
     // the question, as a bubble that opens its page again
@@ -415,21 +425,25 @@ function renderChat() {
     b.append(el('div', 'go', 'Answer it at the computer'))
   }
   if (snap.busy) {
+    // the tool running and the task list first, the Working line last: it stays just above the box
     const w = root.appendChild(el('div', 'working'))
-    const head = w.appendChild(el('div', 'head'))
-    head.appendChild(el('span', 'spin')).append(icon('spark'))
-    head.append(el('span', '', 'Working…'), el('span', 'elapsed', ''))
-    // Stop: the turn ends as Esc ends it at the computer
-    const stop = head.appendChild(el('button', 'stop', 'Stop'))
-    stop.onclick = async () => {
-      stop.disabled = true
-      const r = await api('stop', { session: snap.id })
-      toast(r.s === 200 ? { title: 'Stopping', body: 'The session ends its turn in a moment.' } : { title: 'Not stopped', body: r.b?.error || 'The session did not answer. Try again.' })
-    }
     if (snap.nowTool) w.append(el('div', 'now', snap.nowTool))
     for (const t of snap.tasks || []) {
       const row = w.appendChild(el('div', `task ${t.status === 'completed' ? 'done' : t.status === 'in_progress' ? 'doing' : ''}`))
       row.append(icon(t.status === 'completed' ? 'boxChecked' : 'box'), el('span', '', t.subject))
+    }
+    const head = w.appendChild(el('div', 'head'))
+    head.appendChild(el('span', 'spin')).append(icon('spark'))
+    head.append(el('span', '', 'Working…'))
+    // Stop, right after Working…: a round button with a solid square; the turn ends as Esc ends it
+    const stop = head.appendChild(el('button', 'stop'))
+    stop.setAttribute('aria-label', 'Stop this turn')
+    stop.append(el('span', 'sq'))
+    head.append(el('span', 'elapsed', ''))
+    stop.onclick = async () => {
+      stop.disabled = true
+      const r = await api('stop', { session: snap.id })
+      toast(r.s === 200 ? { title: 'Stopping', body: 'The session ends its turn in a moment.' } : { title: 'Not stopped', body: r.b?.error || 'The session did not answer. Try again.' })
     }
     tickElapsed()
   }
