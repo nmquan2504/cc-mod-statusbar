@@ -35,6 +35,8 @@ const ICONS = {
   branch: 'M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9',
   help: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM9.5 9.3a2.6 2.6 0 1 1 3.6 2.4c-.7.3-1.1.9-1.1 1.6v.4M12 16.8v.2',
   boxChecked: 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM8 12.5l2.5 2.5L16 9.5',
+  speaker: 'M4 9.5v5h3.5L12 18V6L7.5 9.5zM15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11',
+  stop: 'M8 8h8v8H8z',
 }
 function icon(name) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
@@ -53,8 +55,9 @@ let snap = null // the session shown
 let picked = ''
 let lastNotice = 0
 let isFirstDraw = true
-// Load earlier: the session asked, how far from the bottom you read, and the items last drawn
-let earlierAsked = '', keepFromBottom = 0, earlierCount = 0
+// Load earlier: the session asked, how far from the bottom you read, how far from the bottom the
+// oldest turn drawn was, and the items last drawn
+let earlierAsked = '', keepFromBottom = 0, oldestFromBottom = 0, earlierCount = 0
 let shownId = ''
 let filesTab = 'folder'
 // the Folder tab picks a file for the reply (the + menu's Browse project file) instead of opening it
@@ -402,16 +405,20 @@ function renderChat() {
   if (!items.length && !snap.busy) return root.append(el('div', 'empty', 'Nothing in this session yet.'))
   // the session holds more turns than it sent: 20 more at a tap, the place you read kept
   if (snap.hasEarlier) {
-    const more = root.appendChild(el('button', 'earlier', earlierAsked === snap.id ? 'Loading earlier turns…' : 'Load earlier turns'))
-    more.disabled = earlierAsked === snap.id
+    const more = root.appendChild(el('button', 'earlier'))
+    more.append(el('span', 'ring'), el('span', 'label', 'Load earlier turns'))
+    if (earlierAsked === snap.id) showEarlierLoading(more)
     more.onclick = async () => {
       earlierAsked = snap.id
-      keepFromBottom = document.documentElement.scrollHeight - scrollY
-      more.disabled = true
-      more.textContent = 'Loading earlier turns…'
+      const height = document.documentElement.scrollHeight
+      keepFromBottom = height - scrollY
+      oldestFromBottom = height - ((more.nextElementSibling?.getBoundingClientRect().top ?? 0) + scrollY)
+      showEarlierLoading(more)
       const r = await api('earlier')
       if (r.s !== 200) {
         earlierAsked = ''
+        keepFromBottom = 0
+        hideEarlierLoading()
         toast({ title: 'Not loaded', body: r.b?.error || 'The session did not answer. Try again.' })
       }
     }
@@ -444,6 +451,8 @@ function renderChat() {
       const b = root.appendChild(el('div', 'b claude'))
       b.append(markdown(t.text))
       bubbleText.set(b, t.text)
+      // the speaker needs speak.mjs, which a hub older than this page does not serve
+      if (canSpeak && globalThis.Speak) b.append(speakButton(t.text))
     }
   }
   // under Claude's last answer: Claude Code's guess at your next prompt, else what Haiku
@@ -649,6 +658,99 @@ function syncLayered() {
   document.documentElement.classList.toggle('layered', isOpen)
 }
 new MutationObserver(syncLayered).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['hidden', 'class'] })
+
+// Load earlier, waiting: the button turns, and two grey bubbles shimmer under it where the turns
+// will go
+function showEarlierLoading(more) {
+  more.disabled = true
+  more.classList.add('loading')
+  more.querySelector('.label').textContent = 'Loading earlier turns…'
+  if (!more.nextElementSibling?.classList.contains('ghost')) more.after(el('div', 'ghost claude'), el('div', 'ghost me'))
+}
+
+// Not loaded: the button as it was, the grey bubbles gone (on the chat as drawn now)
+function hideEarlierLoading() {
+  const more = $('chat').querySelector('.earlier')
+  if (!more) return
+  more.disabled = false
+  more.classList.remove('loading')
+  more.querySelector('.label').textContent = 'Load earlier turns'
+  for (const ghost of $('chat').querySelectorAll('.ghost')) ghost.remove()
+}
+
+// The earlier turns in, the place you read kept (render): what came in above it fades in, and the
+// page eases up a little to show it is there. `edge` is where the turns drawn before now start.
+function showEarlierArrived(edge) {
+  for (const node of $('chat').children) {
+    if (node.classList.contains('earlier')) continue
+    if (node.getBoundingClientRect().bottom + scrollY > edge + 1) break
+    node.classList.add('arrived')
+  }
+  const isCalm = matchMedia('(prefers-reduced-motion: reduce)').matches
+  window.scrollBy({ top: -Math.min(96, scrollY), behavior: isCalm ? 'auto' : 'smooth' })
+}
+
+// ---- Claude's answer read aloud --------------------------------------------------------------
+// The speaker by Claude's bubble reads it with the phone's own voices, a sentence at a time, each
+// piece in the Vietnamese voice or the English one (speak.mjs: a sentence with a Vietnamese word
+// stays Vietnamese unless three English words come in a row). A tap again, or on another bubble,
+// stops it; so does the mic, so it does not write down what is read.
+const canSpeak = 'speechSynthesis' in window && typeof SpeechSynthesisUtterance === 'function'
+let speaking = '' // the text being read: its button shows stop, through the redraws
+let speakRun = 0 // a read stopped: its utterances ending late are not the next read's
+
+// The phone's voice for `lang`: Vietnamese from Vietnam, US English, else any of that language;
+// none, and the browser picks by the utterance's lang
+function voiceFor(lang) {
+  const voices = speechSynthesis.getVoices().filter(v => v.lang.toLowerCase().replace('_', '-').startsWith(lang))
+  return voices.find(v => /^(vi-vn|en-us)$/i.test(v.lang.replace('_', '-'))) ?? voices[0] ?? null
+}
+
+function syncSpeakButtons() {
+  for (const btn of document.querySelectorAll('.b.claude > .speak')) {
+    const isOn = speaking !== '' && bubbleText.get(btn.parentElement) === speaking
+    if (btn.classList.contains('on') === isOn) continue
+    btn.classList.toggle('on', isOn)
+    btn.replaceChildren(icon(isOn ? 'stop' : 'speaker'))
+    btn.setAttribute('aria-label', isOn ? 'Stop reading' : 'Read aloud')
+  }
+}
+
+function stopSpeaking() {
+  if (!canSpeak) return
+  speakRun++
+  speaking = ''
+  speechSynthesis.cancel()
+  syncSpeakButtons()
+}
+
+function speak(text) {
+  stopSpeaking()
+  const parts = Speak.segments(Speak.speechText(text))
+  if (!parts.length) return
+  const run = speakRun
+  const voices = { vi: voiceFor('vi'), en: voiceFor('en') }
+  speaking = text
+  parts.forEach((part, i) => {
+    const said = new SpeechSynthesisUtterance(part.text)
+    said.lang = part.lang === 'vi' ? 'vi-VN' : 'en-US'
+    if (voices[part.lang]) said.voice = voices[part.lang]
+    if (i === parts.length - 1) said.onend = () => { if (run === speakRun) stopSpeaking() }
+    said.onerror = () => { if (run === speakRun) stopSpeaking() }
+    speechSynthesis.speak(said)
+  })
+  syncSpeakButtons()
+}
+
+function speakButton(text) {
+  const btn = el('button', 'speak')
+  const isOn = speaking === text
+  btn.classList.toggle('on', isOn)
+  btn.append(icon(isOn ? 'stop' : 'speaker'))
+  btn.setAttribute('aria-label', isOn ? 'Stop reading' : 'Read aloud')
+  btn.onclick = () => (speaking === text ? stopSpeaking() : speak(text))
+  return btn
+}
 
 // ---- gestures on a bubble, Claude's or yours -------------------------------------------------
 // A swipe toward the middle (right on Claude's, left on yours) quotes it in the reply box: the
@@ -1354,12 +1456,16 @@ function render() {
   }
   renderHeader()
   const shownTurns = (snap.transcript || []).length
+  // earlier turns came in over the chat: drawn with no loading left, the place you read stays where
+  // it was
+  const isEarlierIn = keepFromBottom && earlierAsked === snap.id && shownTurns !== earlierCount
+  if (isEarlierIn) earlierAsked = ''
   renderChat()
-  // earlier turns came in over the chat: the place you read stays where it was
-  if (keepFromBottom && earlierAsked === snap.id && shownTurns !== earlierCount) {
-    window.scrollTo(0, document.documentElement.scrollHeight - keepFromBottom)
+  if (isEarlierIn) {
+    const height = document.documentElement.scrollHeight
+    window.scrollTo(0, height - keepFromBottom)
+    showEarlierArrived(height - oldestFromBottom)
     keepFromBottom = 0
-    earlierAsked = ''
   }
   earlierCount = shownTurns
   void highlightChat()
@@ -1557,6 +1663,7 @@ function wireMic(mic, box, fit) {
   mic.hidden = false
   mic.onclick = () => {
     if (rec) return rec.stop()
+    stopSpeaking()
     rec = new Recognition()
     rec.lang = navigator.language || 'en-US'
     rec.interimResults = false

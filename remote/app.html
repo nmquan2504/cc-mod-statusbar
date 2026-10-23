@@ -203,6 +203,22 @@
   /* Load earlier, atop the chat */
   .earlier { display: block; margin: 0 auto 12px; padding: 6px 14px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); color: var(--link); font: inherit; font-size: 13px; }
   .earlier:disabled { color: var(--dim); }
+  .earlier .ring { display: none; width: 11px; height: 11px; margin-right: 7px; vertical-align: -1px; border-radius: 50%; border: 1.5px solid var(--line); border-top-color: var(--link); animation: spin .8s linear infinite; }
+  .earlier.loading .ring { display: inline-block; }
+  /* where the earlier turns will go, while they load */
+  .ghost { height: 34px; margin: 0 0 10px; border-radius: 18px; background: linear-gradient(90deg, var(--panel) 30%, var(--line) 50%, var(--panel) 70%) 0 0 / 300% 100%; animation: shimmer 1.3s linear infinite; }
+  .ghost.claude { width: 62%; border-bottom-left-radius: 6px; }
+  .ghost.me { width: 40%; margin-left: auto; border-bottom-right-radius: 6px; }
+  @keyframes shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+  /* the earlier turns, come in */
+  .arrived { animation: arrive .45s ease-out both; }
+  @keyframes arrive { from { opacity: 0; transform: translateY(-8px); } }
+  @media (prefers-reduced-motion: reduce) { .ghost, .earlier .ring, .arrived { animation-duration: 0s; } .ghost { animation: none; } }
+  /* read aloud: the speaker under Claude's bubble, on the left, clear of the jump buttons */
+  .b.claude:has(> .speak) { position: relative; margin-bottom: 34px; }
+  .b.claude > .speak { position: absolute; left: 2px; bottom: -30px; width: 28px; height: 28px; border: 0; border-radius: 50%; background: none; color: var(--dim); display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+  .b.claude > .speak svg.ic { width: 16px; height: 16px; }
+  .b.claude > .speak.on { color: var(--claude); animation: pulse 1.2s infinite; }
   /* a diff's hunks, each a block to tap and ask about */
   .hblock { border-radius: 6px; cursor: pointer; }
   .hblock.on { background: rgba(217, 119, 87, .14); outline: 1px solid rgba(217, 119, 87, .5); }
@@ -486,5 +502,6 @@
 <script src="/e2e.js"></script>
 <script src="/app.js"></script>
 <script type="module" src="/lineask.mjs"></script>
+<script type="module" src="/speak.mjs"></script>
 </body>
 </html>
