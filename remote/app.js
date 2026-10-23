@@ -772,7 +772,32 @@ function speak(text) {
 function readNotice(n) {
   if (!prefs.readNotices || !canSpeak || !globalThis.Speak) return
   const text = [n.title, n.body].filter(Boolean).join('. ').replace(/\s·\s/g, ', ').replace(/(^|\s)\/(?=\w)/g, '$1')
-  for (const part of Speak.segments(Speak.speechText(text))) speechSynthesis.speak(utterance(part.text, part.lang))
+  // a speech the browser left paused (the page was in the background) goes on first
+  speechSynthesis.resume()
+  Speak.segments(Speak.speechText(text)).forEach((part, i) => {
+    const said = utterance(part.text, part.lang)
+    if (i === 0) said.onerror = e => { if (e.error === 'not-allowed') noteSpeechBlocked() }
+    speechSynthesis.speak(said)
+  })
+}
+
+// A page may speak only after a tap: Chrome asks for one since the page opened, Safari for a first
+// utterance inside one. The first tap of each load says nothing, aloud, so a notice that comes in
+// later can be read; a notice the browser still refuses says why, once.
+let isSpeechUnlocked = false
+let wasBlockedNoted = false
+function unlockSpeech() {
+  if (isSpeechUnlocked || !canSpeak) return
+  isSpeechUnlocked = true
+  const hush = new SpeechSynthesisUtterance(' ')
+  hush.volume = 0
+  speechSynthesis.speak(hush)
+}
+addEventListener('pointerdown', unlockSpeech, { capture: true, passive: true })
+function noteSpeechBlocked() {
+  if (wasBlockedNoted) return
+  wasBlockedNoted = true
+  toast({ title: tx('Not read aloud'), body: tx('The browser lets a page speak only after a tap. Tap the page once after opening it.') })
 }
 
 // A voice's sample, from Settings
@@ -2334,7 +2359,14 @@ function renderSettings() {
   }
   if (canSpeak && globalThis.Speak) {
     const read = row(notes, tx('Read notifications aloud'), tx('While this page is open, each one is read as it comes in.'))
-    toggle(read, prefs.readNotices, () => set('readNotices', !prefs.readNotices))
+    toggle(read, prefs.readNotices, () => {
+      set('readNotices', !prefs.readNotices)
+      // said within the tap, which also lets the page speak later
+      if (prefs.readNotices && globalThis.I18N) {
+        stopSpeaking()
+        speechSynthesis.speak(utterance(I18N.SAMPLES[`notice_${prefs.lang}`], prefs.lang))
+      }
+    })
   }
 
   const off = body.appendChild(el('button', 'plain unpair', tx('Unpair this phone')))

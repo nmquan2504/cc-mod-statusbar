@@ -253,6 +253,9 @@
   .pnav { position: fixed; right: 14px; bottom: calc(var(--foot) + 54px + var(--kb)); z-index: 11; display: flex; flex-direction: column; gap: 6px; }
   .pnav button { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); display: inline-flex; align-items: center; justify-content: center; padding: 0; }
   .pnav svg.ic { width: 16px; height: 16px; }
+  /* see-through, so the chat under them still reads; whole while pressed */
+  .pnav button { background: color-mix(in srgb, var(--panel) 35%, transparent); border-color: color-mix(in srgb, var(--line) 60%, transparent); opacity: .55; transition: opacity .15s; }
+  .pnav button:active { opacity: 1; background: var(--panel); }
   .b.flash { outline: 2px solid var(--claude); outline-offset: 2px; transition: outline-color 1s; }
   /* the quote over the reply box: who wrote it and its first two lines */
   .quote { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 8px; padding: 8px 6px 8px 10px; border-radius: 12px; background: var(--bg); }

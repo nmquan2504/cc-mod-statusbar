@@ -257,6 +257,8 @@ export const VI = {
   'These settings stay on this phone.': 'Các cài đặt này chỉ lưu trên điện thoại này.',
   'This phone no longer gets them.': 'Điện thoại này sẽ không nhận nữa.',
   'Read notifications aloud': 'Đọc to thông báo',
+  'Not read aloud': 'Chưa đọc to được',
+  'The browser lets a page speak only after a tap. Tap the page once after opening it.': 'Trình duyệt chỉ cho trang đọc to sau một lần chạm. Chạm vào trang một lần sau khi mở.',
   'While this page is open, each one is read as it comes in.': 'Khi trang này đang mở, mỗi thông báo được đọc ngay khi đến.',
 }
 
@@ -264,6 +266,8 @@ export const VI = {
 export const SAMPLES = {
   vi: 'Xin chào, mình sẽ đọc câu trả lời của Claude bằng giọng này.',
   en: "Hi, I will read Claude's answers in this voice.",
+  notice_vi: 'Mình sẽ đọc to thông báo khi chúng đến.',
+  notice_en: "I'll read notifications aloud as they come in.",
 }
 
 // The word naming a running turn, picked for the turn: Claude Code's spinner words in English, and
