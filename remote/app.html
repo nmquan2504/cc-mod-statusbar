@@ -16,6 +16,8 @@
     --bg: #1a1a18; --panel: #24241f; --line: #34342d; --text: #ecebe4; --dim: #9b9a90;
     --claude: #d97757; --me: #b4532a; --me-text: #ffffff; --ok: #6fbf73; --bad: #e5675e; --warn: #e0b04a; --link: #7aa7e6;
     --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+    /* the chat's and the code's text size, set in Settings (app.js) */
+    --fs: 1;
     --top: calc(48px + env(safe-area-inset-top));
     /* how much of the bottom the on-screen keyboard covers, where the browser does not resize for it */
     --kb: 0px;
@@ -59,14 +61,14 @@
   .b.me a.imglink { font-weight: 600; text-underline-offset: 3px; }
   .b.me.queued { opacity: .55; position: relative; padding-right: 34px; }
   .b.me.queued .unq { position: absolute; top: 4px; right: 4px; width: 26px; height: 26px; border: 0; border-radius: 13px; background: rgba(0, 0, 0, .25); color: var(--me-text); font-size: 13px; line-height: 26px; padding: 0; }
-  .b.me .note { display: block; font-size: 12px; opacity: .85; margin-top: 2px; }
+  .b.me .note { display: block; font-size: calc(12px * var(--fs)); opacity: .85; margin-top: 2px; }
   .b.claude { margin-right: auto; background: var(--panel); border: 1px solid var(--line); border-bottom-left-radius: 6px; width: fit-content; min-width: 0; }
   .suggests { display: flex; flex-wrap: wrap; gap: 6px; margin: -2px 0 12px 4px; }
   .suggest { display: inline-flex; align-items: center; gap: 6px; max-width: 88%; margin: 0; padding: 6px 12px; border: 1px solid var(--claude); border-radius: 16px; background: none; color: var(--claude); font-size: 14px; text-align: left; }
   .suggest svg.ic { width: 14px; height: 14px; flex: none; }
   .suggest span { overflow-wrap: anywhere; }
   .more-tools { margin: 0 0 6px 6px; font: 11.5px var(--mono); color: var(--dim); opacity: .6; }
-  .tools { margin: 0 0 10px 6px; font: 11.5px/1.45 var(--mono); color: var(--dim); }
+  .tools { margin: 0 0 10px 6px; font: calc(11.5px * var(--fs))/1.45 var(--mono); color: var(--dim); }
   .tools strong { font-weight: 600; }
   .trow { display: flex; gap: 7px; align-items: center; padding: 1px 0; cursor: pointer; opacity: .7; max-width: 75%; }
   .trow.open { opacity: 1; }
@@ -80,10 +82,10 @@
   .trow .chev { color: var(--dim); flex: none; display: inline-flex; }
   .bullet { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--dim); }
   .bullet.ok { background: var(--ok); } .bullet.bad { background: var(--bad); } .bullet.run { animation: pulse 1.2s infinite; }
-  .tout { margin: 2px 0 6px 13px; padding: 4px 8px; border-left: 2px solid var(--line); font: 11.5px/1.45 var(--mono); color: var(--dim); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 50vh; overflow-y: auto; }
+  .tout { margin: 2px 0 6px 13px; padding: 4px 8px; border-left: 2px solid var(--line); font: calc(11.5px * var(--fs))/1.45 var(--mono); color: var(--dim); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 50vh; overflow-y: auto; }
   .tout .add { color: var(--ok); } .tout .del { color: var(--bad); }
   .tout .open-diff { color: var(--link); margin-top: 4px; cursor: pointer; }
-  .working { margin: 0 0 0 4px; color: var(--claude); font: 13px/1.5 var(--mono); }
+  .working { margin: 0 0 0 4px; color: var(--claude); font: calc(13px * var(--fs))/1.5 var(--mono); }
   .working .head { display: flex; align-items: center; gap: 6px; }
   .working .stop { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin-left: 4px; padding: 0; border: 0; border-radius: 50%; background: var(--claude); flex: none; }
   /* a thin ring turning around Stop while the turn runs */
@@ -116,18 +118,18 @@
 
   /* markdown inside a bubble */
   .md p { margin: 0 0 8px; } .md > :last-child { margin-bottom: 0; }
-  .md h4 { margin: 10px 0 4px; font-size: 15px; } .md > h4:first-child { margin-top: 0; }
+  .md h4 { margin: 10px 0 4px; font-size: calc(15px * var(--fs)); } .md > h4:first-child { margin-top: 0; }
   .md ul, .md ol { margin: 0 0 8px; padding-left: 20px; } .md li > ul, .md li > ol { margin: 2px 0 0; }
   .md a { color: var(--link); overflow-wrap: anywhere; }
   .md blockquote { margin: 0 0 8px; padding-left: 10px; border-left: 3px solid var(--line); color: var(--dim); }
-  pre { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; overflow-x: auto; font: 12px/1.4 var(--mono); white-space: pre; margin: 6px 0; }
-  code { font: 13px var(--mono); background: var(--bg); padding: 0 3px; border-radius: 4px; }
+  pre { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; overflow-x: auto; font: calc(12px * var(--fs))/1.4 var(--mono); white-space: pre; margin: 6px 0; }
+  code { font: calc(13px * var(--fs)) var(--mono); background: var(--bg); padding: 0 3px; border-radius: 4px; }
   .b.me code { background: rgba(0, 0, 0, .2); }
   /* a code block in your bubble reads as one in Claude's */
   .b.me pre { color: var(--text); }
   .b.me pre code { background: none; }
   .tablewrap { overflow-x: auto; margin: 0 0 8px; }
-  .md table { border-collapse: collapse; font-size: 13px; }
+  .md table { border-collapse: collapse; font-size: calc(13px * var(--fs)); }
   .md th, .md td { border: 1px solid var(--line); padding: 3px 8px; text-align: left; vertical-align: top; }
 
   /* the composer */
@@ -180,6 +182,8 @@
   .drawer-foot { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
   .plain { border: 1px solid var(--line); background: none; border-radius: 10px; padding: 9px 12px; text-align: left; }
   .plain.warn { color: var(--bad); border-color: var(--bad); }
+  /* the chat's own text, at the size Settings picked */
+  #chat { font-size: calc(15px * var(--fs)); }
   /* the drawer's way to Settings */
   .setbtn { display: flex; align-items: center; gap: 8px; }
   .setbtn svg.ic { width: 18px; height: 18px; color: var(--dim); }
@@ -195,6 +199,10 @@
   .unpair { display: block; width: 100%; margin-top: 4px; text-align: center; color: var(--bad); border-color: var(--bad); font-weight: 600; }
   .unpair.armed { background: var(--bad); color: #fff; }
   .meta.center { text-align: center; }
+  .card.set .size { display: flex; align-items: center; gap: 6px; }
+  .card.set .size .pbtn { min-width: 40px; }
+  .card.set .size .pv { min-width: 44px; text-align: center; }
+  .card.set .b.claude.preview { margin: 4px 0 8px; font-size: calc(15px * var(--fs)); max-width: 100%; }
   .sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 21; background: var(--bg); border-top: 1px solid var(--line); border-radius: 16px 16px 0 0; padding: 16px 16px calc(20px + env(safe-area-inset-bottom)); }
   .sheet h2 { margin: 0 0 4px; font-size: 18px; overflow-wrap: anywhere; }
   .meta { color: var(--dim); font-size: 13px; overflow-wrap: anywhere; }
@@ -253,9 +261,9 @@
   .pnav { position: fixed; right: 14px; bottom: calc(var(--foot) + 54px + var(--kb)); z-index: 11; display: flex; flex-direction: column; gap: 6px; }
   .pnav button { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); display: inline-flex; align-items: center; justify-content: center; padding: 0; }
   .pnav svg.ic { width: 16px; height: 16px; }
-  /* see-through, so the chat under them still reads; whole while pressed */
-  .pnav button { background: color-mix(in srgb, var(--panel) 35%, transparent); border-color: color-mix(in srgb, var(--line) 60%, transparent); opacity: .55; transition: opacity .15s; }
-  .pnav button:active { opacity: 1; background: var(--panel); }
+  /* ↑ ↓ and Newest see-through, so the chat under them still reads; whole while pressed */
+  .pnav button, .jump { background: color-mix(in srgb, var(--panel) 35%, transparent); border-color: color-mix(in srgb, var(--line) 60%, transparent); opacity: .55; transition: opacity .15s; }
+  .pnav button:active, .jump:active { opacity: 1; background: var(--panel); }
   .b.flash { outline: 2px solid var(--claude); outline-offset: 2px; transition: outline-color 1s; }
   /* the quote over the reply box: who wrote it and its first two lines */
   .quote { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 8px; padding: 8px 6px 8px 10px; border-radius: 12px; background: var(--bg); }
@@ -289,7 +297,7 @@
   .add { color: var(--ok); } .del { color: var(--bad); } .hunk { color: var(--link); } .ctx { color: var(--dim); }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
   .grid img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); }
-  .diff { font: 12px/1.45 var(--mono); white-space: pre; overflow-x: auto; padding-top: 12px; }
+  .diff { font: calc(12px * var(--fs))/1.45 var(--mono); white-space: pre; overflow-x: auto; padding-top: 12px; }
   .diff div { min-height: 1.45em; }
   .viewer img { max-width: 100%; margin-top: 12px; }
   .none { color: var(--dim); text-align: center; padding: 40px 0; }
@@ -307,7 +315,7 @@
   .trow-file .ctxdot { color: var(--claude); font-size: 11px; }
   .trow-file.locked { opacity: .55; }
   .meta.pad { padding: 8px 0; }
-  .codeview { position: relative; display: flex; margin: 0 -12px; border-top: 1px solid var(--line); font: 12px/1.5 var(--mono); }
+  .codeview { position: relative; display: flex; margin: 0 -12px; border-top: 1px solid var(--line); font: calc(12px * var(--fs))/1.5 var(--mono); }
   .codeview pre { margin: 0; border: 0; border-radius: 0; padding: 8px; font: inherit; background: none; }
   .codeview .gutter { color: var(--dim); text-align: right; user-select: none; border-right: 1px solid var(--line); flex: none; cursor: pointer; }
   .codeview .linemark { position: absolute; left: 0; right: 0; background: rgba(217, 119, 87, .18); pointer-events: none; }
@@ -360,6 +368,7 @@
   .pin input { flex: 1; }
   .pbtn { font: 600 13px -apple-system, sans-serif; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px; }
   .pbtn.danger { color: var(--bad); border-color: var(--bad); }
+  .pbtn:disabled { opacity: .4; }
   .perr { color: var(--bad); border: 1px solid var(--bad); border-radius: 10px; padding: 8px 10px; margin-bottom: 12px; }
   .opt .ol { font-weight: 600; } .opt .od { color: var(--dim); font-size: 13px; }
   .q pre.preview { margin: 6px 0 0; }
@@ -372,9 +381,9 @@
   .primary { border: 0; border-radius: 10px; padding: 10px 12px; background: var(--claude); color: #fff; }
   .primary:disabled { opacity: .5; }
   .b.ask { cursor: pointer; border-color: var(--claude); }
-  .b.ask .qt { font-weight: 700; } .b.ask .go { color: var(--link); font-size: 13px; margin-top: 4px; }
+  .b.ask .qt { font-weight: 700; } .b.ask .go { color: var(--link); font-size: calc(13px * var(--fs)); margin-top: 4px; }
   .b.ask.perm { cursor: default; } .b.ask.perm .go { color: var(--dim); }
-  .b.ask.perm pre.call { margin: 6px 0 4px; white-space: pre-wrap; overflow-wrap: anywhere; font: 12.5px/1.4 var(--mono); background: rgba(0, 0, 0, .18); border-radius: 8px; padding: 6px 8px; }
+  .b.ask.perm pre.call { margin: 6px 0 4px; white-space: pre-wrap; overflow-wrap: anywhere; font: calc(12.5px * var(--fs))/1.4 var(--mono); background: rgba(0, 0, 0, .18); border-radius: 8px; padding: 6px 8px; }
   /* the + menu and what it opens */
   .plus { width: var(--row-h); height: var(--row-h); border-radius: 50%; border: 1px solid var(--line); background: var(--panel); }
   .plus.on { border-color: var(--claude); color: var(--claude); }
@@ -399,7 +408,7 @@
   .cmd .n { font: 600 14px var(--mono); color: var(--claude); } .cmd .d { color: var(--dim); font-size: 12px; overflow-wrap: anywhere; }
   /* what a command sent from here printed, or why it did not run */
   pre.cmdout { margin: 0 0 10px 4px; max-width: 92%; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--dim); }
-  pre.cmdout.bad { color: var(--bad); border-color: var(--bad); white-space: normal; font: 13px/1.45 -apple-system, sans-serif; }
+  pre.cmdout.bad { color: var(--bad); border-color: var(--bad); white-space: normal; font: calc(13px * var(--fs))/1.45 -apple-system, sans-serif; }
   .cmd.computeronly .n { color: var(--dim); }
   .cmd .tag { margin-left: 8px; font: 600 10px -apple-system, sans-serif; text-transform: uppercase; letter-spacing: .05em; color: var(--dim); border: 1px solid var(--line); border-radius: 6px; padding: 1px 5px; vertical-align: 2px; }
   /* /usage */
