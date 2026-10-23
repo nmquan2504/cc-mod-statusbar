@@ -144,11 +144,13 @@ async function pushAll() {
 }
 
 // ---- the files a phone may see: those a session's snapshot lists, nothing else ------------
+// A secret's diff is its content, so a locked path (SENSITIVE) gets none: `isLocked` says so.
 async function diffOf(session, path) {
   const s = sessions.get(session)?.snapshot
   if (!s) return undefined
   const listed = (s.edited ?? []).some(f => f.path === path) || (s.changes ?? []).some(f => f.path === path)
   if (!listed || !s.cwd) return undefined
+  if (SENSITIVE.test(path)) return { isLocked: true }
   const spec = isAbsolute(path) ? path : `:(top)${path}`
   const tracked = await run(['git', '-C', s.cwd, 'diff', '--no-color', '--no-ext-diff', 'HEAD', '--', spec], s.cwd)
   if (tracked.trim()) return tracked
@@ -156,13 +158,16 @@ async function diffOf(session, path) {
   const top = (await run(['git', '-C', s.cwd, 'rev-parse', '--show-toplevel'], s.cwd)).trim()
   const abs = isAbsolute(path) ? path : join(top || s.cwd, path)
   if (!existsSync(abs) || statSync(abs).size > 512 * 1024) return ''
+  // a link to a secret: what it leads to is read below
+  if (SENSITIVE.test(real(abs))) return { isLocked: true }
   return run(['git', 'diff', '--no-color', '--no-index', '--', '/dev/null', abs], s.cwd)
 }
 const IMAGE_TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml' }
 
 // ---- browsing a session's folders: its own, those added, and the files it holds in context ----
-// The same paths the mod's file menu shows locked: the project's secrets, never shown on a phone.
-const SENSITIVE = /(^|\/)(\.env(\..*)?|secrets|exports|id_(rsa|ed25519)[^/]*|[^/]*\.(pem|key|p12))(\/|$)/i
+// The same paths the mod's file menu shows locked (hooks/lib/catalog.ts): the project's secrets and
+// the credentials a home folder keeps, never shown on a phone, in the Folder tab or as a diff.
+const SENSITIVE = /(^|\/)(\.env(\..*)?|\.envrc|secrets|exports|\.ssh|\.aws|\.gnupg|\.docker|\.kube|\.config\/gcloud|\.npmrc|\.netrc|\.pypirc|\.git-credentials|id_(rsa|dsa|ecdsa|ed25519)[^/]*|[^/]*\.(pem|key|p12|pfx|jks|keystore|kdbx|ppk|tfvars|tfstate))(\/|$)/i
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.baseline'])
 const TEXT_MAX = 512 * 1024
 const real = p => { try { return realpathSync(p) } catch { return '' } }
@@ -333,7 +338,8 @@ async function answerOp(dev, id, op, a, res) {
     }
     case 'diff': {
       const diff = await diffOf(session, String(a.path ?? ''))
-      return diff === undefined ? [404, { error: 'Not a file of this session.' }] : [200, { diff }]
+      if (diff === undefined) return [404, { error: 'Not a file of this session.' }]
+      return typeof diff === 'string' ? [200, { diff }] : [403, { error: 'Locked: secrets are not shown on the phone.', isLocked: true }]
     }
     case 'image': {
       const img = imageOf(session, String(a.n ?? ''))
