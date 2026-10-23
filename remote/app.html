@@ -95,16 +95,18 @@
   .trow.running { opacity: 1; color: var(--text); }
   /* a long press copies Claude's answer (app.js): no text selection or callout to fight it, and the
      part being held dims until it is copied */
-  .b.claude { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: pan-y; }
+  .b.claude, .b.me { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: pan-y; }
   /* swiped far enough to quote (app.js) */
   .b.claude.quoting { border-color: var(--claude); }
+  .b.me.quoting { box-shadow: 0 0 0 2px var(--claude); }
   /* a code block in the chat coloured by highlight.js keeps the block's own background */
   pre code.hljs { background: none; padding: 0; }
   /* a session that ended a turn while another was shown: a dot by its name, and on the drawer's button */
   .srow .name.unread::after { content: ''; display: inline-block; width: 7px; height: 7px; margin-left: 6px; border-radius: 50%; background: var(--link); vertical-align: middle; }
   #open-drawer { position: relative; }
   #open-drawer.unread::after { content: ''; position: absolute; top: 8px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--link); }
-  .b.claude.copying, .b.claude pre.copying { opacity: .6; transition: opacity .5s; }
+  /* held: it dims over the two seconds before it is copied */
+  .b.copying, .b pre.copying { opacity: .5; transition: opacity 2s linear; }
   /* a task's box on its first line, not in the middle of a task that wraps */
   .working .task { display: flex; align-items: flex-start; gap: 6px; color: var(--dim); }
   .working .task svg.ic { flex: none; width: 13px; height: 13px; margin-top: .25em; } .working .task.doing { color: var(--claude); } .working .task.done span { text-decoration: line-through; }
@@ -185,7 +187,28 @@
   .page { position: fixed; inset: 0; z-index: 30; background: var(--bg); overflow-y: auto; padding: 0 12px calc(20px + env(safe-area-inset-bottom)); }
   .page-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 4px; background: var(--bg); padding-top: env(safe-area-inset-top); height: var(--top); margin: 0 -12px; padding-left: 8px; padding-right: 12px; border-bottom: 1px solid var(--line); }
   .page-head strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .fsearch { display: block; width: 100%; box-sizing: border-box; margin: 12px 0 0; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--text); font: inherit; }
+  .fsearch { position: relative; margin: 12px 0 0; }
+  .fsearch input { display: block; width: 100%; box-sizing: border-box; padding: 9px 40px 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--text); font: inherit; }
+  /* the clear button on a search box: a plain icon, in the text's colours */
+  .fsearch button, .finder .clear { position: absolute; top: 50%; right: 4px; transform: translateY(-50%); width: 32px; height: 32px; border: 0; background: none; color: var(--dim); display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+  .fsearch button svg.ic, .finder .clear svg.ic { width: 16px; height: 16px; }
+  .finder .field { position: relative; flex: 1; min-width: 0; }
+  .finder .field input { width: 100%; box-sizing: border-box; padding-right: 36px; }
+  mark { background: rgba(224, 176, 74, .45); color: inherit; border-radius: 2px; }
+  /* your messages, before and after where you read */
+  .pnav { position: fixed; right: 14px; bottom: calc(var(--foot) + 54px + var(--kb)); z-index: 11; display: flex; flex-direction: column; gap: 6px; }
+  .pnav button { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+  .pnav svg.ic { width: 16px; height: 16px; }
+  .b.flash { outline: 2px solid var(--claude); outline-offset: 2px; transition: outline-color 1s; }
+  /* the quote over the reply box: who wrote it and its first two lines */
+  .quote { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 8px; padding: 8px 6px 8px 10px; border-radius: 12px; background: var(--bg); }
+  .quote .qmark { flex: none; color: var(--claude); display: inline-flex; margin-top: 1px; }
+  .quote .qmark svg.ic { width: 14px; height: 14px; fill: currentColor; stroke: none; }
+  .quote .qbody { flex: 1; min-width: 0; }
+  .quote .qwho { font-size: 12px; font-weight: 600; }
+  .quote .qtext { font-size: 13px; color: var(--dim); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .quote button { flex: none; width: 26px; height: 26px; border: 0; background: none; color: var(--dim); display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+  .quote button svg.ic { width: 14px; height: 14px; }
   .sgroup { margin: 4px 0 2px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--dim); }
   .shit { display: block; width: 100%; text-align: left; border: 0; border-top: 1px solid var(--line); background: none; padding: 8px; font: 12px/1.45 var(--mono); color: var(--text); }
   .shit:first-child { border-top: 0; }
@@ -360,6 +383,11 @@
   <main id="chat"></main>
   <footer>
     <div class="composer">
+      <div id="quote" class="quote" hidden>
+        <span class="qmark" data-icon="quote"></span>
+        <div class="qbody"><div id="quote-who" class="qwho"></div><div id="quote-text" class="qtext"></div></div>
+        <button id="unquote" class="icon" aria-label="Remove the quote" data-icon="close"></button>
+      </div>
       <textarea id="text" rows="1" placeholder="Reply" aria-label="Reply to Claude"></textarea>
       <div class="tools-row">
         <button id="plus" class="icon plus" aria-label="Add to the reply" data-icon="plus"></button>
@@ -368,6 +396,10 @@
       </div>
     </div>
   </footer>
+</div>
+<div id="pnav" class="pnav" hidden>
+  <button id="prev-prompt" class="icon" aria-label="Your message before" data-icon="chevronUp"></button>
+  <button id="next-prompt" class="icon" aria-label="Your message after" data-icon="chevronDown"></button>
 </div>
 <button id="jump" class="jump" aria-label="Newest" data-icon="arrowDown" hidden></button>
 <div id="plus-menu" class="dropup" hidden></div>
@@ -390,7 +422,7 @@
     <button id="close-files" class="icon" aria-label="Back" data-icon="back"></button>
     <strong>Files &amp; images</strong>
   </div>
-  <input id="files-q" class="fsearch" type="search" placeholder="Search file names and contents" aria-label="Search files" autocomplete="off">
+  <div class="fsearch"><input id="files-q" type="text" placeholder="Search file names and contents" aria-label="Search files" autocomplete="off" enterkeyhint="search"><button id="files-q-clear" class="icon" aria-label="Clear the search" data-icon="close" hidden></button></div>
   <div class="seg">
     <button id="seg-folder" class="on">Folder</button>
     <button id="seg-context">Context</button>

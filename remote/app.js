@@ -24,6 +24,8 @@ const ICONS = {
   file: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5',
   lock: 'M7 11V7a5 5 0 0 1 10 0v4M6 11h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1z',
   plus: 'M12 5v14M5 12h14',
+  chevronUp: 'M6 15l6-6 6 6',
+  quote: 'M7 17c-2 0-3-1.5-3-3.5C4 10 6.5 7 10 6v2c-2 .7-3 2-3 3.5h3V17H7zm9 0c-2 0-3-1.5-3-3.5 0-3.5 2.5-6.5 6-7.5v2c-2 .7-3 2-3 3.5h3V17h-3z',
   close: 'M6 6l12 12M18 6L6 18',
   globe: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3.5 12h17M12 3c2.5 2.5 3.8 5.5 3.8 9s-1.3 6.5-3.8 9c-2.5-2.5-3.8-5.5-3.8-9S9.5 5.5 12 3z',
   key: 'M14.5 4a5.5 5.5 0 1 1-4.2 9L4 19.3V21h3v-2h2v-2h2l.7-.7A5.5 5.5 0 0 1 14.5 4zM16 8.5h.01',
@@ -392,11 +394,14 @@ function renderChat() {
       continue
     }
     tools = null
-    if (t.k === 'user') root.append(prompted(t.text, el('div', 'b me')))
+    if (t.k === 'user') {
+      const b = root.appendChild(prompted(t.text, el('div', 'b me')))
+      bubbleText.set(b, t.text)
+    }
     else {
       const b = root.appendChild(el('div', 'b claude'))
       b.append(markdown(t.text))
-      answerText.set(b, t.text)
+      bubbleText.set(b, t.text)
     }
   }
   // under Claude's last answer: Claude Code's guess at your next prompt, else what Haiku
@@ -411,10 +416,11 @@ function renderChat() {
     }
   }
   // sent as the prompt, not in the transcript yet: drawn as the bubble it will be
-  for (const text of snap.sending || []) root.append(prompted(text, el('div', 'b me')))
+  for (const text of snap.sending || []) bubbleText.set(root.appendChild(prompted(text, el('div', 'b me'))), text)
   // waiting for a turn to end, dimmed; with none running it goes in at the next tick, a bubble as any
   for (const text of snap.queued || []) {
     const b = root.appendChild(prompted(text, el('div', snap.busy ? 'b me queued' : 'b me')))
+    bubbleText.set(b, text)
     if (!snap.busy) continue
     b.append(el('span', 'note', 'waits for this turn to end'))
     // ✕ takes it back before it goes in; gone at once here, and from the session at its next call
@@ -583,52 +589,13 @@ function syncLayered() {
 }
 new MutationObserver(syncLayered).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['hidden', 'class'] })
 
-// ---- a swipe right on Claude's answer quotes it in the reply box: the bubble follows the finger,
-// and past SWIPE_PX on letting go the answer goes in as "> " lines (the first QUOTE_MAX characters),
-// the box focused to write under it. A move that is more up or down than across is a scroll. ----
-const SWIPE_PX = 64, QUOTE_MAX = 600
-{
-  let bubble = null, x0 = 0, y0 = 0, dx = 0, isAcross = false
-  $('chat').addEventListener('pointerdown', e => {
-    bubble = e.target.closest('.b.claude')
-    if (!bubble || !answerText.has(bubble)) return (bubble = null)
-    x0 = e.clientX
-    y0 = e.clientY
-    dx = 0
-    isAcross = false
-  })
-  $('chat').addEventListener('pointermove', e => {
-    if (!bubble) return
-    const mx = e.clientX - x0, my = e.clientY - y0
-    if (!isAcross && Math.abs(my) > 10 && Math.abs(my) > Math.abs(mx)) return (bubble = null)
-    if (mx > 10) isAcross = true
-    if (!isAcross) return
-    dx = Math.max(0, mx)
-    bubble.style.transition = 'none'
-    bubble.style.transform = `translateX(${Math.min(dx, SWIPE_PX + 24)}px)`
-    bubble.classList.toggle('quoting', dx > SWIPE_PX)
-  })
-  const end = () => {
-    if (!bubble) return
-    const b = bubble
-    bubble = null
-    b.style.transition = 'transform .15s ease'
-    b.style.transform = ''
-    b.classList.remove('quoting')
-    if (!isAcross || dx <= SWIPE_PX) return
-    const raw = answerText.get(b)
-    const cut = raw.length > QUOTE_MAX ? `${raw.slice(0, QUOTE_MAX)}…` : raw
-    insertText(`${cut.split('\n').map(l => `> ${l}`).join('\n')}\n\n`)
-    navigator.vibrate?.(10)
-  }
-  $('chat').addEventListener('pointerup', end)
-  $('chat').addEventListener('pointercancel', end)
-}
-
-// ---- a long press on Claude's answer copies it: on a code block, that block; elsewhere in the
-// bubble, the whole answer as Claude wrote it (markdown) ----------------------------------------
-const answerText = new WeakMap() // a Claude bubble -> the answer's text
-const HOLD_TO_COPY_MS = 500
+// ---- gestures on a bubble, Claude's or yours -------------------------------------------------
+// A swipe toward the middle (right on Claude's, left on yours) quotes it in the reply box: the
+// bubble follows the finger, and past SWIPE_PX on letting go the quote card shows over the box. A
+// move more up or down than across is a scroll. Held DIM_AFTER_MS it starts to dim, and at
+// HOLD_TO_COPY_MS it is copied: on a code block, that block; elsewhere, the bubble's text as written.
+const bubbleText = new WeakMap() // a bubble -> its text as Claude or you wrote it
+const SWIPE_PX = 64, DIM_AFTER_MS = 1000, HOLD_TO_COPY_MS = 3000
 async function copyText(value) {
   try {
     await navigator.clipboard.writeText(value)
@@ -645,32 +612,87 @@ async function copyText(value) {
   }
 }
 {
-  let timer = 0, x = 0, y = 0
-  const stop = () => {
-    clearTimeout(timer)
-    timer = 0
-    document.querySelectorAll('.copying').forEach(n => n.classList.remove('copying'))
+  let bubble = null, target = null, x0 = 0, y0 = 0, dx = 0, isAcross = false, dimTimer = 0, copyTimer = 0
+  const stopHold = () => {
+    clearTimeout(dimTimer)
+    clearTimeout(copyTimer)
+    dimTimer = copyTimer = 0
+    target?.classList.remove('copying')
   }
   $('chat').addEventListener('pointerdown', e => {
-    const bubble = e.target.closest('.b.claude')
-    if (!bubble || !answerText.has(bubble)) return
+    bubble = e.target.closest('.b.claude, .b.me')
+    if (!bubble || !bubbleText.has(bubble) || e.target.closest('button, a')) return (bubble = null)
     const block = e.target.closest('pre')
-    const target = block && bubble.contains(block) ? block : bubble
-    x = e.clientX
-    y = e.clientY
-    target.classList.add('copying')
-    timer = setTimeout(async () => {
-      timer = 0
-      const isCopied = await copyText(target === bubble ? answerText.get(bubble) : block.textContent)
-      target.classList.remove('copying')
+    target = block && bubble.contains(block) ? block : bubble
+    x0 = e.clientX
+    y0 = e.clientY
+    dx = 0
+    isAcross = false
+    const held = target, from = bubble
+    dimTimer = setTimeout(() => held.classList.add('copying'), DIM_AFTER_MS)
+    copyTimer = setTimeout(async () => {
+      copyTimer = 0
+      const isBlock = held !== from
+      const isCopied = await copyText(isBlock ? held.textContent : bubbleText.get(from))
+      held.classList.remove('copying')
       navigator.vibrate?.(15)
-      toast(isCopied ? { title: 'Copied', body: target === bubble ? 'The whole answer' : 'The code block' } : { title: 'Not copied', body: 'The browser refused the clipboard.' })
+      toast(isCopied ? { title: 'Copied', body: isBlock ? 'The code block' : from.classList.contains('me') ? 'Your message' : 'The whole answer' } : { title: 'Not copied', body: 'The browser refused the clipboard.' })
     }, HOLD_TO_COPY_MS)
   })
-  $('chat').addEventListener('pointermove', e => { if (timer && Math.hypot(e.clientX - x, e.clientY - y) > 10) stop() })
-  for (const name of ['pointerup', 'pointercancel']) $('chat').addEventListener(name, () => { if (timer) stop() })
-  // the long press is the copy: no menu, no selection
-  $('chat').addEventListener('contextmenu', e => { if (e.target.closest('.b.claude')) e.preventDefault() })
+  $('chat').addEventListener('pointermove', e => {
+    if (!bubble) return
+    const mx = e.clientX - x0, my = e.clientY - y0
+    if (Math.hypot(mx, my) > 10) stopHold()
+    if (!isAcross && Math.abs(my) > 10 && Math.abs(my) > Math.abs(mx)) return (bubble = null)
+    // toward the middle: right for Claude's, left for yours
+    const toward = bubble.classList.contains('me') ? -mx : mx
+    if (toward > 10) isAcross = true
+    if (!isAcross) return
+    dx = Math.max(0, toward)
+    const shift = Math.min(dx, SWIPE_PX + 24) * (bubble.classList.contains('me') ? -1 : 1)
+    bubble.style.transition = 'none'
+    bubble.style.transform = `translateX(${shift}px)`
+    bubble.classList.toggle('quoting', dx > SWIPE_PX)
+  })
+  const end = () => {
+    stopHold()
+    if (!bubble) return
+    const b = bubble
+    bubble = null
+    b.style.transition = 'transform .15s ease'
+    b.style.transform = ''
+    b.classList.remove('quoting')
+    if (!isAcross || dx <= SWIPE_PX) return
+    setQuote(b.classList.contains('me') ? 'You' : 'Claude', bubbleText.get(b))
+    navigator.vibrate?.(10)
+  }
+  $('chat').addEventListener('pointerup', end)
+  $('chat').addEventListener('pointercancel', end)
+  // a long press is the copy: no menu, no selection
+  $('chat').addEventListener('contextmenu', e => { if (e.target.closest('.b.claude, .b.me')) e.preventDefault() })
+}
+
+// The quote over the reply box: who wrote it and its first two lines, ✕ to drop it. It goes before
+// the reply as "> " lines (its first QUOTE_MAX characters), a blank line, then what you wrote.
+const QUOTE_MAX = 600
+let quoted = null // { who, text }
+function setQuote(who, text) {
+  quoted = { who, text }
+  $('quote-who').textContent = who
+  $('quote-text').textContent = text
+  $('quote').hidden = false
+  $('text').focus()
+  fitFoot()
+}
+function dropQuote() {
+  quoted = null
+  $('quote').hidden = true
+  fitFoot()
+}
+function withQuote(value) {
+  if (!quoted) return value
+  const cut = quoted.text.length > QUOTE_MAX ? `${quoted.text.slice(0, QUOTE_MAX)}…` : quoted.text
+  return `${cut.split('\n').map(l => `> ${l}`).join('\n')}\n\n${value}`
 }
 
 function closeLayers() {
@@ -725,6 +747,18 @@ function renderFiles() {
 // the hub (locked paths never in the results). A name opens the file, a line opens it at that line;
 // while picking a file for the reply, a name picks it.
 let filesQuery = '', searchRound = 0
+// `text` into `into`, each place holding `q` (any case) in a <mark>
+function marked(text, q, into) {
+  const low = text.toLowerCase(), find = q.toLowerCase()
+  let at = 0
+  for (let i = low.indexOf(find); find && i >= 0; i = low.indexOf(find, at)) {
+    if (i > at) into.append(document.createTextNode(text.slice(at, i)))
+    into.append(el('mark', '', text.slice(i, i + find.length)))
+    at = i + find.length
+  }
+  if (at < text.length) into.append(document.createTextNode(text.slice(at)))
+  return into
+}
 async function renderSearch(root) {
   const round = ++searchRound
   root.append(el('div', 'meta pad', 'Searching…'))
@@ -742,13 +776,13 @@ async function renderSearch(root) {
   }
   group(`Files ${data.names.length}`, data.names.map(f => {
     const b = el('button', 'shit')
-    b.append(el('span', '', f.rel))
+    b.append(marked(f.rel, filesQuery, el('span')))
     b.onclick = () => (isPicking ? pickFile(f.path) : showFile(f.path))
     return b
   }))
   group(`In files ${data.hits.length}`, data.hits.map(h => {
     const b = el('button', 'shit')
-    b.append(el('span', 'at', `${h.rel}:${h.line}`), el('span', 'line', h.text))
+    b.append(el('span', 'at', `${h.rel}:${h.line}`), marked(h.text, filesQuery, el('span', 'line')))
     b.onclick = () => showFile(h.path, h.line)
     return b
   }))
@@ -919,9 +953,20 @@ async function showFile(path, atLine) {
   // Enter or ↓ goes to the next, ↑ to the one before
   const finder = el('div', 'finder')
   body.insertBefore(finder, code)
-  const q = finder.appendChild(el('input'))
-  q.type = 'search'
+  const field = finder.appendChild(el('div', 'field'))
+  const q = field.appendChild(el('input'))
+  q.type = 'text'
+  q.enterKeyHint = 'search'
   q.placeholder = 'Find in this file'
+  const clear = field.appendChild(el('button', 'clear'))
+  clear.setAttribute('aria-label', 'Clear')
+  clear.append(icon('close'))
+  clear.hidden = true
+  clear.onclick = () => {
+    q.value = ''
+    q.oninput()
+    q.focus()
+  }
   const count = finder.appendChild(el('span', 'count'))
   const up = finder.appendChild(el('button', 'icon'))
   up.setAttribute('aria-label', 'Previous match')
@@ -944,6 +989,7 @@ async function showFile(path, atLine) {
     if (found.length) $('viewer').scrollTo({ top: Math.max(0, code.offsetTop + pad + (found[at] - 1) * lh - 140), behavior: 'smooth' })
   }
   q.oninput = () => {
+    clear.hidden = !q.value
     const t = q.value.trim().toLowerCase()
     found = t ? lines.flatMap((l, i) => (l.toLowerCase().includes(t) ? [i + 1] : [])) : []
     at = 0
@@ -1214,6 +1260,7 @@ function render() {
   renderHeader()
   renderChat()
   void highlightChat()
+  syncPromptNav()
   // the folder tab and a search stay as they are (nothing read again under the reader); the other
   // tabs follow the session
   if (!$('files').hidden && filesTab !== 'folder' && filesQuery.length < 2) renderFiles()
@@ -1311,12 +1358,20 @@ for (const t of TABS)
   $(`seg-${t}`).onclick = () => {
     filesTab = t
     $('files-q').value = filesQuery = ''
+    $('files-q-clear').hidden = true
     renderFiles()
   }
 // the search waits for a pause in the typing
 {
   let pause = 0
+  $('files-q-clear').onclick = () => {
+    $('files-q').value = filesQuery = ''
+    $('files-q-clear').hidden = true
+    renderFiles()
+    $('files-q').focus()
+  }
   $('files-q').addEventListener('input', () => {
+    $('files-q-clear').hidden = !$('files-q').value
     clearTimeout(pause)
     pause = setTimeout(() => {
       filesQuery = $('files-q').value.trim()
@@ -1387,6 +1442,26 @@ text.addEventListener('input', fitText)
 // a tap anywhere in the frame but its buttons puts the keyboard in the box
 document.querySelector('.composer').addEventListener('click', e => { if (!e.target.closest('button')) text.focus() })
 $('send').onclick = () => sendText(text.value, true)
+$('unquote').onclick = dropQuote
+
+// ↑ ↓ over Newest: your message before, or after, the top of the chat as you read it
+function syncPromptNav() {
+  const mine = document.querySelectorAll('#chat .b.me')
+  $('pnav').hidden = mine.length < 1 || document.documentElement.scrollHeight <= innerHeight + 40
+}
+function jumpPrompt(by) {
+  const top = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top')) || 56) + 8
+  const mine = [...document.querySelectorAll('#chat .b.me')]
+  const at = scrollY + top
+  const to = by < 0 ? mine.filter(b => b.offsetTop < at - 4).pop() : mine.find(b => b.offsetTop > at + 4)
+  if (!to) return
+  window.scrollTo({ top: to.offsetTop - top, behavior: 'smooth' })
+  to.classList.add('flash')
+  setTimeout(() => to.classList.remove('flash'), 1200)
+}
+$('prev-prompt').onclick = () => jumpPrompt(-1)
+$('next-prompt').onclick = () => jumpPrompt(1)
+window.addEventListener('scroll', syncPromptNav, { passive: true })
 // A chip tapped: it goes on a line of its own at the end of the reply box, after any draft, for
 // Send to take; the box is not focused, so the keyboard stays down.
 function chipToBox(s) {
@@ -1425,11 +1500,14 @@ async function sendText(raw, isBox = false) {
     }
     return openPage(asPage[1])
   }
+  // a quote over the box goes before what you wrote (a /command goes as typed, the quote kept)
+  const isQuoting = isBox && quoted && !value.startsWith('/')
   $('send').disabled = true
-  const r = await api('reply', { text: value })
+  const r = await api('reply', { text: isQuoting ? withQuote(value) : value })
   $('send').disabled = false
   const body = r.b || {}
   if (r.s !== 200) return toast({ title: 'Not sent', body: body.error || 'The session did not answer. Try again.' })
+  if (isQuoting) dropQuote()
   if (isBox) {
     text.value = ''
     fitText()
