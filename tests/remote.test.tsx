@@ -115,7 +115,7 @@ test('switched on, ⇄ opens the menu; Start takes two presses and starts the hu
   expect(sh.slice(4)).toEqual(['/tmp/qsb-remote-501', '30'])
 })
 
-test('with the hub up: the QR code, a phone asking to pair with its code, Allow sent to the hub', async ($, on) => {
+test('with the hub up: the QR code on request, a phone asking to pair with its code, Allow sent to the hub', async ($, on) => {
   const asked: string[] = []
   engine(on, {
     hub: (path, body) => {
@@ -135,8 +135,10 @@ test('with the hub up: the QR code, a phone asking to pair with its code, Allow 
   expect(bar.indexOf('"key":"remote"')).toBeLessThan(bar.indexOf('"key":"guard"'))
   expect(drawn).toContain('Android, Chrome asks to pair, code K7M3')
   expect(drawn).toContain('"60 s"')
-  expect(drawn).toContain('█▀') // the QR code's rows
+  expect(drawn).not.toContain('█▀') // a hub this session did not start keeps its code hidden
   expect(drawn).toContain('Sessions on the link ')
+  await band.press({ key: 'remote-qr' })
+  expect(await textOf(band)).toContain('█▀') // the QR code's rows
   await band.press({ key: 'allow:p1' })
   expect(asked).toContain('/allow {"id":"p1"}')
   expect((await band.find({ key: 'remote' }))?.text).toBe(' ⇄ 1 ')
@@ -375,11 +377,24 @@ test('what a session holds in context: files @-mentioned in a prompt, and files 
   expect(c.reads).toEqual(['/work/shop/README.md'])
 })
 
-test('the QR code shows on the first opening after Start; once the menu shut, q shows it again', async ($, on) => {
-  engine(on, { hub: () => ({ ...STATUS, pending: [] }) })
+test('the QR code shows after a Start until the menu shuts; a hub already up keeps it hidden until q', async ($, on) => {
+  const argvs: string[][] = []
+  // the hub answers once this session started it
+  engine(on, { argvs, hub: () => (argvs.some(a => a[0] === '/bin/sh' && a[2]!.includes('nohup')) ? { ...STATUS, pending: [] } : undefined) })
+  on('session.surfaces', () => ({ value: ['terminal'] }))
+  on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
+  on('ui.status', () => ({ value: undefined }))
+  on('agent.list', () => ({ value: [] }))
+  on('tool.register', (_: unknown, e: { name: string }) => ({ value: { tool: e.name } }))
+  on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
+  const clock = mock.clock(on)
+  await ($ as any).session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
   const band = await $.ui.mount({ plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   await switchOn(band)
   await band.press({ key: 'remote' })
+  await band.press({ key: 'remote-start' })
+  await band.press({ key: 'remote-start' })
+  await clock.advance(2000)
   expect(await textOf(band)).toContain('█▀')
   await band.press({ key: 'close-menu' })
   await band.press({ key: 'remote' })
@@ -388,6 +403,9 @@ test('the QR code shows on the first opening after Start; once the menu shut, q 
   expect(shut).toContain('Show the QR code')
   await band.press({ key: 'remote-qr' })
   expect(await textOf(band)).toContain('█▀')
+  await band.press({ key: 'close-menu' })
+  await band.press({ key: 'remote' })
+  expect(await textOf(band)).not.toContain('█▀')
 })
 
 test('from the phone a built-in runs only when it prints text or takes a value; a panel stays on the computer', () => {

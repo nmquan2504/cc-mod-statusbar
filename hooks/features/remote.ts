@@ -47,8 +47,8 @@ export const remote = {
   // brew install cloudflared runs, since when; and the last lines it failed with
   installingAt: 0,
   installError: '',
-  // the menu draws the QR code: at first after a Start, then only on request once the menu was shut
-  isQrShown: true,
+  // the menu draws the QR code after this session's Start, until the menu shuts; else only on request
+  isQrShown: false,
   // the menu has drawn it since it was last opened, so shutting the menu puts it away
   isQrSeen: false,
   // this session stays off the phone's list
