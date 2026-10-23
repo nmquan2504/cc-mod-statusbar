@@ -225,6 +225,43 @@ async function treeOf(session, path) {
   return { status: 200, body: { path: place.target, root: place.root, rows, branch: branch || (detached && `detached at ${detached}`) } }
 }
 
+// The session's folders searched for `query` (2 to 200 characters, any case, as written): files
+// whose path holds it, and lines that hold it, each folder through git where it is a repository (its
+// ignored files left out) and through find and grep elsewhere (node_modules and .git left out).
+// A locked path (SENSITIVE) is never in the results, by name or by line.
+const SEARCH_NAMES = 50, SEARCH_HITS = 100
+async function searchOf(session, query) {
+  const s = sessions.get(session)?.snapshot
+  if (!s) return { status: 404, body: { error: 'That session is gone.' } }
+  const q = String(query ?? '').trim()
+  if (q.length < 2 || q.length > 200) return { status: 400, body: { error: 'Search for 2 to 200 characters.' } }
+  const low = q.toLowerCase()
+  const names = [], hits = []
+  let isCut = false
+  for (const root of (s.roots ?? []).map(real).filter(Boolean).slice(0, 4)) {
+    const isRepo = (await run(['git', '-C', root, 'rev-parse', '--is-inside-work-tree'], root)).trim() === 'true'
+    const listed = isRepo
+      ? await run(['git', '-C', root, 'ls-files', '--cached', '--others', '--exclude-standard'], root)
+      : await run(['find', '.', '-type', 'f', '-not', '-path', '*/node_modules/*', '-not', '-path', '*/.git/*'], root)
+    for (const line of listed.split('\n')) {
+      const rel = line.replace(/^\.\//, '')
+      if (!rel || SENSITIVE.test(rel) || !rel.toLowerCase().includes(low)) continue
+      if (names.length >= SEARCH_NAMES) { isCut = true; break }
+      names.push({ path: join(root, rel), rel })
+    }
+    const found = isRepo
+      ? await run(['git', '-C', root, 'grep', '--untracked', '-n', '-I', '-i', '-F', '-e', q], root)
+      : await run(['grep', '-r', '-n', '-I', '-i', '-F', '--exclude-dir=node_modules', '--exclude-dir=.git', '-e', q, '.'], root)
+    for (const line of found.split('\n')) {
+      const m = /^(?:\.\/)?([^:]+):(\d+):(.*)$/.exec(line)
+      if (!m || SENSITIVE.test(m[1])) continue
+      if (hits.length >= SEARCH_HITS) { isCut = true; break }
+      hits.push({ path: join(root, m[1]), rel: m[1], line: Number(m[2]), text: m[3].trim().slice(0, 200) })
+    }
+  }
+  return { status: 200, body: { names, hits, isCut } }
+}
+
 function fileOf(session, path) {
   const s = sessions.get(session)?.snapshot
   if (!s) return { status: 404, body: { error: 'That session is gone.' } }
@@ -375,6 +412,10 @@ async function answerOp(dev, id, op, a, res) {
     case 'image': {
       const img = imageOf(session, String(a.n ?? ''))
       return img ? [200, { type: img.type, b64: img.data.toString('base64') }] : [404, { error: 'no such image' }]
+    }
+    case 'search': {
+      const r = await searchOf(session, a.query)
+      return [r.status, r.body]
     }
     case 'tree': {
       const r = await treeOf(session, String(a.path ?? ''))

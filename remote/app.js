@@ -148,6 +148,7 @@ async function follow() {
     }
     state = r.b
     since = state.version
+    noteUnread()
     if (state.notice.at > lastNotice) {
       const from = state.notice.session
       if (lastNotice) toast(state.notice, from ? () => openSession(from) : undefined)
@@ -249,10 +250,13 @@ function markdown(text) {
   for (let i = 0; i < lines.length; ) {
     const line = lines[i]
     if (/^\s*```/.test(line)) {
+      const lang = /^\s*```\s*([\w+#.-]+)/.exec(line)?.[1]?.toLowerCase()
       const code = []
       for (i++; i < lines.length && !/^\s*```/.test(lines[i]); i++) code.push(lines[i])
       i++
-      box.append(el('pre', '', code.join('\n')))
+      const pre = box.appendChild(el('pre', '', code.join('\n')))
+      // its language, for highlightChat
+      if (lang) pre.dataset.lang = lang
       para = list = null
       continue
     }
@@ -482,6 +486,42 @@ function renderHeader() {
   $('text').placeholder = snap.busy ? 'Queue a reply' : 'Reply'
 }
 
+// Sessions that ended a turn while another was shown: marked in the drawer, and on its button, until
+// opened.
+const unread = new Set(), wasBusy = new Map()
+function noteUnread() {
+  for (const s of state.sessions) {
+    if (wasBusy.get(s.id) && !s.busy && s.id !== picked) unread.add(s.id)
+    wasBusy.set(s.id, Boolean(s.busy))
+  }
+  for (const id of unread) if (!state.sessions.some(s => s.id === id)) unread.delete(id)
+  $('open-drawer').classList.toggle('unread', unread.size > 0)
+}
+
+// Code blocks in the chat whose fence names a language, coloured with the file viewer's
+// highlight.js; each colouring kept, as the chat is drawn again at every change.
+const highlighted = new Map() // `${language}\n${code}` -> highlight.js's output
+async function highlightChat() {
+  const blocks = [...document.querySelectorAll('#chat pre[data-lang]:not(.hl)')]
+  if (!blocks.length) return
+  const hljs = await loadHighlighter()
+  if (!hljs) return
+  for (const pre of blocks) {
+    const lang = LANGS[pre.dataset.lang] || (hljs.getLanguage(pre.dataset.lang) ? pre.dataset.lang : '')
+    if (!lang || !pre.isConnected || pre.textContent.length > HIGHLIGHT_MAX) continue
+    const key = `${lang}\n${pre.textContent}`
+    if (!highlighted.has(key)) {
+      if (highlighted.size > 300) highlighted.clear()
+      highlighted.set(key, hljs.highlight(pre.textContent, { language: lang, ignoreIllegals: true }).value)
+    }
+    // highlight.js escapes the text it is given; its output holds only its own spans
+    const code = el('code', 'hljs')
+    code.innerHTML = highlighted.get(key)
+    pre.replaceChildren(code)
+    pre.classList.add('hl')
+  }
+}
+
 function renderDrawer() {
   const box = $('sessions')
   box.replaceChildren()
@@ -495,7 +535,7 @@ function renderDrawer() {
     const sub = el('div', 'sub')
     if (s.branch) sub.append(icon('branch'), document.createTextNode(` ${s.branch} · `))
     sub.append(document.createTextNode(s.busy ? 'working' : 'idle'))
-    text.append(el('div', 'name', titleOf(s)))
+    text.append(el('div', unread.has(s.id) ? 'name unread' : 'name', titleOf(s)))
     // the session's title (its /rename name, else Claude Code's), above its branch
     if (s.title) text.append(el('div', 'desc', s.title))
     text.append(sub)
@@ -542,6 +582,48 @@ function syncLayered() {
   document.documentElement.classList.toggle('layered', isOpen)
 }
 new MutationObserver(syncLayered).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['hidden', 'class'] })
+
+// ---- a swipe right on Claude's answer quotes it in the reply box: the bubble follows the finger,
+// and past SWIPE_PX on letting go the answer goes in as "> " lines (the first QUOTE_MAX characters),
+// the box focused to write under it. A move that is more up or down than across is a scroll. ----
+const SWIPE_PX = 64, QUOTE_MAX = 600
+{
+  let bubble = null, x0 = 0, y0 = 0, dx = 0, isAcross = false
+  $('chat').addEventListener('pointerdown', e => {
+    bubble = e.target.closest('.b.claude')
+    if (!bubble || !answerText.has(bubble)) return (bubble = null)
+    x0 = e.clientX
+    y0 = e.clientY
+    dx = 0
+    isAcross = false
+  })
+  $('chat').addEventListener('pointermove', e => {
+    if (!bubble) return
+    const mx = e.clientX - x0, my = e.clientY - y0
+    if (!isAcross && Math.abs(my) > 10 && Math.abs(my) > Math.abs(mx)) return (bubble = null)
+    if (mx > 10) isAcross = true
+    if (!isAcross) return
+    dx = Math.max(0, mx)
+    bubble.style.transition = 'none'
+    bubble.style.transform = `translateX(${Math.min(dx, SWIPE_PX + 24)}px)`
+    bubble.classList.toggle('quoting', dx > SWIPE_PX)
+  })
+  const end = () => {
+    if (!bubble) return
+    const b = bubble
+    bubble = null
+    b.style.transition = 'transform .15s ease'
+    b.style.transform = ''
+    b.classList.remove('quoting')
+    if (!isAcross || dx <= SWIPE_PX) return
+    const raw = answerText.get(b)
+    const cut = raw.length > QUOTE_MAX ? `${raw.slice(0, QUOTE_MAX)}…` : raw
+    insertText(`${cut.split('\n').map(l => `> ${l}`).join('\n')}\n\n`)
+    navigator.vibrate?.(10)
+  }
+  $('chat').addEventListener('pointerup', end)
+  $('chat').addEventListener('pointercancel', end)
+}
 
 // ---- a long press on Claude's answer copies it: on a code block, that block; elsewhere in the
 // bubble, the whole answer as Claude wrote it (markdown) ----------------------------------------
@@ -632,10 +714,45 @@ function renderFiles() {
   }
   const root = $('files-body')
   root.replaceChildren()
+  if (filesQuery.length >= 2) return renderSearch(root)
   if (filesTab === 'folder') return renderFolder(root)
   if (filesTab === 'context') return renderContext(root)
   if (filesTab === 'images') return renderImages(root)
   renderChanges(root)
+}
+
+// The search at the head of the page: the session's folders by file name and by content, through
+// the hub (locked paths never in the results). A name opens the file, a line opens it at that line;
+// while picking a file for the reply, a name picks it.
+let filesQuery = '', searchRound = 0
+async function renderSearch(root) {
+  const round = ++searchRound
+  root.append(el('div', 'meta pad', 'Searching…'))
+  const r = await api('search', { query: filesQuery })
+  if (round !== searchRound) return
+  root.replaceChildren()
+  const data = r.b || {}
+  if (r.s !== 200) return root.append(el('div', 'none', data.error || 'Could not search.'))
+  if (!data.names.length && !data.hits.length) return root.append(el('div', 'none', `Nothing holds "${filesQuery}".`))
+  const group = (title, rows) => {
+    if (!rows.length) return
+    root.append(el('div', 'sgroup', title))
+    const card = root.appendChild(el('div', 'card tree'))
+    for (const row of rows) card.append(row)
+  }
+  group(`Files ${data.names.length}`, data.names.map(f => {
+    const b = el('button', 'shit')
+    b.append(el('span', '', f.rel))
+    b.onclick = () => (isPicking ? pickFile(f.path) : showFile(f.path))
+    return b
+  }))
+  group(`In files ${data.hits.length}`, data.hits.map(h => {
+    const b = el('button', 'shit')
+    b.append(el('span', 'at', `${h.rel}:${h.line}`), el('span', 'line', h.text))
+    b.onclick = () => showFile(h.path, h.line)
+    return b
+  }))
+  if (data.isCut) root.append(el('div', 'meta pad', 'More match: search for something longer.'))
 }
 
 async function renderFolder(root) {
@@ -761,7 +878,8 @@ function loadHighlighter() {
   })
   return hljsLoading
 }
-async function showFile(path) {
+// `atLine`: the line a search found, marked and scrolled to
+async function showFile(path, atLine) {
   const body = openViewer(shortPath(path))
   body.append(el('div', 'meta pad', 'Loading…'))
   const r = await api('file', { path })
@@ -797,6 +915,52 @@ async function showFile(path) {
   }
   const src = code.appendChild(el('pre', 'src'))
   const block = src.appendChild(el('code', 'hljs', lines.join('\n')))
+  // find in the file: each line holding the text (any case) marked, the current one stronger;
+  // Enter or ↓ goes to the next, ↑ to the one before
+  const finder = el('div', 'finder')
+  body.insertBefore(finder, code)
+  const q = finder.appendChild(el('input'))
+  q.type = 'search'
+  q.placeholder = 'Find in this file'
+  const count = finder.appendChild(el('span', 'count'))
+  const up = finder.appendChild(el('button', 'icon'))
+  up.setAttribute('aria-label', 'Previous match')
+  up.append(icon('arrowUp'))
+  const down = finder.appendChild(el('button', 'icon'))
+  down.setAttribute('aria-label', 'Next match')
+  down.append(icon('arrowDown'))
+  const hits = code.appendChild(el('div', 'hits'))
+  let found = [], at = 0
+  const show = () => {
+    hits.replaceChildren()
+    const style = getComputedStyle(gutter)
+    const lh = parseFloat(style.lineHeight) || 18, pad = parseFloat(style.paddingTop) || 0
+    found.slice(0, 500).forEach((n, i) => {
+      const m = hits.appendChild(el('div', i === at ? 'hit on' : 'hit'))
+      m.style.top = `${pad + (n - 1) * lh}px`
+      m.style.height = `${lh}px`
+    })
+    count.textContent = q.value.trim() ? (found.length ? `${at + 1}/${found.length}` : 'none') : ''
+    if (found.length) $('viewer').scrollTo({ top: Math.max(0, code.offsetTop + pad + (found[at] - 1) * lh - 140), behavior: 'smooth' })
+  }
+  q.oninput = () => {
+    const t = q.value.trim().toLowerCase()
+    found = t ? lines.flatMap((l, i) => (l.toLowerCase().includes(t) ? [i + 1] : [])) : []
+    at = 0
+    show()
+  }
+  const step = by => {
+    if (!found.length) return
+    at = (at + by + found.length) % found.length
+    show()
+  }
+  up.onclick = () => step(-1)
+  down.onclick = () => step(1)
+  q.onkeydown = e => { if (e.key === 'Enter') step(1) }
+  if (atLine) {
+    found = [atLine]
+    show()
+  }
   const name = data.name.toLowerCase()
   const lang = LANGS[data.ext] || LANGS[name]
   if (!lang || data.text.length > HIGHLIGHT_MAX) return
@@ -1049,8 +1213,10 @@ function render() {
   }
   renderHeader()
   renderChat()
-  // the folder tab stays as it is (no listing read again under the reader); the others follow the session
-  if (!$('files').hidden && filesTab !== 'folder') renderFiles()
+  void highlightChat()
+  // the folder tab and a search stay as they are (nothing read again under the reader); the other
+  // tabs follow the session
+  if (!$('files').hidden && filesTab !== 'folder' && filesQuery.length < 2) renderFiles()
   // a new question opens its page; one answered elsewhere closes it
   if (snap.ask && snap.ask.id !== askHiddenId && $('ask').hidden) openAsk(false)
   else if (snap.ask && !$('ask').hidden && askDraft.id !== snap.ask.id) renderAsk()
@@ -1069,6 +1235,8 @@ function render() {
 function openSession(id) {
   if (!id) return
   picked = id
+  unread.delete(id)
+  $('open-drawer').classList.toggle('unread', unread.size > 0)
   try { localStorage.setItem('qsb-session', picked) } catch {}
   closeLayers()
   render()
@@ -1142,8 +1310,20 @@ $('ask-dismiss').onclick = () => sendAnswer(true)
 for (const t of TABS)
   $(`seg-${t}`).onclick = () => {
     filesTab = t
+    $('files-q').value = filesQuery = ''
     renderFiles()
   }
+// the search waits for a pause in the typing
+{
+  let pause = 0
+  $('files-q').addEventListener('input', () => {
+    clearTimeout(pause)
+    pause = setTimeout(() => {
+      filesQuery = $('files-q').value.trim()
+      renderFiles()
+    }, 350)
+  })
+}
 window.addEventListener('scroll', () => { if (atBottom()) $('jump').hidden = true }, { passive: true })
 $('jump').onclick = () => {
   toBottom()
