@@ -1,5 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 import { ASK_KEY, rulesFor } from '../hooks/features/permissions'
+import { SENSITIVE } from '../hooks/lib/catalog'
 import { suggestPrompt, suggestionChips, suggestionsFrom } from '../hooks/lib/suggest'
 import { SHOW_MS, WAIT_MS, clearPrompts, duePrompts, noteCheck, noteSpinner, permissionQuestion, prompts, verdictOf, waitingPrompts } from '../hooks/features/prompts'
 
@@ -2059,6 +2060,19 @@ test('a permission prompt asked in the band and on the phone: Yes, Yes always, N
   expect(said('make it under ./tmp')).toEqual({ decision: 'deny', reason: 'The person declined this call and said: make it under ./tmp' })
   expect(verdictOf('dismissed', rule).decision).toBe('deny')
   expect(verdictOf(undefined, rule).decision).toBe('deny')
+})
+
+test('the secrets rule locks a project\'s secrets and the credentials a home folder keeps, not look-alikes', () => {
+  const locked = [
+    '.env', '.env.local', 'app/.envrc', 'secrets/db.txt', 'exports/users.csv', 'certs/server.pem', 'tls.key', 'cert.p12', 'cert.pfx',
+    '.ssh/id_ecdsa', '.ssh/config', 'id_dsa.pub', 'id_ed25519', '.aws/credentials', '.gnupg/pubring.kbx', '.docker/config.json',
+    '.kube/config', '.config/gcloud/application_default_credentials.json', '.npmrc', 'web/.netrc', '.pypirc', '.git-credentials',
+    'android/release.jks', 'app.keystore', 'vault.kdbx', 'putty.ppk', 'infra/prod.tfvars', 'terraform.tfstate',
+    '/Users/me/.ssh/id_rsa',
+  ]
+  const open = ['src/env.ts', 'docs/secrets-policy.md', 'keys.ts', 'src/ssh.ts', 'aws/lambda.ts', '.dockerignore', 'kube.yaml', '.config/nvim/init.lua', 'npmrc.md', 'README.md']
+  expect(locked.filter(p => !SENSITIVE.test(p))).toEqual([])
+  expect(open.filter(p => SENSITIVE.test(p))).toEqual([])
 })
 
 test('Haiku is asked for three prompts at most; its reply becomes chips; Claude Code\'s own suggestion wins', () => {

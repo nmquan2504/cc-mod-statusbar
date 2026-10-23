@@ -57,8 +57,10 @@ export const MODES = [
 
 export const SKIP_DIRS = new Set(['.git', 'node_modules', '.baseline'])
 
-// Paths the browser shows locked: the project's secrets, never handed to the prompt from here.
-export const SENSITIVE = /(^|\/)(\.env(\..*)?|secrets|exports|id_(rsa|ed25519)[^/]*|[^/]*\.(pem|key|p12))(\/|$)/i
+// Paths the browser shows locked: the project's secrets and the credentials tools keep in a home
+// folder (ssh, cloud, registry and package logins, key stores, Terraform state), never handed to the
+// prompt from here. remote/server.mjs keeps the same rule for the phone.
+export const SENSITIVE = /(^|\/)(\.env(\..*)?|\.envrc|secrets|exports|\.ssh|\.aws|\.gnupg|\.docker|\.kube|\.config\/gcloud|\.npmrc|\.netrc|\.pypirc|\.git-credentials|id_(rsa|dsa|ecdsa|ed25519)[^/]*|[^/]*\.(pem|key|p12|pfx|jks|keystore|kdbx|ppk|tfvars|tfstate))(\/|$)/i
 
 export const modelStyle = (id: string) => MODELS.find(m => m.label === shortModel(id)) ?? { color: 'text', note: '' }
 
