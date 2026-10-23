@@ -1,12 +1,15 @@
 // The phone's page in English or Vietnamese: the page writes every text it shows in English and
 // passes it through translate, which gives the Vietnamese for it when that is the language picked.
-// What the session sends (Claude's words, a page the mod builds, its errors) comes as it was written.
-// The page loads it as a module, before app.js, and reads it from globalThis.I18N.
+// The hub's and the mod's messages (an error, a refusal, a notice) are a known set, given their
+// Vietnamese by localText and localNotice; Claude's own words come as written. A plain script, no
+// exports, so the page and the service worker (importScripts) both load it, and the tests import it:
+// each reads globalThis.I18N.
+(() => {
 
-export const LANGS = ['en', 'vi']
+const LANGS = ['en', 'vi']
 
 // Each English text the page shows, and its Vietnamese; {name} is filled in from the values given
-export const VI = {
+const VI = {
   // pairing
   'This browser cannot encrypt, so it cannot open the remote. Open the link in a current Safari or Chrome.': 'Trình duyệt này không mã hoá được nên không mở được remote. Mở link bằng Safari hoặc Chrome bản mới.',
   'In the terminal, pick this code.': 'Trong terminal, chọn mã này.',
@@ -274,7 +277,7 @@ export const VI = {
 }
 
 // The voice samples, each in its own language
-export const SAMPLES = {
+const SAMPLES = {
   vi: 'Xin chào, mình sẽ đọc câu trả lời của Claude bằng giọng này.',
   en: "Hi, I will read Claude's answers in this voice.",
   notice_vi: 'Mình sẽ đọc to thông báo khi chúng đến.',
@@ -283,18 +286,78 @@ export const SAMPLES = {
 
 // The word naming a running turn, picked for the turn: Claude Code's spinner words in English, and
 // as many in Vietnamese
-export const WORKING_VI = ['Đang làm', 'Đang nghĩ', 'Đang ngẫm', 'Đang ủ', 'Đang mày mò', 'Đang chế', 'Đang nấu', 'Đang phù phép',
+const WORKING_VI = ['Đang làm', 'Đang nghĩ', 'Đang ngẫm', 'Đang ủ', 'Đang mày mò', 'Đang chế', 'Đang nấu', 'Đang phù phép',
   'Đang tính', 'Đang nghiền ngẫm', 'Đang vọc', 'Đang gỡ rối', 'Đang ấp', 'Đang gọt', 'Đang rèn', 'Đang lắp', 'Đang tháo gỡ',
   'Đang thuần hoá', 'Đang lọc', 'Đang ninh', 'Đang suy tư', 'Đang cân nhắc', 'Đang bày mưu', 'Đang mơ màng', 'Đang khuấy',
   'Đang xoay', 'Đang nặn', 'Đang phác', 'Đang đánh bóng', 'Đang dệt']
 
 // `text` in `lang`, its {names} filled from `values`; a text with no translation stays English
-export function translate(lang, text, values) {
+function translate(lang, text, values) {
   const out = lang === 'vi' ? VI[text] ?? text : text
   return values ? out.replace(/\{(\w+)\}/g, (m, k) => (k in values ? String(values[k]) : m)) : out
 }
 
 // The language a phone starts in: Vietnamese when its own language is, else English
-export const langOf = (navLang = '') => (/^vi\b/i.test(navLang) ? 'vi' : 'en')
+const langOf = (navLang = '') => (/^vi\b/i.test(navLang) ? 'vi' : 'en')
 
-globalThis.I18N = { LANGS, VI, SAMPLES, WORKING_VI, translate, langOf }
+// What the hub and the mod send in words, each said whole: errors, refusals, notes
+const VI_SENT = {
+  'That session is gone.': 'Phiên đó không còn.',
+  'not found': 'không tìm thấy',
+  'Locked: secrets are not shown on the phone.': 'Đã khoá: bí mật không hiện trên điện thoại.',
+  'This link is not the one the terminal shows now. Scan the QR code again.': 'Link này không phải link terminal đang hiện. Quét lại mã QR.',
+  'That question is already answered.': 'Câu hỏi đó đã được trả lời.',
+  'Search for 2 to 200 characters.': 'Tìm từ 2 đến 200 ký tự.',
+  'Refused in the terminal.': 'Terminal đã từ chối.',
+  'Pairing is locked after too many wrong links. Stop and start the remote again.': 'Ghép đôi bị khoá vì quá nhiều link sai. Tắt rồi bật lại remote.',
+  'Outside the folders this session works in.': 'Ngoài các thư mục phiên này làm việc.',
+  'Outside the folders and the context of this session.': 'Ngoài các thư mục và ngữ cảnh của phiên này.',
+  'Not paired. Scan the QR code in the terminal again.': 'Chưa ghép đôi. Quét lại mã QR trong terminal.',
+  'Not a page.': 'Không phải trang.',
+  'Not a folder.': 'Không phải thư mục.',
+  'Not a file.': 'Không phải tệp.',
+  'Not a file of this session.': 'Không phải tệp của phiên này.',
+  'Nobody allowed this phone within a minute. Scan the QR code again.': 'Không ai cho phép điện thoại này trong một phút. Quét lại mã QR.',
+  'No such file.': 'Không có tệp này.',
+  'The session has not reported its context yet.': 'Phiên chưa báo ngữ cảnh.',
+  'cancelled': 'đã huỷ',
+  'no valid name given; nothing saved': 'không có tên hợp lệ; chưa lưu gì',
+  'no valid host given; nothing saved': 'không có host hợp lệ; chưa lưu gì',
+  'no value given; nothing saved': 'không có giá trị; chưa lưu gì',
+  'an unknown kind of secret needs a NAME, a host and a header': 'loại bí mật lạ cần NAME, host và header',
+  'no keychain available': 'không có keychain',
+  'the keychain refused it': 'keychain từ chối',
+}
+// ... and those with a name or a value in them
+const VI_SENT_SHAPES = [
+  [/^\/(\S+) is not a command in this session$/, '/$1 không phải lệnh của phiên này'],
+  [/^\/(\S+) opens as a page on the phone: pick it from the \+ menu's Slash commands$/, '/$1 mở thành trang trên điện thoại: chọn nó trong Lệnh slash của menu +'],
+  [/^\/(\S+) with no value opens a picker on the computer; give it one, as \/\S+ <value>$/, '/$1 không có giá trị sẽ mở bộ chọn trên máy tính; hãy cho nó một giá trị, như /$1 <giá trị>'],
+  [/^\/(\S+) opens a panel on the computer, and the phone cannot close it; run it at the computer$/, '/$1 mở một panel trên máy tính mà điện thoại không đóng được; chạy nó trên máy tính'],
+  [/^Not saved: (.*)$/s, (_m, why) => `Chưa lưu: ${localText('vi', why)}`],
+  [/^(\S+) saved to the (.+); it goes only to (\S+)$/, '$1 đã lưu vào $2; chỉ gửi tới $3'],
+  [/^"(.+)" is not a valid NAME \(A-Z, 0-9, _\)\.?$/, '"$1" không phải NAME hợp lệ (A-Z, 0-9, _)'],
+  [/^The page could not be read: (.*)$/s, 'Không đọc được trang: $1'],
+]
+
+// A message the hub or the mod sent, in `lang`; one it does not know comes as written
+function localText(lang, text) {
+  if (lang !== 'vi' || !text) return text
+  if (VI_SENT[text] ?? VI[text]) return VI_SENT[text] ?? VI[text]
+  for (const [shape, said] of VI_SENT_SHAPES) if (shape.test(text)) return text.replace(shape, said)
+  return text
+}
+
+// A notice in `lang`: its title's words (Done, Claude needs you, 3 files) and the mod's own lines in
+// its body; the folder, the time, the cost, the session's title and Claude's words as written
+const NOTICE_HEAD = { 'Done': 'Xong', 'Claude needs you': 'Claude cần bạn', 'Claude asks you': 'Claude hỏi bạn' }
+const NOTICE_BODY = { 'Claude finished.': 'Claude đã xong.', 'Claude finished or needs you.': 'Claude đã xong hoặc cần bạn.', 'Nothing yet.': 'Chưa có gì.' }
+function localNotice(lang, n) {
+  if (lang !== 'vi' || !n) return n
+  const title = String(n.title ?? '').split(' · ').map((part, i) => (i === 0 ? NOTICE_HEAD[part] ?? part : part.replace(/^(\d+) files?$/, '$1 tệp'))).join(' · ')
+  const body = String(n.body ?? '')
+  return { ...n, title, body: NOTICE_BODY[body] ?? body.replace(/^Asks to run /, 'Xin chạy ') }
+}
+
+globalThis.I18N = { LANGS, VI, SAMPLES, WORKING_VI, translate, langOf, localText, localNotice }
+})()
