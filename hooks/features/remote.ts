@@ -498,16 +498,12 @@ export function transcriptOf(list: readonly any[], cwd: string, cmds: readonly {
   for (const [i, m] of list.entries()) {
     cmdsAt(i, i + 1)
     if (m.role === 'user') {
-      // what a command typed in the terminal printed goes under the command, as a phone command's does
-      const out = /^\s*<local-command-(stdout|stderr)>([\s\S]*?)<\/local-command-\1>\s*$/.exec(String(m.text ?? ''))
-      if (out) {
-        const last = items[items.length - 1]
-        // eslint-disable-next-line no-control-regex -- strips ANSI styles the terminal drew it with
-        const text = out[2]!.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '').trim()
-        if (last?.k === 'user' && last.text.startsWith('/')) items[items.length - 1] = { k: 'cmd', command: last.text, text: cut(text, 4000), isError: out[1] === 'stderr' }
-        continue
-      }
-      const raw = String(m.text ?? ''), text = promptText(raw)
+      // a slash command typed in the terminal (/reload-plugins, /compact) and what it printed stay
+      // off the phone: it was no message of yours, and the phone could not reach it. A command the
+      // phone sent shows from cmdLog, with its output; a skill's turn shows as any turn.
+      const raw = String(m.text ?? '')
+      if (/^\s*<local-command-(stdout|stderr)>/.test(raw) || /<command-name>/.test(raw)) continue
+      const text = promptText(raw)
       if (text) items.push({ k: 'user', text: cut(typedIn(raw, typed) || text, 8000) })
       continue
     }
