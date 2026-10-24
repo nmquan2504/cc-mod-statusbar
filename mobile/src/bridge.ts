@@ -85,15 +85,26 @@ export const bridge = (settings: AppSettings, version: string) => `(() => {
   Object.defineProperty(window, 'speechSynthesis', { configurable: false, get: () => synth, set: () => undefined })
 
   // the status and navigation bars as the WebView gives them to the page's CSS: when it does, the
-  // page keeps clear of them itself and the app adds no margin of its own (it would be twice)
-  addEventListener('DOMContentLoaded', () => {
+  // page keeps clear of them itself and the app adds no margin of its own (it would be twice).
+  // Android may give them only after the page has started, so they are read again on load, on
+  // resize and over the first seconds, and sent each time they change.
+  let insets = ''
+  const readInsets = () => {
+    if (!document.body) return
     const probe = document.createElement('div')
     probe.style.cssText = 'position:fixed;visibility:hidden;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)'
     document.body.appendChild(probe)
     const style = getComputedStyle(probe)
-    post({ t: 'insets', top: parseFloat(style.paddingTop) || 0, bottom: parseFloat(style.paddingBottom) || 0 })
+    const top = parseFloat(style.paddingTop) || 0, bottom = parseFloat(style.paddingBottom) || 0
     probe.remove()
-  })
+    if (insets === top + '|' + bottom) return
+    insets = top + '|' + bottom
+    post({ t: 'insets', top, bottom })
+  }
+  addEventListener('DOMContentLoaded', readInsets)
+  addEventListener('load', readInsets)
+  addEventListener('resize', readInsets)
+  for (const ms of [300, 1000, 2500, 5000]) setTimeout(readInsets, ms)
 
   // no speech recognition: the app has no microphone, and the keyboard's own mic types by voice
   for (const name of ['SpeechRecognition', 'webkitSpeechRecognition'])
