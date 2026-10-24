@@ -45,7 +45,6 @@ export const rt = {
   isContinueTurn: false,
   continueTries: 0,
   // The subagents the "hi" schedule spawned: their notification of the end never reaches Claude
-  hiAgents: new Set<string>(),
   // The rule a first press armed; a second press within ARM_MS writes it.
   armedRule: '',
   armedAt: 0,

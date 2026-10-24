@@ -1,7 +1,7 @@
 import { HEALTH_EVERY, checkServers, scanBackground } from '../features/work'
 import { atom, read } from 'claude-code'
 import { resetArena, stepArena, stepLinger } from '../features/arena'
-import { HI_AGENT, registerHiAgent, runAutomation } from '../features/automation'
+import { runAutomation } from '../features/automation'
 import { readGuard } from '../features/guard'
 import { readImages } from '../features/images'
 import { readMcp } from '../features/mcp'
@@ -23,9 +23,6 @@ const menu = atom({ plugin: 'cc-mod-statusbar', key: 'menu' } as const, null)
 import type { On } from 'claude-code'
 
 export function registerSession(on: On) {
-  // the scheduled "hi" has an agent type of its own, which Claude is never offered
-  on('agent.offer', { agent: HI_AGENT }, () => ({ isOffered: false }))
-
   on('session.start', async ($, e, next) => {
     cache.clear()
     rt.isTainted = false
@@ -39,7 +36,6 @@ export function registerSession(on: On) {
     await readGuard($)
     await vaultSessionStart($)
     await zeroTtsSessionStart($).catch(() => undefined)
-    await registerHiAgent($).catch(() => undefined)
     await readMcp($).catch(() => undefined)
     await readModVersion($).catch(() => undefined)
     resetArena()
