@@ -259,6 +259,7 @@ const VI = {
   'ZeroTTS, on the Mac': 'ZeroTTS, trên Mac',
   'On this phone': 'Trên điện thoại',
   'ZeroTTS not used': 'Không dùng được ZeroTTS',
+  'The voice did not answer.': 'Giọng đọc không trả lời.',
   "The phone's voice reads instead.": 'Giọng của điện thoại đọc thay.',
   'ZeroTTS, a Vietnamese voice made on the Mac: run /zerotts-install in the terminal to add it (about 900 MB).': 'ZeroTTS, giọng tiếng Việt tạo trên Mac: chạy /zerotts-install trong terminal để thêm (khoảng 900 MB).',
   'ZeroTTS is installing on the Mac.': 'ZeroTTS đang được cài trên Mac.',

@@ -797,15 +797,33 @@ async function sayAll() {
   }
 }
 
-// One piece in the phone's voice; done when it ends, fails, or reading stops
+// How long a piece may take before the next goes anyway: a piece the browser never ends (it paused
+// it in the background, or dropped its events) would hold every notice after it. Its own length at
+// the speed picked, from the audio when there is one, else about 120 ms a character; 6 s more.
+const PIECE_SLACK_MS = 6000
+const pieceLimit = (text, seconds) => (seconds && Number.isFinite(seconds) ? seconds * 1000 : text.length * 120) / (Number(prefs.rate) || 1) + PIECE_SLACK_MS
+
+// One piece in the phone's voice; done when it ends, fails, reading stops, or its time is up
 function saySpeech(piece) {
   return new Promise(resolve => {
     const said = utterance(piece.text, piece.lang)
-    said.onend = () => resolve(true)
+    let timer = 0
+    const done = isOk => {
+      clearTimeout(timer)
+      said.onend = said.onerror = null
+      endPiece = null
+      resolve(isOk)
+    }
+    said.onend = () => done(true)
     said.onerror = e => {
       if (e.error === 'not-allowed') noteSpeechBlocked()
-      resolve(false)
+      done(false)
     }
+    endPiece = () => done(true)
+    timer = setTimeout(() => {
+      speechSynthesis.cancel()
+      done(true)
+    }, pieceLimit(piece.text))
     // a speech the browser left paused (the page was in the background) goes on first
     speechSynthesis.resume?.()
     speechSynthesis.speak(said)
@@ -817,6 +835,7 @@ function saySpeech(piece) {
 // (Automatic, '') is ZeroTTS's maichi once the Mac has it installed, else the phone's best voice;
 // a voice picked there, ZeroTTS's or the phone's, holds.
 const ZERO_DEFAULT = 'maichi'
+const ZERO_WAIT_MS = 20_000
 const zeroVoice = lang => {
   const picked = String(lang === 'en' ? prefs.voiceEn : prefs.voiceVi)
   if (picked.startsWith('zerotts:')) return picked.slice(8)
@@ -853,7 +872,8 @@ let wasZeroFailNoted = false
 async function sayZero(piece) {
   let url
   try {
-    url = await zeroAudio(piece)
+    // the Mac's answer waited for 20 s at most: a tunnel that stalls must not hold the notices
+    url = await Promise.race([zeroAudio(piece), new Promise((_, no) => setTimeout(() => no(new Error(tx('The voice did not answer.'))), ZERO_WAIT_MS))])
   } catch (err) {
     if (!wasZeroFailNoted) {
       wasZeroFailNoted = true
@@ -866,14 +886,29 @@ async function sayZero(piece) {
   audio.src = url
   audio.playbackRate = Number(prefs.rate) || 1
   return new Promise(resolve => {
+    let timer = setTimeout(() => {
+      audio.pause()
+      done(true)
+    }, pieceLimit(piece.text))
     const done = isOk => {
-      audio.onended = audio.onerror = null
+      clearTimeout(timer)
+      audio.onended = audio.onerror = audio.onpause = audio.onloadedmetadata = null
       endPiece = null
       resolve(isOk)
     }
     endPiece = () => done(true)
     audio.onended = () => done(true)
     audio.onerror = () => done(false)
+    // paused from outside (the page went to the background): this piece is over, the next goes
+    audio.onpause = () => { if (!audio.ended) done(true) }
+    // its real length known: the limit from it
+    audio.onloadedmetadata = () => {
+      clearTimeout(timer)
+      timer = setTimeout(() => {
+        audio.pause()
+        done(true)
+      }, pieceLimit(piece.text, audio.duration))
+    }
     audio.play().catch(err => {
       if (err?.name === 'NotAllowedError') noteSpeechBlocked()
       done(err?.name === 'NotAllowedError')
