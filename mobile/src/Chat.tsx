@@ -22,7 +22,7 @@ type Colors = { bg: string; text: string; dim: string; claude: string; bad: stri
 
 // The chat: the hub's own page in a WebView, its E2E calls sealed here (src/bridge.ts). Links that
 // lead away from the hub open in the browser; Android's back closes the page's open layer first.
-export function Chat({ c, device, onUnpaired, onRescan, onCheckUpdate }: { c: Colors; device: Device; onUnpaired: () => void; onRescan: () => void; onCheckUpdate: () => Promise<unknown> }) {
+export function Chat({ c, device, onUnpaired, onRescan, onCheckUpdate, onReady }: { c: Colors; device: Device; onUnpaired: () => void; onRescan: () => void; onCheckUpdate: () => Promise<unknown>; onReady: () => void }) {
   const web = useRef<WebViewHandle>(null)
   const insets = useSafeAreaInsets()
   const [isLoading, setLoading] = useState(true)
@@ -137,9 +137,13 @@ export function Chat({ c, device, onUnpaired, onRescan, onCheckUpdate }: { c: Co
         setSupportMultipleWindows={false}
         onLoadEnd={(): void => {
           setLoading(false)
+          onReady()
           void sendVoices()
         }}
-        onError={(e: WebViewErrorEvent): void => setFailed(e.nativeEvent.description || 'Lỗi mạng')}
+        onError={(e: WebViewErrorEvent): void => {
+          setFailed(e.nativeEvent.description || 'Lỗi mạng')
+          onReady()
+        }}
         onHttpError={(e: WebViewHttpErrorEvent): void => { if (e.nativeEvent.statusCode >= 500) setFailed(`Hub trả lời ${e.nativeEvent.statusCode}`) }}
         allowsBackForwardNavigationGestures={false}
         pullToRefreshEnabled={false}
