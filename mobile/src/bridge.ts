@@ -10,9 +10,10 @@
 //
 // Messages from the page: { t: 'call', id, op, a } | { t: 'forget' } | { t: 'back', isHandled } |
 //   { t: 'set', key, value } | { t: 'speak', id, text, lang, voice, rate } | { t: 'hush' } |
-//   { t: 'insets', top, bottom } | { t: 'update' }
+//   { t: 'insets', top, bottom } | { t: 'update' } | { t: 'listen', id }
 // Answers into it: __qsb.done(id, result) | __qsb.fail(id, kind, message) | __qsb.back() |
-//   __qsb.settings(settings, note) | __qsb.voices(list) | __qsb.said(id, isOk) | __qsb.toast(title, body)
+//   __qsb.settings(settings, note) | __qsb.voices(list) | __qsb.said(id, isOk) | __qsb.toast(title, body) |
+//   __qsb.heard(id, text, error)
 import type { AppSettings } from './settings'
 
 export const bridge = (settings: AppSettings, version: string) => `(() => {
@@ -106,9 +107,26 @@ export const bridge = (settings: AppSettings, version: string) => `(() => {
   addEventListener('resize', readInsets)
   for (const ms of [300, 1000, 2500, 5000]) setTimeout(readInsets, ms)
 
-  // no speech recognition: the app has no microphone, and the keyboard's own mic types by voice
+  // speech recognition through the phone's own voice input (Android's, in the page's language):
+  // the page's mic starts it, and what was said comes back as one final result
+  const hearing = new Map()
+  let hearNext = 1
+  class Recognition extends EventTarget {
+    constructor() {
+      super()
+      Object.assign(this, { lang: '', interimResults: false, continuous: false, maxAlternatives: 1, onstart: null, onresult: null, onerror: null, onend: null })
+    }
+    start() {
+      const id = hearNext++
+      hearing.set(id, this)
+      post({ t: 'listen', id })
+      fire(this, 'start')
+    }
+    stop() {}
+    abort() {}
+  }
   for (const name of ['SpeechRecognition', 'webkitSpeechRecognition'])
-    Object.defineProperty(window, name, { configurable: false, get: () => undefined, set: () => undefined })
+    Object.defineProperty(window, name, { configurable: false, get: () => Recognition, set: () => undefined })
 
   window.__qsb = {
     done(id, r) { const w = waiting.get(id); waiting.delete(id); w && w.resolve(r) },
@@ -139,6 +157,16 @@ export const bridge = (settings: AppSettings, version: string) => `(() => {
       const e = new Event('voiceschanged')
       if (typeof synth.onvoiceschanged === 'function') synth.onvoiceschanged(e)
       synth.dispatchEvent(e)
+    },
+    heard(id, text, error) {
+      const r = hearing.get(id)
+      if (!r) return
+      hearing.delete(id)
+      if (text) {
+        const result = Object.assign([{ transcript: text, confidence: 1 }], { isFinal: true })
+        fire(r, 'result', { results: Object.assign([result], { length: 1 }), resultIndex: 0 })
+      } else if (error) fire(r, 'error', { error })
+      fire(r, 'end')
     },
     said(id, isOk) {
       const u = said.get(id)

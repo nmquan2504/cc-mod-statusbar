@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView } from 'react-native-webview'
 import type { WebViewMessageEvent } from 'react-native-webview'
 import type { ShouldStartLoadRequest, WebViewErrorEvent, WebViewHttpErrorEvent } from 'react-native-webview/lib/WebViewTypes'
+import * as IntentLauncher from 'expo-intent-launcher'
 import * as Notifications from 'expo-notifications'
 import * as Speech from 'expo-speech'
 import { bridge } from './bridge'
@@ -72,6 +73,26 @@ export function Chat({ c, device, onUnpaired, onRescan, onCheckUpdate, onReady }
         if (!(await onCheckUpdate())) toast('Đã là bản mới nhất', `Claude remote ${VERSION}`)
       } catch (err) {
         toast('Chưa kiểm tra được', (err as Error).message)
+      }
+    }
+    else if (m.t === 'listen') {
+      // the mic: Android's own voice input (its dialog, its microphone), in the page's language
+      const heard = (text: string, error = '') => reply(`window.__qsb.heard(${Number(m.id)}, ${JSON.stringify(text)}, ${JSON.stringify(error)})`)
+      const isVi = settings().lang === 'vi'
+      try {
+        const r = await IntentLauncher.startActivityAsync('android.speech.action.RECOGNIZE_SPEECH', {
+          extra: {
+            'android.speech.extra.LANGUAGE_MODEL': 'free_form',
+            'android.speech.extra.LANGUAGE': isVi ? 'vi-VN' : 'en-US',
+            'android.speech.extra.PROMPT': isVi ? 'Nói với Claude' : 'Speak to Claude',
+            'android.speech.extra.MAX_RESULTS': 1,
+          },
+        })
+        const said = (r.extra as Record<string, unknown> | undefined)?.['android.speech.extra.RESULTS']
+        const text = Array.isArray(said) ? String(said[0] ?? '') : ''
+        heard(r.resultCode === IntentLauncher.ResultCode.Success ? text : '', text ? '' : 'no-speech')
+      } catch {
+        heard('', isVi ? 'Điện thoại này không có nhập giọng nói' : 'This phone has no voice input')
       }
     }
     else if (m.t === 'insets') setInsetByPage(Number(m.top) > 0 || Number(m.bottom) > 0)
