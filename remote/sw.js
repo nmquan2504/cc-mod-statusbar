@@ -3,6 +3,14 @@
 // (i18n.js; the page keeps it in the Cache Storage both share).
 importScripts('/e2e.js', '/i18n.js')
 const langNow = () => caches.open('qsb-prefs').then(c => c.match('/lang')).then(r => (r ? r.text() : 'en')).catch(() => 'en')
+// Settings' private notifications (on unless turned off): the status alone, no folder, no words
+const isPrivate = () => caches.open('qsb-prefs').then(c => c.match('/private')).then(r => (r ? r.text() : '1')).then(v => v !== '0').catch(() => true)
+async function worded(n) {
+  const lang = await langNow()
+  if (!(await isPrivate())) return self.I18N ? self.I18N.localNotice(lang, n) : n
+  const said = /^Done\b/.test(n.title) ? 'Claude has responded' : 'Claude needs you'
+  return { ...n, title: self.I18N ? self.I18N.translate(lang, said) : said, body: '' }
+}
 self.addEventListener('install', () => self.skipWaiting())
 self.addEventListener('activate', e => e.waitUntil(self.clients.claim()))
 self.addEventListener('push', e => {
@@ -10,7 +18,7 @@ self.addEventListener('push', e => {
     self.E2E.call('notice')
       .then(r => (r.s === 200 ? r.b : Promise.reject(new Error(String(r.s)))))
       .catch(() => ({ title: 'Claude', body: 'Claude finished or needs you.' }))
-      .then(async n => (self.I18N ? self.I18N.localNotice(await langNow(), n) : n))
+      .then(worded)
       .then(n => self.registration.showNotification(n.title, { body: n.body, tag: 'qsb', renotify: true, icon: '/icon.svg', data: { session: n.session || '' } })),
   )
 })

@@ -199,6 +199,12 @@
   .unpair { display: block; width: 100%; margin-top: 4px; text-align: center; color: var(--bad); border-color: var(--bad); font-weight: 600; }
   .unpair.armed { background: var(--bad); color: #fff; }
   .meta.center { text-align: center; }
+  /* the app lock, and the blur while the phone shows another app */
+  .lock { position: fixed; inset: 0; z-index: 100; background: var(--bg); display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .lockbox { text-align: center; max-width: 320px; }
+  .lockbox .lockic svg.ic { width: 40px; height: 40px; color: var(--claude); }
+  .lockbox .primary { min-width: 160px; margin-top: 8px; }
+  body.veiled > *:not(.lock) { filter: blur(18px); }
   /* a sound file in the viewer */
   audio.player { display: block; width: 100%; margin: 12px 0; }
   .card.set .size { display: flex; align-items: center; gap: 6px; }
@@ -528,6 +534,15 @@
     <strong id="viewer-title"></strong>
   </div>
   <div id="viewer-body"></div>
+</div>
+<!-- the app lock, over everything while the page waits for the phone's own unlock -->
+<div id="lock" class="lock" hidden>
+  <div class="lockbox">
+    <span class="lockic" data-icon="lock"></span>
+    <h2 data-t="Claude remote is locked">Claude remote is locked</h2>
+    <button id="unlock" class="primary" data-t="Unlock">Unlock</button>
+    <p id="lock-note" class="meta"></p>
+  </div>
 </div>
 <div id="settings" class="page" hidden>
   <div class="page-head">

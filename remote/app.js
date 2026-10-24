@@ -15,7 +15,7 @@ const el = (tag, cls, text) => {
 // Kept in this browser alone (localStorage), so each phone has its own; the page works without them.
 const PREFS_KEY = 'qsb-prefs'
 const prefs = (() => {
-  const base = { v: 2, lang: globalThis.I18N?.langOf(navigator.language) ?? 'en', theme: 'system', voiceVi: '', voiceEn: '', rate: 1, readNotices: false, noticeWords: 'status', notifyOff: false, fontScale: 1 }
+  const base = { v: 2, lang: globalThis.I18N?.langOf(navigator.language) ?? 'en', theme: 'system', voiceVi: '', voiceEn: '', rate: 1, readNotices: false, noticeWords: 'status', notifyOff: false, fontScale: 1, privateNotices: true, veil: true, lockAfter: 0, lockCred: '' }
   try {
     const kept = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}')
     // kept before the status became the default, when every phone saved the title then default
@@ -29,7 +29,10 @@ function savePrefs() {
 }
 // The language, where the service worker reads it to word a push (sw.js)
 function shareLang() {
-  globalThis.caches?.open('qsb-prefs').then(c => c.put('/lang', new Response(prefs.lang))).catch(() => undefined)
+  globalThis.caches?.open('qsb-prefs').then(c => Promise.all([
+    c.put('/lang', new Response(prefs.lang)),
+    c.put('/private', new Response(prefs.privateNotices ? '1' : '0')),
+  ])).catch(() => undefined)
 }
 // A text the page shows, in the language picked (i18n.js), its {names} filled from `values`. A hub
 // older than this page serves no i18n.js, and the page stays English.
@@ -950,7 +953,8 @@ function speak(text) {
 function readNotice(n) {
   if (!prefs.readNotices || !canSpeak || !globalThis.Speak) return
   // the title a line of its own, so the answer's markdown starts its own lines
-  const text = prefs.noticeWords === 'status' ? noticeStatus(n) : [localNotice(n).title, noticeBody(n)].filter(Boolean).join('.\n').replace(/\s·\s/g, ', ').replace(/(^|\s)\/(?=\w)/g, '$1')
+  // locked, a notice says no more than its status
+  const text = prefs.noticeWords === 'status' || isLocked ? noticeStatus(n) : [localNotice(n).title, noticeBody(n)].filter(Boolean).join('.\n').replace(/\s·\s/g, ', ').replace(/(^|\s)\/(?=\w)/g, '$1')
   enqueue(Speak.segments(Speak.speechText(text)))
 }
 
@@ -2625,14 +2629,151 @@ function renderSettings() {
     if (prefs.readNotices) seg(notes, [['status', tx('Status')], ['title', tx('Title only')], ['short', tx('One line')], ['full', tx('Full')]], prefs.noticeWords, v => set('noticeWords', v))
   }
 
+  const privacy = card(tx('Privacy'))
+  toggle(row(privacy, tx('Private notifications'), tx('Only "Claude has responded" or "Claude needs you" shows, on the lock screen and in the shade.')), prefs.privateNotices, () => {
+    set('privateNotices', !prefs.privateNotices)
+    shareLang()
+  })
+  toggle(row(privacy, tx('Blur when you leave the app'), tx('The app switcher shows no code or chat.')), prefs.veil, () => set('veil', !prefs.veil))
+
+  const lock = card(tx('App lock'))
+  if (!canLock) lock.append(el('div', 'meta pad', tx('This browser cannot lock the page.')))
+  else {
+    const now = prefs.lockCred ? Number(prefs.lockAfter) || 0 : 0
+    seg(lock, LOCK_AFTER.map(m => [m, m ? `${m}m` : tx('Off')]), now, m => void pickLockAfter(m))
+    lock.append(el('div', 'pd hint', tx("After this long away, the app asks for this phone's own unlock: fingerprint, face or screen lock. A new link sets it up again.")))
+  }
+
+  const paired = card(tx('Paired devices'))
+  if (!pairedList) paired.append(el('div', 'meta pad', tx('Loading…')))
+  else for (const d of pairedList) {
+    const right = row(paired, d.isThis ? `${d.name} · ${tx('this phone')}` : d.name, tx('Seen {ago}', { ago: agoText(d.seenAt) }))
+    if (!d.isThis) {
+      const b = right.appendChild(el('button', 'pbtn danger', tx('Unpair')))
+      b.onclick = () => void unpairOther(b, d.id)
+    }
+  }
+  paired.append(el('div', 'pd hint', tx('A phone not seen for 7 days is unpaired by itself.')))
+
   const off = body.appendChild(el('button', 'plain unpair', tx('Unpair this phone')))
   off.onclick = () => unpair(off)
   body.append(el('div', 'meta pad center', tx('These settings stay on this phone.')))
 }
+// ---- paired devices: the phones this hub allowed, this one marked; another one unpaired from here
+let pairedList = null
+async function readPaired() {
+  const r = await api('devices')
+  pairedList = r.s === 200 ? [...r.b.devices].sort((x, y) => Number(y.isThis) - Number(x.isThis) || y.seenAt - x.seenAt) : []
+  if (!$('settings').hidden) renderSettings()
+}
+// a time before now, short: just now, 5 min ago, 3 h ago, 2 d ago
+function agoText(at) {
+  const m = Math.floor((Date.now() - at) / 60000)
+  return m < 1 ? tx('just now') : m < 60 ? tx('{n} min ago', { n: m }) : m < 1440 ? tx('{n} h ago', { n: Math.floor(m / 60) }) : tx('{n} d ago', { n: Math.floor(m / 1440) })
+}
+// a second press within 4 seconds, as for this phone
+async function unpairOther(btn, id) {
+  if (btn.dataset.armed !== '1') {
+    btn.dataset.armed = '1'
+    btn.textContent = tx('Tap again')
+    setTimeout(() => { delete btn.dataset.armed; btn.textContent = tx('Unpair') }, 4000)
+    return
+  }
+  const r = await api('unpair', { id })
+  toast(r.s === 200 ? { title: tx('Unpaired'), body: tx('That phone scans the QR code again to come back.') } : { title: tx('Not unpaired'), body: txSent(r.b?.error) || tx('The session did not answer. Try again.') })
+  await readPaired()
+}
+
+// ---- privacy: the page blurred while the phone shows another app, so its switcher shows no chat
+function veil(isOn) {
+  document.body.classList.toggle('veiled', isOn && prefs.veil)
+}
+// (not on the window's blur: a voice picker or the unlock prompt takes the focus too)
+document.addEventListener('visibilitychange', () => veil(document.hidden))
+addEventListener('pagehide', () => veil(true))
+addEventListener('pageshow', () => veil(false))
+
+// ---- the app lock: after lockAfter minutes away the page asks for the phone's own unlock (a
+// passkey's user verification: fingerprint, face or screen lock), so a phone left unlocked cannot
+// send prompts. The passkey belongs to this link's address, as the settings do; a check in the
+// page, for a person holding the phone.
+const canLock = Boolean(window.PublicKeyCredential && navigator.credentials?.create)
+const LOCK_AFTER = [0, 1, 5, 10, 30]
+const LAST_KEY = 'qsb-last-active'
+let isLocked = false
+let lastNoted = 0
+const lastActive = () => {
+  try { return Number(localStorage.getItem(LAST_KEY)) || 0 } catch { return 0 }
+}
+function noteActive() {
+  if (isLocked || Date.now() - lastNoted < 5000) return
+  lastNoted = Date.now()
+  try { localStorage.setItem(LAST_KEY, String(lastNoted)) } catch {}
+}
+for (const ev of ['pointerdown', 'keydown', 'scroll']) addEventListener(ev, noteActive, { capture: true, passive: true })
+const shouldLock = () => canLock && Boolean(prefs.lockCred) && Number(prefs.lockAfter) > 0 && Date.now() - lastActive() > Number(prefs.lockAfter) * 60_000
+function lockNow() {
+  if (isLocked) return
+  isLocked = true
+  stopSpeaking()
+  closeLayers()
+  $('lock-note').textContent = ''
+  $('lock').hidden = false
+}
+const b64u = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+const unb64u = text => Uint8Array.from(atob(text.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))
+async function unlock() {
+  try {
+    await navigator.credentials.get({ publicKey: { challenge: crypto.getRandomValues(new Uint8Array(32)), allowCredentials: [{ type: 'public-key', id: unb64u(prefs.lockCred) }], userVerification: 'required', timeout: 60_000 } })
+    isLocked = false
+    lastNoted = 0
+    noteActive()
+    $('lock').hidden = true
+  } catch {
+    $('lock-note').textContent = tx('Not unlocked. Try again.')
+  }
+}
+$('unlock').onclick = () => void unlock()
+// away for long enough, with the page open or coming back to it
+document.addEventListener('visibilitychange', () => { if (!document.hidden && shouldLock()) lockNow() })
+setInterval(() => { if (!document.hidden && shouldLock()) lockNow() }, 15_000)
+// Settings' choice: a passkey made once (inside the tap), then the minutes; off drops it
+async function pickLockAfter(minutes) {
+  if (!minutes) {
+    prefs.lockAfter = 0
+    prefs.lockCred = ''
+    savePrefs()
+    return renderSettings()
+  }
+  if (!prefs.lockCred) {
+    try {
+      const cred = await navigator.credentials.create({ publicKey: {
+        challenge: crypto.getRandomValues(new Uint8Array(32)),
+        rp: { name: 'Claude remote' },
+        user: { id: crypto.getRandomValues(new Uint8Array(16)), name: 'claude-remote', displayName: 'Claude remote' },
+        pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+        authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'discouraged' },
+        timeout: 60_000,
+        attestation: 'none',
+      } })
+      prefs.lockCred = b64u(cred.rawId)
+    } catch (err) {
+      return toast({ title: tx('App lock not set'), body: err?.name === 'NotAllowedError' ? tx('The unlock was cancelled.') : tx('This phone has no screen lock to use.') })
+    }
+  }
+  prefs.lockAfter = minutes
+  lastNoted = 0
+  noteActive()
+  savePrefs()
+  renderSettings()
+}
+
 function openSettings() {
   closeLayers()
+  pairedList = null
   renderSettings()
   void readZeroInfo()
+  void readPaired()
   $('settings').hidden = false
   $('settings').scrollTop = 0
 }
@@ -2644,6 +2785,7 @@ applyTheme()
 applyFont()
 translateStatic()
 shareLang()
+if (shouldLock()) lockNow()
 
 function boot() {
   pair()

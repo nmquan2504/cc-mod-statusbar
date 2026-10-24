@@ -43,6 +43,9 @@ const MAX_SNAPSHOT = 4 * 1024 * 1024
 // the slash commands the phone draws as pages of their own (the mod's pages.ts)
 const PAGES = new Set(['model', 'effort', 'config', 'permissions', 'context', 'mcp'])
 const MAX_DEVICES = 5
+// a phone allowed but not seen for a week is unpaired: a restart keeps the phones, so a lost one
+// would otherwise stay paired as long as the hub runs
+const DEVICE_TTL = 7 * 24 * 3600_000
 const MAX_PAIR_FAILS = 10
 // the pairing code a phone shows and a terminal matches: letters and digits, none that look alike
 const CODE_CHARS = '23456789ABCDEFGHJKMNPQRSTUVWXYZ'
@@ -429,7 +432,7 @@ const CLOCK_SKEW = 120_000
 // each phone: its key, from an ECDH with this hub salted with K; allowed or not by a terminal
 const devices = new Map() // id -> { key, raw, name, at, seenAt, code, isApproved, isDenied, nonces: Map<n, ts> }
 // the phones the hub before allowed, as it wrote them
-for (const d of kept?.devices ?? []) {
+for (const d of (kept?.devices ?? []).filter(x => Date.now() - x.seenAt < DEVICE_TTL)) {
   const key = await subtle.importKey('raw', unb64(d.raw), 'AES-GCM', false, ['encrypt', 'decrypt']).catch(() => undefined)
   if (key) devices.set(d.id, { key, raw: d.raw, name: d.name, at: d.at, seenAt: d.seenAt, code: '', isApproved: true, isDenied: false, nonces: new Map(d.nonces ?? []) })
 }
@@ -459,6 +462,12 @@ function nextVersion(since, res) {
     waiters.add(done)
     res.on('close', done)
   })
+}
+
+// A phone unpaired: its key and its push subscriptions gone
+function dropDevice(id) {
+  devices.delete(id)
+  for (const [endpoint, v] of subscriptions) if (v.device === id) subscriptions.delete(endpoint)
 }
 
 // One sealed call from an allowed phone: what it asks, answered as [status, body].
@@ -592,9 +601,20 @@ async function answerOp(dev, id, op, a, res) {
     case 'notice':
       return [200, notice]
     case 'forget':
-      devices.delete(id)
-      for (const [endpoint, v] of subscriptions) if (v.device === id) subscriptions.delete(endpoint)
+      dropDevice(id)
       return [200, { ok: true }]
+    // the phones this hub allowed, for Settings: this one marked
+    case 'devices':
+      return [200, { devices: [...devices.entries()].filter(([, d]) => d.isApproved).map(([did, d]) => ({ id: did, name: d.name, at: d.at, seenAt: d.seenAt, isThis: did === id })) }]
+    // another phone unpaired from this one (this one unpairs itself with forget)
+    case 'unpair': {
+      const other = String(a.id ?? '')
+      if (!other || other === id || !devices.get(other)?.isApproved) return [404, { error: 'No such phone.' }]
+      dropDevice(other)
+      log(`unpaired from a phone: ${other.slice(0, 6)}`)
+      bump()
+      return [200, { ok: true }]
+    }
     default:
       return [404, { error: 'not found' }]
   }
@@ -975,6 +995,7 @@ process.on('SIGHUP', () => undefined) // started detached: a closed terminal is 
 setInterval(() => {
   const now = Date.now()
   for (const [id, s] of sessions) if (now - s.seenAt > 15_000) { sessions.delete(id); bump() }
+  for (const [id, d] of devices) if (d.isApproved && now - d.seenAt > DEVICE_TTL) { dropDevice(id); log(`unpaired, not seen for a week: ${d.name}`) }
   if (now - lastSessionAt > SESSION_TTL) return shutdown(0)
   if (now - lastPhoneAt > idleMs) shutdown(0)
 }, 5_000).unref()
