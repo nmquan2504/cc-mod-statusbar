@@ -33,7 +33,10 @@ export async function latest(): Promise<Release | null> {
   const rel = await r.json()
   const version = String(rel.tag_name ?? '').replace(/^v/, '')
   const asset = (name: string) => (rel.assets as { name: string; browser_download_url: string }[] | undefined)?.find(a => a.name === name)?.browser_download_url ?? ''
-  const apk = asset(APK), sha = asset(`${APK}.sha256`)
+  // the APK named with its version (from 0.16.2), else the one named claude-remote.apk
+  const named = `claude-remote-${version}.apk`
+  const file = asset(named) ? named : APK
+  const apk = asset(file), sha = asset(`${file}.sha256`)
   return /^\d+\.\d+\.\d+$/.test(version) && isNewer(version, VERSION) && apk && sha ? { version, apk, sha, notes: String(rel.body ?? '') } : null
 }
 
