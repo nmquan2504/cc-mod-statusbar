@@ -891,11 +891,9 @@ export async function tickRemote($: any) {
   }
 }
 
-// A push to every subscribed phone: a turn ended, or Claude waits for the person.
-// The session's title closes the notice's title, so two sessions in one folder are told apart.
+// A push to every subscribed phone: a turn ended, or Claude waits for the person
 export async function notifyRemote($: any, title: string, body: string) {
   if (!cfg.selfRemote || !remote.isJoined) return
   const id = await $.session.id().catch(() => '')
-  const named = remote.title ? `${title} · ${oneLine(remote.title, 60)}` : title
-  await hub($, 'POST', `/notify?id=${encodeURIComponent(id)}`, { title: named, body })
+  await hub($, 'POST', `/notify?id=${encodeURIComponent(id)}`, { title, body })
 }

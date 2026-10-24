@@ -276,7 +276,7 @@ async function asking($: any, on: any, surface = 'terminal', isLinked = true) {
 }
 const settle = () => new Promise(r => setTimeout(r, 30))
 
-test('a notice names the folder and the session\'s title, so two sessions in one folder are told apart', async ($, on) => {
+test('a notice names the folder alone, not the session\'s title', async ($, on) => {
   const notices: any[] = []
   engine(on, {
     hub: (path, body) => (path === '/notify' && notices.push(JSON.parse(body)), STATUS),
@@ -299,7 +299,7 @@ test('a notice names the folder and the session\'s title, so two sessions in one
   await clock.advance(2000)
   const call = ($ as any).tool.call({ tool: 'AskUserQuestion', questions: QUESTIONS })
   await settle()
-  expect(notices.at(-1)).toMatchObject({ title: 'Claude asks you · /shop · Fix the login redirect', body: 'Which database?' })
+  expect(notices.at(-1)).toMatchObject({ title: 'Claude asks you · /shop', body: 'Which database?' })
   await band.press({ key: 'ask-dismiss' })
   await call
 })
@@ -327,7 +327,7 @@ test('the Done notice names the files the turn changed', async ($, on) => {
   await t.tool.call({ tool: 'Write', file_path: '/work/shop/README.md', content: 'x' })
   await t.turn.complete({ text: 'ok', reason: 'answer', answer: 'Fixed.' })
   await settle()
-  expect(notices.at(-1)?.title).toMatch(/^Done · \/shop · .+ · 2 files$/)
+  expect(notices.at(-1)?.title).toBe('Done · /shop · 2 files')
   expect(notices.at(-1)?.body).toBe('Fixed.')
 })
 
