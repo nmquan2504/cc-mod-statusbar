@@ -15,7 +15,7 @@ const el = (tag, cls, text) => {
 // Kept in this browser alone (localStorage), so each phone has its own; the page works without them.
 const PREFS_KEY = 'qsb-prefs'
 const prefs = (() => {
-  const base = { v: 2, lang: globalThis.I18N?.langOf(navigator.language) ?? 'en', theme: 'system', voiceVi: '', voiceEn: '', rate: 1, readNotices: false, noticeWords: 'status', notifyOff: false, fontScale: 1, privateNotices: true, veil: true, lockAfter: 0, lockCred: '' }
+  const base = { v: 2, lang: globalThis.I18N?.langOf(navigator.language) ?? 'en', theme: 'system', voiceVi: '', voiceEn: '', rate: 1, readNotices: false, noticeWords: 'status', notifyOff: false, fontScale: 1, privateNotices: true, veil: true, idleVeil: 0, lockAfter: 0, lockCred: '' }
   try {
     const kept = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}')
     // kept before the status became the default, when every phone saved the title then default
@@ -1966,10 +1966,12 @@ function wireMic(mic, box, fit) {
     }
     rec.onerror = e => { if (e.error !== 'aborted' && e.error !== 'no-speech') toast({ title: tx('No voice input'), body: e.error === 'not-allowed' ? tx('Allow the microphone for this page.') : e.error }) }
     rec.onend = () => {
+      isAsking = false
       rec = null
       mic.classList.remove('on')
     }
     mic.classList.add('on')
+    isAsking = true
     rec.start()
   }
 }
@@ -2635,6 +2637,12 @@ function renderSettings() {
     shareLang()
   })
   toggle(row(privacy, tx('Blur when you leave the app'), tx('The app switcher shows no code or chat.')), prefs.veil, () => set('veil', !prefs.veil))
+  const idle = privacy.appendChild(el('div', 'prow'))
+  idle.append(el('div', 'pl', tx('Blur when untouched')), el('div', 'pd', tx('After this long without a tap or a scroll; a tap brings the page back.')))
+  seg(idle, IDLE_VEIL.map(s => [s, s ? (s < 60 ? `${s}s` : `${s / 60}m`) : tx('Off')]), Number(prefs.idleVeil) || 0, s => {
+    lastTouch = Date.now()
+    set('idleVeil', s)
+  })
 
   const lock = card(tx('App lock'))
   if (!canLock) lock.append(el('div', 'meta pad', tx('This browser cannot lock the page.')))
@@ -2684,14 +2692,40 @@ async function unpairOther(btn, id) {
   await readPaired()
 }
 
-// ---- privacy: the page blurred while the phone shows another app, so its switcher shows no chat
-function veil(isOn) {
-  document.body.classList.toggle('veiled', isOn && prefs.veil)
+// ---- privacy: the page blurred while the phone shows another app, so its switcher shows no chat,
+// and, when Settings says, after some seconds untouched (a tap brings it back, and goes no further)
+const veilFor = new Set() // why the page is blurred: away, idle
+function setVeil(why, isOn) {
+  if (isOn) veilFor.add(why)
+  else veilFor.delete(why)
+  document.body.classList.toggle('veiled', veilFor.size > 0)
+  $('veil-cover').hidden = !veilFor.has('idle')
 }
-// (not on the window's blur: a voice picker or the unlock prompt takes the focus too)
+const veil = isOn => setVeil('away', isOn && prefs.veil)
+const IDLE_VEIL = [0, 15, 30, 60, 300]
+let lastTouch = Date.now()
+for (const ev of ['pointerdown', 'keydown', 'scroll', 'input']) addEventListener(ev, () => { lastTouch = Date.now() }, { capture: true, passive: true })
+setInterval(() => {
+  const seconds = Number(prefs.idleVeil) || 0
+  if (seconds && !document.hidden && !isLocked && !veilFor.has('idle') && Date.now() - lastTouch > seconds * 1000) setVeil('idle', true)
+}, 1000)
+$('veil-cover').onclick = () => {
+  lastTouch = Date.now()
+  setVeil('idle', false)
+}
+// Android takes the app switcher's picture as the app goes, often before the page hears it is
+// hidden; the window losing focus comes first, so the blur goes on then too. A picker, the mic or
+// the passkey prompt also take the focus: those are let be (a picker is the focused select; the
+// others say so through isAsking), and the blur goes off when the focus comes back anyway.
+let isAsking = false
 document.addEventListener('visibilitychange', () => veil(document.hidden))
 addEventListener('pagehide', () => veil(true))
 addEventListener('pageshow', () => veil(false))
+addEventListener('blur', () => {
+  if (isAsking || document.activeElement?.tagName === 'SELECT') return
+  veil(true)
+})
+addEventListener('focus', () => { if (!document.hidden) veil(false) })
 
 // ---- the app lock: after lockAfter minutes away the page asks for the phone's own unlock (a
 // passkey's user verification: fingerprint, face or screen lock), so a phone left unlocked cannot
@@ -2724,6 +2758,7 @@ const b64u = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes))).replac
 const unb64u = text => Uint8Array.from(atob(text.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))
 async function unlock() {
   try {
+    isAsking = true
     await navigator.credentials.get({ publicKey: { challenge: crypto.getRandomValues(new Uint8Array(32)), allowCredentials: [{ type: 'public-key', id: unb64u(prefs.lockCred) }], userVerification: 'required', timeout: 60_000 } })
     isLocked = false
     lastNoted = 0
@@ -2731,6 +2766,8 @@ async function unlock() {
     $('lock').hidden = true
   } catch {
     $('lock-note').textContent = tx('Not unlocked. Try again.')
+  } finally {
+    isAsking = false
   }
 }
 $('unlock').onclick = () => void unlock()
@@ -2746,6 +2783,7 @@ async function pickLockAfter(minutes) {
     return renderSettings()
   }
   if (!prefs.lockCred) {
+    isAsking = true
     try {
       const cred = await navigator.credentials.create({ publicKey: {
         challenge: crypto.getRandomValues(new Uint8Array(32)),
@@ -2759,6 +2797,8 @@ async function pickLockAfter(minutes) {
       prefs.lockCred = b64u(cred.rawId)
     } catch (err) {
       return toast({ title: tx('App lock not set'), body: err?.name === 'NotAllowedError' ? tx('The unlock was cancelled.') : tx('This phone has no screen lock to use.') })
+    } finally {
+      isAsking = false
     }
   }
   prefs.lockAfter = minutes
