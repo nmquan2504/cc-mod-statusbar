@@ -2,13 +2,13 @@
   "expo": {
     "name": "Claude remote",
     "slug": "claude-remote",
-    "version": "0.16.2",
+    "version": "0.16.3",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#1a1a18",
+        "backgroundColor": "#dd7a58",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -25,7 +25,7 @@
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "com.google.android.c2dm.permission.RECEIVE"
       ],
-      "versionCode": 1602,
+      "versionCode": 1603,
       "permissions": [
         "android.permission.REQUEST_INSTALL_PACKAGES"
       ]
