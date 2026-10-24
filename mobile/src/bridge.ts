@@ -9,9 +9,10 @@
 // speechSynthesis that reads with the phone's voices through the app (the WebView's has none).
 //
 // Messages from the page: { t: 'call', id, op, a } | { t: 'forget' } | { t: 'back', isHandled } |
-//   { t: 'set', key, value } | { t: 'speak', id, text, lang, voice, rate } | { t: 'hush' }
+//   { t: 'set', key, value } | { t: 'speak', id, text, lang, voice, rate } | { t: 'hush' } |
+//   { t: 'insets', top, bottom } | { t: 'update' }
 // Answers into it: __qsb.done(id, result) | __qsb.fail(id, kind, message) | __qsb.back() |
-//   __qsb.settings(settings, note) | __qsb.voices(list) | __qsb.said(id, isOk)
+//   __qsb.settings(settings, note) | __qsb.voices(list) | __qsb.said(id, isOk) | __qsb.toast(title, body)
 import type { AppSettings } from './settings'
 
 export const bridge = (settings: AppSettings, version: string) => `(() => {
@@ -40,7 +41,7 @@ export const bridge = (settings: AppSettings, version: string) => `(() => {
   Object.defineProperty(window, 'E2E', { configurable: false, get: () => E2E, set: () => undefined })
 
   // the page knows it runs in the app: what the app does itself, its Settings set here
-  const native = { platform: 'android', version: ${JSON.stringify(version)}, settings: ${JSON.stringify(settings)}, set: (key, value) => post({ t: 'set', key, value }) }
+  const native = { platform: 'android', version: ${JSON.stringify(version)}, settings: ${JSON.stringify(settings)}, set: (key, value) => post({ t: 'set', key, value }), checkUpdate: () => post({ t: 'update' }) }
   Object.defineProperty(window, 'QSB_NATIVE', { configurable: false, get: () => native, set: () => undefined })
 
   // read aloud with the phone's own voices: the page's utterances, said by the app in turn
@@ -83,6 +84,17 @@ export const bridge = (settings: AppSettings, version: string) => `(() => {
   Object.defineProperty(window, 'SpeechSynthesisUtterance', { configurable: false, get: () => Utterance, set: () => undefined })
   Object.defineProperty(window, 'speechSynthesis', { configurable: false, get: () => synth, set: () => undefined })
 
+  // the status and navigation bars as the WebView gives them to the page's CSS: when it does, the
+  // page keeps clear of them itself and the app adds no margin of its own (it would be twice)
+  addEventListener('DOMContentLoaded', () => {
+    const probe = document.createElement('div')
+    probe.style.cssText = 'position:fixed;visibility:hidden;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)'
+    document.body.appendChild(probe)
+    const style = getComputedStyle(probe)
+    post({ t: 'insets', top: parseFloat(style.paddingTop) || 0, bottom: parseFloat(style.paddingBottom) || 0 })
+    probe.remove()
+  })
+
   // no speech recognition: the app has no microphone, and the keyboard's own mic types by voice
   for (const name of ['SpeechRecognition', 'webkitSpeechRecognition'])
     Object.defineProperty(window, name, { configurable: false, get: () => undefined, set: () => undefined })
@@ -107,6 +119,9 @@ export const bridge = (settings: AppSettings, version: string) => `(() => {
     settings(s, note) {
       native.settings = s
       dispatchEvent(new CustomEvent('qsb-native', { detail: { note } }))
+    },
+    toast(title, body) {
+      if (typeof toast === 'function') toast({ title, body })
     },
     voices(list) {
       voices = list
