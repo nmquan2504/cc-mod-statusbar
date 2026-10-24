@@ -1,5 +1,5 @@
 import { ARM_MS } from '../../features/permissions'
-import { CLOUDFLARED_DOWNLOAD, answerPairing, pairChoices, checkCloudflared, forgetDevices, hideSession, hubIsOther, installCloudflared, pendingPairs, remote, restartRemote, secondsToPair, spinnerFrame, startRemote, stopRemote, waitedFor } from '../../features/remote'
+import { CLOUDFLARED_DOWNLOAD, answerPairing, pairChoices, checkCloudflared, forgetDevices, hideSession, hubIsOther, installCloudflared, pendingPairs, remote, restartKeepsPhones, restartRemote, secondsToPair, spinnerFrame, startRemote, stopRemote, waitedFor } from '../../features/remote'
 import { modVersionShort } from '../../features/update'
 import { oneLine } from '../../lib/format'
 import { qrMatrix, qrRows } from '../../lib/qr'
@@ -123,7 +123,7 @@ export async function drawRemoteMenu($: any, els: any, _isTerminal: boolean, ent
       {entry('remote-hide', 'h', remote.isHidden ? '◌' : '●', remote.isHidden ? 'Show this session on the phone' : 'Hide this session from the phone', remote.isHidden ? 'it is off the list now' : 'the other sessions stay', () => hideSession($, !remote.isHidden))}
       {s.devices.length > 0 ? entry('remote-forget', 'f', '✕', isArmed('remote-forget') ? 'Press again to forget' : 'Forget the paired phones', 'each must scan and be allowed again', twice('remote-forget', 'forget the paired phones', () => forgetDevices($)), isArmed('remote-forget') ? 'warning' : 'text') : null}
       {hubIsOther() ? <Text color="warning">{`The hub runs ${s.version || 'an older version'}; this session loaded ${modVersionShort()}.`}</Text> : null}
-      {hubIsOther() ? entry('remote-restart', 'r', '⟳', isArmed('remote-restart') ? 'Press again to restart' : 'Restart the hub', "on this session's code; the link changes and every phone pairs again", twice('remote-restart', 'restart the hub', () => restartRemote($)), 'warning') : null}
+      {hubIsOther() ? entry('remote-restart', 'r', '⟳', isArmed('remote-restart') ? 'Press again to restart' : 'Restart the hub', restartKeepsPhones() ? "on this session's code; the link and the paired phones stay" : "on this session's code; the link changes and every phone pairs again", twice('remote-restart', 'restart the hub', () => restartRemote($)), 'warning') : null}
       {entry('remote-stop', 'x', '■', isArmed('remote-stop') ? 'Press again to stop' : 'Stop the remote', 'for every session: the link ends', twice('remote-stop', 'stop the remote', () => stopRemote($)), isArmed('remote-stop') ? 'warning' : 'text')}
     </Box>
   )

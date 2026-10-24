@@ -41,6 +41,8 @@ export type RemoteStatus = {
   phones: number
   isLocked: boolean
   subscriptions: number
+  // a restart keeps the link and the paired phones (POST /restart); absent from a hub before it
+  canHandOver?: boolean
 }
 export const remote = {
   dir: '',
@@ -240,13 +242,20 @@ export const hubIsOther = () => Boolean(remote.status && modVersionShort() && re
 const hubIsOlder = () => hubIsOther() && rt.modVersion.at > 0 && (remote.status?.versionAt === undefined || rt.modVersion.at > remote.status.versionAt)
 
 // Stop the hub, wait for it to go (its socket answers no more), and start it from this session's
-// code. The tunnel's address and the pairing key change: every phone scans and is allowed again.
+// code. A hub that can hand over leaves its tunnel running and writes down K and the phones it
+// allowed, and the hub started next takes over: the same link, the phones reconnecting by
+// themselves. An older hub stops outright: the address and K change, and every phone pairs again.
 export async function restartRemote($: any) {
-  await stopRemote($)
+  if (remote.status?.canHandOver) {
+    await hub($, 'POST', '/restart')
+    remote.isJoined = false
+  } else await stopRemote($)
   for (let i = 0; i < 20 && (await readRemote($)); i++) await $.clock.sleep(250)
   remote.status = null
   await startRemote($)
 }
+// Whether a restart now keeps the link and the phones
+export const restartKeepsPhones = () => Boolean(remote.status?.canHandOver)
 
 // The codes the terminal offers for a request to pair: the phone's and two others, in an order
 // fixed by the request's id (each redraw the same), the hub's letters and digits. Picking the one
@@ -778,12 +787,16 @@ export async function tickRemote($: any) {
   remote.status = status
   remote.isJoined = true
   if (status.url) remote.isStarting = false
-  // the hub runs older code than this session loaded (a pull, then a reload) and no phone watches
-  // or asks to pair: restart it on this session's code, once a load; with a phone watching, r in the
-  // menu does it when the person chooses
-  if (hubIsOlder() && !status.phones && !status.pending.length && !remote.isAutoRestarted && !remote.isStarting) {
+  // the hub runs older code than this session loaded (a pull, then a reload): restart it on this
+  // session's code, once a load. A hub that hands over keeps the link and the phones, so it restarts
+  // with phones watching; an older one, only when no phone watches or asks to pair (else r in the
+  // menu does it when the person chooses)
+  const canRestartNow = status.canHandOver ? !status.pending.length : !status.phones && !status.pending.length
+  if (hubIsOlder() && canRestartNow && !remote.isAutoRestarted && !remote.isStarting) {
     remote.isAutoRestarted = true
-    $.ui.toast(`statusbar: remote: restarting the hub on ${modVersionShort()}, as no phone watches; phones pair again`)
+    $.ui.toast(status.canHandOver
+      ? `statusbar: remote: restarting the hub on ${modVersionShort()}; the link and the phones stay`
+      : `statusbar: remote: restarting the hub on ${modVersionShort()}, as no phone watches; phones pair again`)
     await restartRemote($)
     return
   }
