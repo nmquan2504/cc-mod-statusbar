@@ -27,8 +27,10 @@ function savePrefs() {
   try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)) } catch {}
   shareLang()
 }
-// The language, where the service worker reads it to word a push (sw.js)
+// The language, where the service worker reads it to word a push (sw.js), or the Android app its
+// notices
 function shareLang() {
+  if (window.QSB_NATIVE && QSB_NATIVE.settings.lang !== prefs.lang) QSB_NATIVE.set('lang', prefs.lang)
   globalThis.caches?.open('qsb-prefs').then(c => Promise.all([
     c.put('/lang', new Response(prefs.lang)),
     c.put('/private', new Response(prefs.privateNotices ? '1' : '0')),
@@ -53,6 +55,7 @@ const ICONS = {
   chevronRight: 'M9 6l6 6-6 6',
   spark: 'M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4',
   file: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5',
+  phone: 'M8 2h8a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zM11 18h2',
   lock: 'M7 11V7a5 5 0 0 1 10 0v4M6 11h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1z',
   plus: 'M12 5v14M5 12h14',
   chevronUp: 'M6 15l6-6 6 6',
@@ -119,7 +122,9 @@ async function pair() {
   }
   const k = new URLSearchParams(location.hash.slice(1)).get('k')
   if (k) {
+    const isWebAsked = new URLSearchParams(location.search).has('web')
     history.replaceState(null, '', '/')
+    await offerApp(k, isWebAsked)
     await E2E.forget()
     try {
       const { code } = await E2E.pair(k)
@@ -154,11 +159,63 @@ async function pair() {
     throw new Error('refused')
   }
 }
+// ---- the Android app (mobile/): a fresh QR code opens it when it is installed, and a paired
+// browser hands over to it; Chrome opens it by an intent, or goes to the fallback when it is not
+// installed. The app's settings and version come in window.QSB_NATIVE when this page runs in it.
+const isAndroid = /Android/.test(navigator.userAgent) && !window.QSB_NATIVE
+const APP_PACKAGE = 'io.github.nmquan2504.clauderemote'
+const APK_URL = 'https://github.com/nmquan2504/cc-mod-statusbar/releases/latest/download/claude-remote.apk'
+const USE_KEY = 'qsb-use' // app or web: what this phone picked for a QR code
+const appIntent = (params, fallback) => `intent://pair?${new URLSearchParams(params)}#Intent;scheme=clauderemote;package=${APP_PACKAGE};S.browser_fallback_url=${encodeURIComponent(fallback)};end`
+const pickedUse = () => {
+  try { return localStorage.getItem(USE_KEY) || '' } catch { return '' }
+}
+const pickUse = use => {
+  try { localStorage.setItem(USE_KEY, use) } catch {}
+}
+// A fresh QR code in Chrome on Android: the app or this browser, asked until one is picked; the
+// app then at once (Chrome may still wait for a tap), the browser with no question. With no app,
+// Chrome comes back here with ?web=1, and pairing goes on in the browser.
+function offerApp(k, isWebAsked) {
+  if (!isAndroid || isWebAsked || pickedUse() === 'web') return Promise.resolve()
+  const open = () => { location.href = appIntent({ base: location.origin, k }, `${location.origin}/?web=1#k=${k}`) }
+  if (pickedUse() === 'app') open()
+  return new Promise(resolve => {
+    gate(tx('Open Claude remote in the Android app, or go on in this browser.'))
+    $('gate-app').hidden = false
+    $('gate-open-app').onclick = () => {
+      pickUse('app')
+      open()
+    }
+    $('gate-web').onclick = () => {
+      pickUse('web')
+      $('gate-app').hidden = true
+      resolve()
+    }
+  })
+}
+// A paired browser hands over to the app: the hub's ticket lets the app in at once, and the
+// browser's notifications stop (the app gives them now); with no app, its APK downloads
+async function handOver() {
+  const r = await E2E.call('handoff').catch(() => null)
+  if (r?.s !== 200) return toast({ title: tx('Not handed over'), body: tx('Update the mod, then try again.') })
+  pickUse('app')
+  closeLayers()
+  location.href = appIntent({ base: location.origin, k: r.b.k, t: r.b.ticket }, APK_URL)
+}
+// a dotted version newer than another: 0.16.0 after 0.15.2
+const isNewer = (v, than) => {
+  const a = String(v).split('.').map(Number), b = String(than).split('.').map(Number)
+  for (let i = 0; i < 3; i++) if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0)
+  return false
+}
+
 // `secondsLeft`: how long the request still waits for Allow (a minute in all); counted down here
 // between the hub's answers, and the request is over when it reaches 0
 let pairUntil = 0
 let pairTimer = 0
 function gate(text, code, canPaste, secondsLeft) {
+  $('gate-app').hidden = true
   $('gate-text').textContent = text
   $('gate-code').textContent = code || ''
   $('gate-code').hidden = !code
@@ -661,6 +718,10 @@ function openDrawer() {
   // the mod's version, as the session picked loaded it (each session may run its own)
   const v = (state.sessions.find(s => s.id === picked) || state.sessions[0])?.version
   $('version').textContent = v ? `v${v}` : ''
+  // in the app: a mod newer than it, its APK offered (the link opens in the browser)
+  const app = window.QSB_NATIVE?.version
+  $('app-update').hidden = !(app && v && isNewer(v, app))
+  $('app-update').href = APK_URL
   $('scrim').hidden = false
   $('drawer').classList.add('open')
 }
@@ -951,6 +1012,8 @@ function speak(text) {
 // A notice come in while the page is open, read aloud when Settings says so: after what is being
 // read, not over it. A page in the background may not be let speak; the push shows as ever.
 function readNotice(n) {
+  // in the Android app, the app reads the notices itself, even with the screen off
+  if (window.QSB_NATIVE) return
   if (!prefs.readNotices || !canSpeak || !globalThis.Speak) return
   // the title a line of its own, so the answer's markdown starts its own lines
   // locked, a notice says no more than its status
@@ -2609,16 +2672,24 @@ function renderSettings() {
     if (isIos) voices.append(el('div', 'pd hint', tx('For better voices, download an Enhanced or Premium voice in Settings, Accessibility, Spoken Content, Voices.')))
   }
 
+  // in the Android app: its own notifications, read aloud, private words, screenshots and lock
+  // (src/settings.ts), each change sent to it and drawn again when it answers
+  const native = window.QSB_NATIVE?.settings
+  const setNative = (key, value) => QSB_NATIVE.set(key, value)
   const notes = card(tx('Notifications'))
-  const pushIs = notifyState()
-  const push = row(notes, tx('Notify me when Claude finishes'), pushIs === 'home' ? tx('On iPhone: tap Share, then Add to Home Screen, and open Claude remote from there.') : pushIs === 'none' ? tx('This browser cannot show notifications.') : tx('Also when Claude needs you.'))
+  if (native) {
+    toggle(row(notes, tx('Notify me when Claude finishes'), tx('Also when Claude needs you, with the screen off too.')), native.notify, () => setNative('notify', !native.notify))
+    toggle(row(notes, tx('Read notifications aloud'), tx('Each one is read as it comes in, with the screen off too.')), native.readAloud, () => setNative('readAloud', !native.readAloud))
+  }
+  const pushIs = native ? 'native' : notifyState()
+  const push = native ? null : row(notes, tx('Notify me when Claude finishes'), pushIs === 'home' ? tx('On iPhone: tap Share, then Add to Home Screen, and open Claude remote from there.') : pushIs === 'none' ? tx('This browser cannot show notifications.') : tx('Also when Claude needs you.'))
   if (pushIs === 'on' || pushIs === 'off') {
     toggle(push, pushIs === 'on', async () => {
       await (pushIs === 'on' ? unsubscribe() : subscribe()).catch(err => toast({ title: tx('Notifications off'), body: err.message }))
       renderSettings()
     })
   }
-  if (canSpeak && globalThis.Speak) {
+  if (!native && canSpeak && globalThis.Speak) {
     const read = row(notes, tx('Read notifications aloud'), tx('While this page is open, each one is read as it comes in.'))
     toggle(read, prefs.readNotices, () => {
       set('readNotices', !prefs.readNotices)
@@ -2632,11 +2703,17 @@ function renderSettings() {
   }
 
   const privacy = card(tx('Privacy'))
-  toggle(row(privacy, tx('Private notifications'), tx('Only "Claude has responded" or "Claude needs you" shows, on the lock screen and in the shade.')), prefs.privateNotices, () => {
-    set('privateNotices', !prefs.privateNotices)
-    shareLang()
-  })
-  toggle(row(privacy, tx('Blur when you leave the app'), tx('The app switcher shows no code or chat.')), prefs.veil, () => set('veil', !prefs.veil))
+  const privateRow = row(privacy, tx('Private notifications'), tx('Only "Claude has responded" or "Claude needs you" shows, on the lock screen and in the shade.'))
+  if (native) {
+    toggle(privateRow, native.privateNotices, () => setNative('privateNotices', !native.privateNotices))
+    toggle(row(privacy, tx('Block screenshots'), tx('Screenshots and the app switcher show no code or chat.')), native.secure, () => setNative('secure', !native.secure))
+  } else {
+    toggle(privateRow, prefs.privateNotices, () => {
+      set('privateNotices', !prefs.privateNotices)
+      shareLang()
+    })
+    toggle(row(privacy, tx('Blur when you leave the app'), tx('The app switcher shows no code or chat.')), prefs.veil, () => set('veil', !prefs.veil))
+  }
   const idle = privacy.appendChild(el('div', 'prow'))
   idle.append(el('div', 'pl', tx('Blur when untouched')), el('div', 'pd', tx('After this long without a tap or a scroll; a tap brings the page back.')))
   seg(idle, IDLE_VEIL.map(s => [s, s ? (s < 60 ? `${s}s` : `${s / 60}m`) : tx('Off')]), Number(prefs.idleVeil) || 0, s => {
@@ -2645,7 +2722,10 @@ function renderSettings() {
   })
 
   const lock = card(tx('App lock'))
-  if (!canLock) lock.append(el('div', 'meta pad', tx('This browser cannot lock the page.')))
+  if (native) {
+    seg(lock, LOCK_AFTER.map(m => [m, m ? `${m}m` : tx('Off')]), native.lockAfter, m => setNative('lockAfter', m))
+    lock.append(el('div', 'pd hint', tx("After this long away, the app asks for this phone's own unlock: fingerprint, face or screen lock.")))
+  } else if (!canLock) lock.append(el('div', 'meta pad', tx('This browser cannot lock the page.')))
   else {
     const now = prefs.lockCred ? Number(prefs.lockAfter) || 0 : 0
     seg(lock, LOCK_AFTER.map(m => [m, m ? `${m}m` : tx('Off')]), now, m => void pickLockAfter(m))
@@ -2667,6 +2747,11 @@ function renderSettings() {
   off.onclick = () => unpair(off)
   body.append(el('div', 'meta pad center', tx('These settings stay on this phone.')))
 }
+// the Android app answered a change of its settings: drawn again, with why one was refused
+addEventListener('qsb-native', e => {
+  if (!$('settings').hidden) renderSettings()
+  if (e.detail?.note) toast({ title: tx('Not changed'), body: e.detail.note })
+})
 // ---- paired devices: the phones this hub allowed, this one marked; another one unpaired from here
 let pairedList = null
 async function readPaired() {
@@ -2701,7 +2786,7 @@ function setVeil(why, isOn) {
   document.body.classList.toggle('veiled', veilFor.size > 0)
   $('veil-cover').hidden = !veilFor.has('idle')
 }
-const veil = isOn => setVeil('away', isOn && prefs.veil)
+const veil = isOn => setVeil('away', isOn && prefs.veil && !window.QSB_NATIVE)
 const IDLE_VEIL = [0, 15, 30, 60, 300]
 let lastTouch = Date.now()
 for (const ev of ['pointerdown', 'keydown', 'scroll', 'input']) addEventListener(ev, () => { lastTouch = Date.now() }, { capture: true, passive: true })
@@ -2818,6 +2903,8 @@ function openSettings() {
   $('settings').scrollTop = 0
 }
 $('open-settings').onclick = openSettings
+$('open-app').hidden = !isAndroid
+$('open-app').onclick = () => void handOver()
 $('close-settings').onclick = () => { $('settings').hidden = true }
 // the voices come in late on some phones: the lists fill when they do
 if (canSpeak) speechSynthesis.addEventListener?.('voiceschanged', () => { if (!$('settings').hidden) renderSettings() })

@@ -1,0 +1,79 @@
+# The Android app (mobile/): built when main gets a mod version with no release yet, signed with the
+# app's key from the repository's secrets, and published as release v<version> with its SHA-256.
+# The page links releases/latest/download/claude-remote.apk.
+name: Android app
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-app
+  cancel-in-progress: false
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: A release for this version already?
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=$(node -p "require('./.claude-plugin/plugin.json').version")
+          echo "tag=v$v" >> "$GITHUB_OUTPUT"
+          if gh release view "v$v" --json assets --jq '.assets[].name' 2>/dev/null | grep -qx claude-remote.apk; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "v$v already has its APK"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.version.outputs.skip != 'true'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - uses: actions/setup-java@v4
+        if: steps.version.outputs.skip != 'true'
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Build
+        if: steps.version.outputs.skip != 'true'
+        working-directory: mobile
+        env:
+          KEYSTORE_B64: ${{ secrets.CLAUDE_REMOTE_KEYSTORE_B64 }}
+          CLAUDE_REMOTE_KEYSTORE_PASSWORD: ${{ secrets.CLAUDE_REMOTE_KEYSTORE_PASSWORD }}
+          CLAUDE_REMOTE_KEY_ALIAS: ${{ secrets.CLAUDE_REMOTE_KEY_ALIAS }}
+        run: |
+          test -n "$KEYSTORE_B64" || { echo "::error::CLAUDE_REMOTE_KEYSTORE_B64 is not set"; exit 1; }
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          export CLAUDE_REMOTE_KEYSTORE="$RUNNER_TEMP/release.jks"
+          npm ci
+          npx tsc --noEmit
+          CI=1 npm run -s apk
+          rm -f "$RUNNER_TEMP/release.jks"
+
+      - name: Publish
+        if: steps.version.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          cp mobile/android/app/build/outputs/apk/release/app-release.apk claude-remote.apk
+          sha256sum claude-remote.apk > claude-remote.apk.sha256
+          cat claude-remote.apk.sha256
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" \
+              --notes "Claude remote for Android, $TAG. Install claude-remote.apk on the phone; its SHA-256 is in claude-remote.apk.sha256."
+          fi
+          gh release upload "$TAG" claude-remote.apk claude-remote.apk.sha256 --clobber

@@ -1,0 +1,125 @@
+// The page inside the WebView is the hub's own chat page, unchanged; this script, run before its
+// own, stands in for its remote/e2e.js: window.E2E keeps the page's API (isSupported, load, call,
+// forget, Unpaired, b64), and each call goes to the app, which seals it with the key the Keystore
+// holds (src/e2e.ts) and answers through window.__qsb. The page never sees the key. Locked in place
+// so the page's own e2e.js, loaded after, cannot replace it.
+//
+// It also gives the page what Android's WebView lacks or the app does itself: window.QSB_NATIVE,
+// the app's settings for the page's Settings to show and change (src/settings.ts), and a
+// speechSynthesis that reads with the phone's voices through the app (the WebView's has none).
+//
+// Messages from the page: { t: 'call', id, op, a } | { t: 'forget' } | { t: 'back', isHandled } |
+//   { t: 'set', key, value } | { t: 'speak', id, text, lang, voice, rate } | { t: 'hush' }
+// Answers into it: __qsb.done(id, result) | __qsb.fail(id, kind, message) | __qsb.back() |
+//   __qsb.settings(settings, note) | __qsb.voices(list) | __qsb.said(id, isOk)
+import type { AppSettings } from './settings'
+
+export const bridge = (settings: AppSettings, version: string) => `(() => {
+  const waiting = new Map()
+  let next = 1
+  const post = m => window.ReactNativeWebView.postMessage(JSON.stringify(m))
+  class Unpaired extends Error {}
+  const b64 = {
+    enc: bytes => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, ''),
+    dec: str => Uint8Array.from(atob(str.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0)),
+  }
+  const E2E = {
+    isSupported: () => true,
+    load: async () => ({ id: 'app' }),
+    pair: async () => { throw new Error('The app pairs by itself.') },
+    call: (op, a = {}) => new Promise((resolve, reject) => {
+      const id = next++
+      waiting.set(id, { resolve, reject })
+      post({ t: 'call', id, op, a })
+    }),
+    // the page unpairs (Unpair this phone, or the hub no longer knows it): the app goes back to its start
+    forget: async () => post({ t: 'forget' }),
+    Unpaired,
+    b64,
+  }
+  Object.defineProperty(window, 'E2E', { configurable: false, get: () => E2E, set: () => undefined })
+
+  // the page knows it runs in the app: what the app does itself, its Settings set here
+  const native = { platform: 'android', version: ${JSON.stringify(version)}, settings: ${JSON.stringify(settings)}, set: (key, value) => post({ t: 'set', key, value }) }
+  Object.defineProperty(window, 'QSB_NATIVE', { configurable: false, get: () => native, set: () => undefined })
+
+  // read aloud with the phone's own voices: the page's utterances, said by the app in turn
+  let voices = []
+  const said = new Map()
+  let saidNext = 1
+  const fire = (u, type, extra) => {
+    const e = Object.assign(new Event(type), { utterance: u }, extra)
+    const on = u['on' + type]
+    if (typeof on === 'function') on.call(u, e)
+    u.dispatchEvent(e)
+  }
+  const synth = new EventTarget()
+  Object.assign(synth, {
+    speaking: false, pending: false, paused: false, onvoiceschanged: null,
+    getVoices: () => voices,
+    speak(u) {
+      const id = saidNext++
+      said.set(id, u)
+      synth.speaking = true
+      post({ t: 'speak', id, text: String(u.text), lang: u.lang || '', voice: u.voice ? u.voice.voiceURI : '', rate: Number(u.rate) || 1 })
+    },
+    cancel() {
+      const left = [...said.values()]
+      said.clear()
+      synth.speaking = false
+      post({ t: 'hush' })
+      for (const u of left) fire(u, 'error', { error: 'interrupted' })
+    },
+    pause() {},
+    resume() {},
+  })
+  // in place of the WebView's own, which has no voices or none at all
+  class Utterance extends EventTarget {
+    constructor(text = '') {
+      super()
+      Object.assign(this, { text, lang: '', voice: null, rate: 1, pitch: 1, volume: 1, onstart: null, onend: null, onerror: null })
+    }
+  }
+  Object.defineProperty(window, 'SpeechSynthesisUtterance', { configurable: false, get: () => Utterance, set: () => undefined })
+  Object.defineProperty(window, 'speechSynthesis', { configurable: false, get: () => synth, set: () => undefined })
+
+  // no speech recognition: the app has no microphone, and the keyboard's own mic types by voice
+  for (const name of ['SpeechRecognition', 'webkitSpeechRecognition'])
+    Object.defineProperty(window, name, { configurable: false, get: () => undefined, set: () => undefined })
+
+  window.__qsb = {
+    done(id, r) { const w = waiting.get(id); waiting.delete(id); w && w.resolve(r) },
+    fail(id, kind, message) {
+      const w = waiting.get(id); waiting.delete(id)
+      if (w) w.reject(kind === 'unpaired' ? new Unpaired(message) : new Error(message))
+      if (kind === 'unpaired') post({ t: 'forget' })
+    },
+    // Android's back: an open page or sheet closes, the drawer shuts; else the app goes to the background
+    back() {
+      const page = [...document.querySelectorAll('.page:not([hidden])')].pop()
+      const close = page && page.querySelector('.page-head button')
+      if (close) { close.click(); return post({ t: 'back', isHandled: true }) }
+      const isLayer = document.getElementById('drawer')?.classList.contains('open') || !document.getElementById('sheet')?.hidden
+      if (isLayer && typeof closeLayers === 'function') { closeLayers(); return post({ t: 'back', isHandled: true }) }
+      post({ t: 'back', isHandled: false })
+    },
+    // the app's settings changed (from the page, or refused, as a lock with no fingerprint): note says why
+    settings(s, note) {
+      native.settings = s
+      dispatchEvent(new CustomEvent('qsb-native', { detail: { note } }))
+    },
+    voices(list) {
+      voices = list
+      const e = new Event('voiceschanged')
+      if (typeof synth.onvoiceschanged === 'function') synth.onvoiceschanged(e)
+      synth.dispatchEvent(e)
+    },
+    said(id, isOk) {
+      const u = said.get(id)
+      if (!u) return
+      said.delete(id)
+      synth.speaking = said.size > 0
+      fire(u, isOk ? 'end' : 'error', isOk ? {} : { error: 'synthesis-failed' })
+    },
+  }
+})(); true;`

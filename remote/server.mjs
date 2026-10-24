@@ -162,7 +162,7 @@ function run(argv, cwd) {
 // a short name for the phone, from its user agent
 function deviceName(ua) {
   const os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android' : /Mac OS X/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : 'a device'
-  const app = /CriOS|Chrome\//.test(ua) ? 'Chrome' : /FxiOS|Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'a browser'
+  const app = /ClaudeRemote\//.test(ua) ? 'the app' : /CriOS|Chrome\//.test(ua) ? 'Chrome' : /FxiOS|Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'a browser'
   return `${os}, ${app}`
 }
 
@@ -456,6 +456,7 @@ function nextVersion(since, res) {
     const done = () => {
       clearTimeout(t)
       waiters.delete(done)
+      res.off('close', done) // a watch waits again and again on the same response
       resolve()
     }
     const t = setTimeout(done, POLL_WAIT)
@@ -467,7 +468,24 @@ function nextVersion(since, res) {
 // A phone unpaired: its key and its push subscriptions gone
 function dropDevice(id) {
   devices.delete(id)
-  for (const [endpoint, v] of subscriptions) if (v.device === id) subscriptions.delete(endpoint)
+  dropPush(id)
+}
+const dropPush = id => { for (const [endpoint, v] of subscriptions) if (v.device === id) subscriptions.delete(endpoint) }
+// at most MAX_DEVICES phones stay paired: the oldest goes
+function keepNewest() {
+  const paired = [...devices.entries()].filter(([, x]) => x.isApproved).sort((x, y) => x[1].at - y[1].at)
+  while (paired.length > MAX_DEVICES) devices.delete(paired.shift()[0])
+}
+
+// A paired browser hands this hub to the Android app on the same phone: a ticket, with K, sealed
+// to the browser, which gives both to the app; the app's /hello with it needs no Allow in a
+// terminal, once, within two minutes. The browser stays paired, its notifications left to the app.
+const HANDOFF_MS = 120_000
+const handoffs = new Map() // ticket -> { from: the browser's device id, at }
+function takeHandoff(ticket) {
+  const h = ticket ? handoffs.get(ticket) : undefined
+  handoffs.delete(ticket)
+  return h && Date.now() - h.at <= HANDOFF_MS && devices.get(h.from)?.isApproved ? h : undefined
 }
 
 // One sealed call from an allowed phone: what it asks, answered as [status, body].
@@ -477,6 +495,15 @@ async function answerOp(dev, id, op, a, res) {
     case 'state':
       await nextVersion(Number(a.since ?? -1), res)
       return [200, stateOf()]
+    // the Android app's background service: waits for the next notice alone, a few hundred bytes
+    // rather than every session's state, so a phone in a pocket spends little on it
+    case 'watch': {
+      const since = Number(a.since ?? 0)
+      const until = Date.now() + POLL_WAIT
+      while (notice.at <= since && Date.now() < until && !res.destroyed && !isShuttingDown) await nextVersion(version, res)
+      const from = sessions.get(notice.session)?.snapshot
+      return [200, { notice, folder: from?.folder ?? '', title: from?.title ?? '' }]
+    }
     // a queued text taken back: gone from the inbox if the session has not taken it yet, else held
     // for the session, which drops it from its own queue at its next call
     case 'unqueue': {
@@ -600,6 +627,12 @@ async function answerOp(dev, id, op, a, res) {
     }
     case 'notice':
       return [200, notice]
+    case 'handoff': {
+      for (const [t, h] of handoffs) if (Date.now() - h.at > HANDOFF_MS) handoffs.delete(t)
+      const ticket = randomBytes(18).toString('base64url')
+      handoffs.set(ticket, { from: id, at: Date.now() })
+      return [200, { ticket, k: TOKEN }]
+    }
     case 'forget':
       dropDevice(id)
       return [200, { ok: true }]
@@ -669,10 +702,15 @@ const pub = createServer(async (req, res) => {
       const id = randomBytes(16).toString('base64url')
       const code = Array.from({ length: 4 }, () => CODE_CHARS[randomInt(CODE_CHARS.length)]).join('')
       for (const [k, d] of devices) if (isExpired(d)) devices.delete(k)
-      devices.set(id, { key, raw, name: deviceName(String(req.headers['user-agent'] ?? '')), at: Date.now(), seenAt: Date.now(), code, isApproved: false, isDenied: false, nonces: new Map() })
+      const handoff = takeHandoff(String(body?.ticket ?? ''))
+      devices.set(id, { key, raw, name: deviceName(String(req.headers['user-agent'] ?? '')), at: Date.now(), seenAt: Date.now(), code, isApproved: Boolean(handoff), isDenied: false, nonces: new Map() })
+      if (handoff) {
+        keepNewest()
+        dropPush(handoff.from)
+      }
       const mac = b64(await subtle.sign('HMAC', AUTH, te.encode(`welcome|${id}|${hubPub}|${phonePub}|${code}`)))
       bump()
-      log(`pair asked: ${code}`)
+      log(handoff ? 'paired: the app, handed over from its browser' : `pair asked: ${code}`)
       return send(res, 200, { id, pub: hubPub, code, mac })
     }
 
@@ -820,9 +858,7 @@ const ctl = createServer(async (req, res) => {
     if (isExpired(d)) return send(res, 410, { error: 'expired', ...statusOf() })
     if (route === 'POST /allow') {
       d.isApproved = true
-      // at most MAX_DEVICES phones stay paired: the oldest goes
-      const paired = [...devices.entries()].filter(([, x]) => x.isApproved).sort((x, y) => x[1].at - y[1].at)
-      while (paired.length > MAX_DEVICES) devices.delete(paired.shift()[0])
+      keepNewest()
     } else d.isDenied = true
     return send(res, 200, statusOf())
   }
