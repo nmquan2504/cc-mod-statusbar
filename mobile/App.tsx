@@ -9,6 +9,10 @@ import { parseLink } from './src/link'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { Chat } from './src/Chat'
 import { LockScreen, useLock } from './src/lock'
+import { PushOff } from './src/PushOff'
+import { UpdateCard } from './src/UpdateCard'
+import { checkNow } from './src/update'
+import type { Release } from './src/update'
 import { clearNotices, setUpNotices, startListening, stopListening } from './src/notices'
 import { loadSettings, onSettings, settings } from './src/settings'
 import type { AppSettings } from './src/settings'
@@ -31,7 +35,7 @@ type Phase =
   | { kind: 'start'; error?: string }
   | { kind: 'scan' }
   | { kind: 'pairing'; device: Device; code: string; until: number }
-  | { kind: 'paired'; device: Device; sessions: number | null; error?: string }
+  | { kind: 'paired'; device: Device; sessions: number | null; error?: string; isNew?: boolean }
 
 function App() {
   const c = COLORS[useColorScheme() === 'light' ? 'light' : 'dark']
@@ -76,6 +80,21 @@ function App() {
     const sub = AppState.addEventListener('change', s => { if (s === 'active') void clearNotices() })
     return () => sub.remove()
   }, [device])
+
+  // a newer app: looked for as the app opens (at most every 12 hours), or asked from Settings
+  const [release, setRelease] = useState<Release | null>(null)
+  const isPaired = phase.kind === 'paired'
+  useEffect(() => {
+    if (isPaired) void checkNow().then(r => r && setRelease(r)).catch(() => undefined)
+  }, [isPaired])
+  const checkUpdate = useCallback(async () => {
+    const r = await checkNow(true)
+    setRelease(r)
+    return r
+  }, [])
+
+  // just paired: the browsers still notified, offered to go quiet (src/PushOff.tsx)
+  const pushOffDone = useCallback(() => setPhase(p => (p.kind === 'paired' ? { ...p, isNew: false } : p)), [])
 
   // a link, scanned or pasted: pair, then wait for Allow in the terminal
   const startPairing = useCallback(async (text: string) => {
@@ -124,8 +143,11 @@ function App() {
       {phase.kind === 'paired' && (
         <Chat c={c} device={phase.device}
           onUnpaired={unpaired}
+          onCheckUpdate={checkUpdate}
           onRescan={() => setPhase({ kind: 'scan' })} />
       )}
+      {phase.kind === 'paired' && phase.isNew && <PushOff c={c} device={phase.device} onDone={pushOffDone} />}
+      {release && !isLocked && <UpdateCard c={c} release={release} onClose={() => setRelease(null)} />}
       {isLocked && <LockScreen c={c} onUnlock={unlock} />}
       <StatusBar style="auto" />
     </KeyboardAvoidingView>
@@ -211,7 +233,7 @@ function Pairing({ c, phase, setPhase }: { c: Colors; phase: Extract<Phase, { ki
         if (isGone) return
         if (r.s === 200) {
           await saveDevice(phase.device)
-          return setPhase({ kind: 'paired', device: phase.device, sessions: null })
+          return setPhase({ kind: 'paired', device: phase.device, sessions: null, isNew: true })
         }
         if (r.s !== 202) return setPhase({ kind: 'start', error: r.b?.error || 'Terminal đã từ chối. Quét lại mã QR.' })
       } catch (err) {

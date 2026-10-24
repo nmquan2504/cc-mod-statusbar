@@ -637,8 +637,19 @@ async function answerOp(dev, id, op, a, res) {
       dropDevice(id)
       return [200, { ok: true }]
     // the phones this hub allowed, for Settings: this one marked
-    case 'devices':
-      return [200, { devices: [...devices.entries()].filter(([, d]) => d.isApproved).map(([did, d]) => ({ id: did, name: d.name, at: d.at, seenAt: d.seenAt, isThis: did === id })) }]
+    case 'devices': {
+      const pushed = new Set([...subscriptions.values()].map(v => v.device))
+      return [200, { devices: [...devices.entries()].filter(([, d]) => d.isApproved).map(([did, d]) => ({ id: did, name: d.name, at: d.at, seenAt: d.seenAt, isThis: did === id, hasPush: pushed.has(did) })) }]
+    }
+    // another phone's notifications off, its pairing kept: the app just paired turns off the
+    // browser it replaces, so a notice comes once
+    case 'push-off': {
+      const other = String(a.id ?? '')
+      if (!other || other === id || !devices.get(other)?.isApproved) return [404, { error: 'No such phone.' }]
+      dropPush(other)
+      log(`notifications off for a phone: ${other.slice(0, 6)}`)
+      return [200, { ok: true }]
+    }
     // another phone unpaired from this one (this one unpairs itself with forget)
     case 'unpair': {
       const other = String(a.id ?? '')

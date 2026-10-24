@@ -39,6 +39,15 @@ check('watch answers the next notice', seen.s === 200 && seen.b.notice.at > sinc
 // browser's notifications stop
 await call(device, 'subscribe', { sub: { endpoint: 'https://fcm.googleapis.com/fcm/send/x', keys: {} } })
 check('the browser has a push subscription', ctl('GET', '/status').subscriptions === 1)
+// an app paired by QR code: the browsers still notified, and one turned off, its pairing kept
+const scanned = await pair(link!.base, link!.k)
+ctl('POST', '/allow', { id: ctl('GET', '/status').pending[0].id })
+const listed = (await call(scanned.device, 'devices')).b.devices
+check('devices says which phone has notifications', listed.some((d: any) => d.id === device.id && d.hasPush) && listed.some((d: any) => d.isThis && !d.hasPush), listed)
+check('push-off turns that phone\'s off', (await call(scanned.device, 'push-off', { id: device.id })).s === 200 && ctl('GET', '/status').subscriptions === 0 && (await call(device, 'paired')).s === 200)
+check('push-off of itself is refused', (await call(scanned.device, 'push-off', { id: scanned.device.id })).s === 404)
+await call(scanned.device, 'forget')
+await call(device, 'subscribe', { sub: { endpoint: 'https://fcm.googleapis.com/fcm/send/x', keys: {} } })
 const handed = await call(device, 'handoff')
 check('handoff answers a ticket and K', handed.s === 200 && handed.b.k === link!.k && /^[\w-]{24}$/.test(handed.b.ticket), handed.b)
 const app = await pair(link!.base, handed.b.k, fetch, handed.b.ticket)

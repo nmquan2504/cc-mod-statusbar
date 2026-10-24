@@ -22,11 +22,13 @@ type Colors = { bg: string; text: string; dim: string; claude: string; bad: stri
 
 // The chat: the hub's own page in a WebView, its E2E calls sealed here (src/bridge.ts). Links that
 // lead away from the hub open in the browser; Android's back closes the page's open layer first.
-export function Chat({ c, device, onUnpaired, onRescan }: { c: Colors; device: Device; onUnpaired: () => void; onRescan: () => void }) {
+export function Chat({ c, device, onUnpaired, onRescan, onCheckUpdate }: { c: Colors; device: Device; onUnpaired: () => void; onRescan: () => void; onCheckUpdate: () => Promise<unknown> }) {
   const web = useRef<WebViewHandle>(null)
   const insets = useSafeAreaInsets()
   const [isLoading, setLoading] = useState(true)
   const [failed, setFailed] = useState('')
+  // the page keeps clear of the system bars by itself (the WebView gives it their size): no margin here
+  const [isInsetByPage, setInsetByPage] = useState(false)
   // the bridge as the page first loads, the settings as they were then; later ones are sent in
   const [script] = useState(() => bridge(settings(), VERSION))
   const reply = useCallback((js: string) => web.current?.injectJavaScript(`${js}; true;`), [])
@@ -63,7 +65,17 @@ export function Chat({ c, device, onUnpaired, onRescan }: { c: Colors; device: D
         onError: () => said(false),
       })
     } else if (m.t === 'hush') void Speech.stop()
-  }, [device, onUnpaired, reply, sendSettings])
+    else if (m.t === 'update') {
+      // Check for update in Settings: the card when there is one, else a toast saying why not
+      const toast = (title: string, body = '') => reply(`window.__qsb.toast(${JSON.stringify(title)}, ${JSON.stringify(body)})`)
+      try {
+        if (!(await onCheckUpdate())) toast('Đã là bản mới nhất', `Claude remote ${VERSION}`)
+      } catch (err) {
+        toast('Chưa kiểm tra được', (err as Error).message)
+      }
+    }
+    else if (m.t === 'insets') setInsetByPage(Number(m.top) > 0 || Number(m.bottom) > 0)
+  }, [device, onUnpaired, onCheckUpdate, reply, sendSettings])
 
   // the phone's voices, for the page's Read aloud voices
   const sendVoices = useCallback(async () => {
@@ -108,7 +120,7 @@ export function Chat({ c, device, onUnpaired, onRescan }: { c: Colors; device: D
     )
 
   return (
-    <View style={[styles.fill, { backgroundColor: c.bg, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+    <View style={[styles.fill, { backgroundColor: c.bg, paddingTop: isInsetByPage ? 0 : insets.top, paddingBottom: isInsetByPage ? 0 : insets.bottom }]}>
       <WebView
         ref={web as never}
         source={{ uri: `${device.base}/` }}

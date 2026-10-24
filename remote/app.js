@@ -722,6 +722,13 @@ function openDrawer() {
   const app = window.QSB_NATIVE?.version
   $('app-update').hidden = !(app && v && isNewer(v, app))
   $('app-update').href = APK_URL
+  // the app downloads and checks it itself
+  $('app-update').onclick = e => {
+    if (!window.QSB_NATIVE?.checkUpdate) return
+    e.preventDefault()
+    closeLayers()
+    QSB_NATIVE.checkUpdate()
+  }
   $('scrim').hidden = false
   $('drawer').classList.add('open')
 }
@@ -2732,10 +2739,18 @@ function renderSettings() {
     lock.append(el('div', 'pd hint', tx("After this long away, the app asks for this phone's own unlock: fingerprint, face or screen lock. A new link sets it up again.")))
   }
 
+  // in the app: its version, and an update looked for now (the app shows what it finds)
+  if (native) {
+    const app = card(tx('App'))
+    const check = row(app, `Claude remote ${QSB_NATIVE.version}`, tx('Updates come from the GitHub release, checked by their SHA-256.')).appendChild(el('button', 'pbtn', tx('Check for update')))
+    check.onclick = () => QSB_NATIVE.checkUpdate()
+  }
+
   const paired = card(tx('Paired devices'))
   if (!pairedList) paired.append(el('div', 'meta pad', tx('Loading…')))
   else for (const d of pairedList) {
-    const right = row(paired, d.isThis ? `${d.name} · ${tx('this phone')}` : d.name, tx('Seen {ago}', { ago: agoText(d.seenAt) }))
+    const seen = tx('Seen {ago}', { ago: agoText(d.seenAt) })
+    const right = row(paired, d.isThis ? `${d.name} · ${tx('this phone')}` : d.name, d.hasPush ? `${seen} · ${tx('notifications on')}` : seen)
     if (!d.isThis) {
       const b = right.appendChild(el('button', 'pbtn danger', tx('Unpair')))
       b.onclick = () => void unpairOther(b, d.id)
