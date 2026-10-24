@@ -58,7 +58,7 @@ if __name__ == '__main__':
         ('android-icon-background', BACKGROUND, 512),
         ('android-icon-monochrome', art(mono=True), 432),
         ('icon', art(512, 512, 2.3, bg=True), 1024),
-        ('splash-icon', art(512, 512, 2.0, bg=True), 1024),
+        ('splash-icon', art(512, 512, 2.0), 1024),  # on the splash's own orange
         ('favicon', art(512, 512, 2.3, bg=True), 48),
     ]:
         subprocess.run(['rsvg-convert', '-w', str(size), '-h', str(size), '-o', os.path.join(ASSETS, f'{name}.png')], input=svg.encode(), check=True)

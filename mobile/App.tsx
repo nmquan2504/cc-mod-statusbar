@@ -1,5 +1,6 @@
 import { CameraView, useCameraPermissions } from 'expo-camera'
 import * as ScreenCapture from 'expo-screen-capture'
+import * as SplashScreen from 'expo-splash-screen'
 import { StatusBar } from 'expo-status-bar'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, AppState, KeyboardAvoidingView, Linking, Platform, Pressable, StyleSheet, Text, TextInput, useColorScheme, View } from 'react-native'
@@ -28,6 +29,12 @@ const COLORS = {
 }
 type Colors = typeof COLORS.dark
 
+// the orange splash stays until there is something to show: the start screen, or the chat loaded
+// (4 s at most, a hub slow to answer shows its own Connecting…)
+void SplashScreen.preventAutoHideAsync().catch(() => undefined)
+SplashScreen.setOptions({ fade: true, duration: 200 })
+const hideSplash = () => void SplashScreen.hideAsync().catch(() => undefined)
+
 setUserAgent(`${USER_AGENT} (${Platform.OS === 'android' ? `Android ${Platform.Version}` : Platform.OS})`)
 
 type Phase =
@@ -54,6 +61,14 @@ function App() {
   }, [lock])
 
   // no screenshots of the chat, and nothing of it in the app switcher, while Settings says so
+  const phaseKind = phase.kind
+  useEffect(() => {
+    if (phaseKind === 'loading') return
+    if (phaseKind !== 'paired') return hideSplash()
+    const t = setTimeout(hideSplash, 4000)
+    return () => clearTimeout(t)
+  }, [phaseKind])
+
   const isSecure = phase.kind === 'paired' && prefs.secure
   useEffect(() => {
     void (isSecure ? ScreenCapture.preventScreenCaptureAsync() : ScreenCapture.allowScreenCaptureAsync()).catch(() => undefined)
@@ -144,6 +159,7 @@ function App() {
         <Chat c={c} device={phase.device}
           onUnpaired={unpaired}
           onCheckUpdate={checkUpdate}
+          onReady={hideSplash}
           onRescan={() => setPhase({ kind: 'scan' })} />
       )}
       {phase.kind === 'paired' && phase.isNew && <PushOff c={c} device={phase.device} onDone={pushOffDone} />}
