@@ -164,7 +164,8 @@ async function pair() {
 // installed. The app's settings and version come in window.QSB_NATIVE when this page runs in it.
 const isAndroid = /Android/.test(navigator.userAgent) && !window.QSB_NATIVE
 const APP_PACKAGE = 'io.github.nmquan2504.clauderemote'
-const APK_URL = 'https://github.com/nmquan2504/cc-mod-statusbar/releases/latest/download/claude-remote.apk'
+// the latest release's page, its APK named with its version (claude-remote-<version>.apk)
+const APK_URL = 'https://github.com/nmquan2504/cc-mod-statusbar/releases/latest'
 const USE_KEY = 'qsb-use' // app or web: what this phone picked for a QR code
 const appIntent = (params, fallback) => `intent://pair?${new URLSearchParams(params)}#Intent;scheme=clauderemote;package=${APP_PACKAGE};S.browser_fallback_url=${encodeURIComponent(fallback)};end`
 const pickedUse = () => {

@@ -1,7 +1,6 @@
 # The Android app (mobile/): built when main gets a mod version with no release yet, signed with the
 # app's key from the repository's secrets, and published as release v<version>: the APK named with
-# its version (claude-remote-<version>.apk), a copy as claude-remote.apk for the page's link to the
-# latest (releases/latest/download/claude-remote.apk), each with its SHA-256.
+# its version (claude-remote-<version>.apk) and its SHA-256. The page links the latest release.
 name: Android app
 
 on:
@@ -72,12 +71,10 @@ jobs:
         run: |
           apk="claude-remote-${TAG#v}.apk"
           cp mobile/android/app/build/outputs/apk/release/app-release.apk "$apk"
-          cp "$apk" claude-remote.apk
           sha256sum "$apk" > "$apk.sha256"
-          sha256sum claude-remote.apk > claude-remote.apk.sha256
           cat "$apk.sha256"
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" \
-              --notes "Claude remote for Android, $TAG. Install $apk on the phone; its SHA-256 is in $apk.sha256. claude-remote.apk is the same file, for the link to the latest release."
+              --notes "Claude remote for Android, $TAG. Install $apk on the phone; its SHA-256 is in $apk.sha256."
           fi
-          gh release upload "$TAG" "$apk" "$apk.sha256" claude-remote.apk claude-remote.apk.sha256 --clobber
+          gh release upload "$TAG" "$apk" "$apk.sha256" --clobber
