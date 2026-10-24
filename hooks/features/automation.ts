@@ -25,18 +25,12 @@ export async function planContinue($: any, now: number): Promise<AutoContinue> {
   return { at, window: pick ? (WINDOW_NAMES[pick.kind] ?? pick.kind) : 'unknown', tries: rt.continueTries }
 }
 
-// The agent type that says the scheduled "hi": no tools, no CLAUDE.md, the smallest model; one
-// turn of any model starts the usage window. Hidden from Claude (agent.offer), spawned by this mod.
-export const HI_AGENT = 'cc-mod-statusbar:hi'
-
-// what the spawn calls its task: the notification of its end names it, where it gives no id
-export const HI_TASK = 'statusbar: scheduled hi'
-
-export function registerHiAgent($: any): Promise<unknown> {
-  return $.agent.register({
-    name: 'hi', description: 'Says hi on the usage schedule (the status bar spawns it)',
-    prompt: 'Answer the greeting in one word.', tools: [], model: 'haiku', maxTurns: 1, omitClaudeMd: true,
-  })
+// The scheduled "hi": one Haiku completion through the session's own client and credentials, which
+// starts the account's usage window as any request does. Nothing of it reaches the conversation: a
+// subagent, which said it before, handed its end back to Claude as a message.
+async function sayHi($: any): Promise<HiRow['status']> {
+  const r = await $.model.complete({ model: 'haiku', prompt: 'hi', maxTokens: 5, timeoutMs: 30_000 }).catch(() => undefined)
+  return r?.isAnswered ? 'sent' : 'failed'
 }
 
 // Every 15 seconds: send what is due, never into a running turn.
@@ -63,10 +57,7 @@ export async function runAutomation($: any) {
   let status: HiRow['status'] = now - slot > HI_GRACE ? 'missed' : rt.isBusy ? 'busy' : 'sent'
   await log(status) // claimed before sending, so a second session does not send it too
   if (status === 'sent') {
-    // a subagent of its own says it, so the conversation gets no "hi" turn
-    status = await $.agent.spawn({ subagentType: HI_AGENT, prompt: 'hi', description: HI_TASK }).then(
-      (r: { agentId?: string; deny?: string }) => (r.deny ? 'failed' as const : (r.agentId && rt.hiAgents.add(r.agentId), 'sent' as const)),
-      () => 'failed' as const)
+    status = await sayHi($)
     if (status === 'failed') await log(status)
   }
   await update($, hiLog, () => [...(kept.log ?? []), { slot, status }].slice(-12))

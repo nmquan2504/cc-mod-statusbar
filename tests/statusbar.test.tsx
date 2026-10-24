@@ -1375,8 +1375,10 @@ function automationEngine(on: any, start: number) {
   on('agent.register', (_: unknown, e: any) => (registered.push(e), { value: { agent: `cc-mod-statusbar:${e.name}` } }))
   const spawned: any[] = []
   on('agent.spawn', (_: unknown, e: any) => (spawned.push(e), { model: 'haiku', agentId: `hi-${spawned.length}` }))
+  const completed: any[] = []
+  on('model.complete', (_: unknown, e: any) => (completed.push(e), { value: { isAnswered: true, text: 'Hi', usage: {} } }))
   const store = settingsStore(on)
-  return { clock, submitted, registered, spawned, store }
+  return { clock, submitted, registered, spawned, completed, store }
 }
 const iso = (t: number) => new Date(t).toISOString()
 // 10:00 and 12:00 on 21 Oct 2026, Vietnam time (UTC+7)
@@ -1456,23 +1458,19 @@ test('a turn that ends on another error, or answers, sends nothing', async ($, o
   expect(await band.find({ key: 'continue' })).toBeUndefined()
 })
 
-test('"hi" goes out at each 5-hour slot from 07:00 Vietnam time, once a slot, by a subagent; the usage menu shows the day', async ($, on) => {
+test('"hi" goes out at each 5-hour slot from 07:00 Vietnam time, once a slot, as one Haiku call; the usage menu shows the day', async ($, on) => {
   engine(on)
-  const { clock, submitted, registered, spawned } = automationEngine(on, VN_12 + 1_000)
+  const { clock, submitted, registered, spawned, completed } = automationEngine(on, VN_12 + 1_000)
   const t = $ as any
   await t.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
-  expect(registered.map(r => r.name)).toContain('hi')
   for (let i = 0; i < 16; i++) await clock.advance(1000)
-  expect(spawned.map(s => [s.subagentType ?? s.subagent_type, s.prompt])).toEqual([['cc-mod-statusbar:hi', 'hi']])
+  expect(completed.filter(c => c.prompt === 'hi').map(c => c.model)).toEqual(['haiku'])
   for (let i = 0; i < 30; i++) await clock.advance(1000)
-  expect(spawned.length).toBe(1) // once a slot
-  // the conversation gets no "hi", and the agent's end does not start a turn
+  expect(completed.filter(c => c.prompt === 'hi').length).toBe(1) // once a slot
+  // no subagent, so nothing hands back to the conversation; and no "hi" turn
+  expect(spawned).toEqual([])
+  expect(registered).toEqual([])
   expect(submitted).toEqual([])
-  const end = await t.prompt.submit({ text: '<task-notification><task-id>a1</task-id><status>completed</status><summary>Agent "statusbar: scheduled hi" completed</summary></task-notification>' })
-  expect(end).toMatchObject({ drop: expect.any(String) })
-  // another agent's end still reaches Claude
-  expect(await t.prompt.submit({ text: '<task-notification><task-id>a2</task-id><summary>Agent "review" completed</summary></task-notification>' })).toMatchObject({ text: expect.any(String) })
-  expect(submitted).toHaveLength(1)
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   await band.press({ key: 'usage' })
   const menu = await textOf(band)

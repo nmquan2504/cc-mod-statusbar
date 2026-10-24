@@ -1,10 +1,8 @@
-import { HI_TASK } from '../features/automation'
 import { keepTaskNotes } from '../features/work'
 import { imageNotes, readImages } from '../features/images'
 import { noteTyped } from '../features/remote'
 import { maskPrompt } from '../features/vault'
 import { oneLine } from '../lib/format'
-import { rt } from '../state/runtime'
 
 import type { On } from 'claude-code'
 
@@ -14,9 +12,6 @@ export function registerPrompt(on: On) {
     // a background command ended: the engine's notification says how
     const isNote = (e as { origin?: { kind?: string } }).origin?.kind === 'task-notification' || /<task-notification>/.test(e.text ?? '')
     if (isNote) {
-      // the scheduled "hi" agent's end is the mod's business, not Claude's: no turn for it
-      const hi = [...rt.hiAgents].find(id => (e.text ?? '').includes(id))
-      if (hi || (e.text ?? '').includes(HI_TASK)) return (hi && rt.hiAgents.delete(hi), { drop: 'the scheduled hi agent ended' })
       keepTaskNotes(e.text ?? '')
       $.ui.invalidate('ui.render')
     }

@@ -161,7 +161,7 @@ export const SETTINGS: ((
   { key: 'summarySeconds', kind: 'number', label: 'Summary after', note: 'seconds a turn runs', step: 10, min: 0, max: 600, unit: ' s' },
   { key: 'polishEnglish', kind: 'switch', label: 'Polish in English', note: '+ then Polish also translates the prompt to English' },
   { key: 'haikuChips', kind: 'switch', label: 'Haiku chips', note: "when Claude Code suggests nothing after an answer, Haiku proposes what to send (one call a turn); off: Claude Code's own suggestion alone" },
-  { key: 'hiSchedule', kind: 'switch', label: 'Auto-start 5h window', note: 'a hidden Haiku agent says hi every 5 hours from the start hour below, Vietnam time, so each window opens on the hour; status in the usage menu' },
+  { key: 'hiSchedule', kind: 'switch', label: 'Auto-start 5h window', note: 'one Haiku call says hi every 5 hours from the start hour below, Vietnam time, so each window opens on the hour; status in the usage menu' },
   { key: 'hiStartHour', kind: 'number', label: 'Schedule starts at', note: 'each day, Vietnam time (UTC+7)', step: 1, min: 0, max: 23, unit: 'h' },
   { key: 'hiStartMinute', kind: 'number', label: 'Schedule starts at, minute', note: 'past that hour, in steps of 15', step: 15, min: 0, max: 45, unit: 'm' },
   { key: 'dangerConfirm', kind: 'switch', label: 'Confirm dangerous commands', note: 'rm -rf, push --force, reset --hard, curl | sh ask you, even in auto mode' },
