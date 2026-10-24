@@ -1,0 +1,65 @@
+{
+  "expo": {
+    "name": "Claude remote",
+    "slug": "claude-remote",
+    "version": "0.16.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#1a1a18",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "io.github.nmquan2504.clauderemote",
+      "blockedPermissions": [
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.USE_FINGERPRINT",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "com.google.android.c2dm.permission.RECEIVE"
+      ],
+      "versionCode": 1600
+    },
+    "scheme": "clauderemote",
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "barcodeScannerEnabled": true,
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "extraProguardRules": "# ML Kit, which expo-camera reads QR codes with, finds its parts by reflection: R8 must keep them\n-keep class com.google.mlkit.** { *; }\n-keep class com.google.android.gms.internal.mlkit_vision_** { *; }\n-keep class com.google.android.gms.internal.mlkit_code_scanner** { *; }\n-keep class com.google.firebase.components.** { *; }"
+          }
+        }
+      ],
+      "./plugins/with-notice-service",
+      [
+        "expo-notifications",
+        {
+          "color": "#d97757"
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "recordAudioAndroid": false,
+          "enableBackgroundPlayback": false
+        }
+      ],
+      "./plugins/with-release-signing"
+    ]
+  }
+}
