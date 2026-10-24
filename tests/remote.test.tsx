@@ -635,6 +635,38 @@ test('a hub on older code restarts by itself when no phone watches; a newer one,
   expect(argvs.some(a => a[0] === '/bin/sh' && a[2]!.includes('nohup'))).toBe(true)
 })
 
+test('a hub that hands over restarts on newer code with a phone watching, through /restart, and keeps it', async ($, on) => {
+  const asked: string[] = []
+  const toasts: string[] = []
+  const hub = { version: '0.2.0 · aaaaaaa', versionAt: 1_761_000_000_000, phones: 1, canHandOver: true }
+  let isUp = true
+  engine(on, {
+    toasts,
+    run: argv => argv[0] === 'cat' ? ran('{"version":"0.2.1"}')
+      : argv[0] === 'git' && argv.includes('log') ? ran('bbbbbbb 1761190860\n') : undefined,
+    hub: path => {
+      asked.push(path)
+      if (path === '/restart' || path === '/stop') isUp = false
+      return isUp ? { ...STATUS, pending: [], ...hub } : undefined
+    },
+  })
+  on('session.surfaces', () => ({ value: ['terminal'] }))
+  on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
+  on('ui.status', () => ({ value: undefined }))
+  on('agent.list', () => ({ value: [] }))
+  on('tool.register', (_: unknown, e: { name: string }) => ({ value: { tool: e.name } }))
+  on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
+  const clock = mock.clock(on)
+  await ($ as any).session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+  const band = await $.ui.mount({ plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await switchOn(band)
+  await clock.advance(2000)
+  // a phone watches, and still: restarted through /restart, never /stop, and told the link stays
+  expect(asked).toContain('/restart')
+  expect(asked).not.toContain('/stop')
+  expect(toasts.some(t => t.includes('the link and the phones stay'))).toBe(true)
+})
+
 test('a text queued from the phone can be taken back before the turn ends; the rest goes in', async ($, on) => {
   const snapshots: any[] = []
   let inbox: any = { texts: [] }

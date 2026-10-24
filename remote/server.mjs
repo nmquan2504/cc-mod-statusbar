@@ -17,7 +17,7 @@
 // carries the idle time in force, so a change in Settings reaches a running hub. Node 18 or newer;
 // no packages.
 import { execFile, execFileSync, spawn } from 'node:child_process'
-import { generateKeyPairSync, randomBytes, randomInt, sign } from 'node:crypto'
+import { createPrivateKey, generateKeyPairSync, randomBytes, randomInt, sign } from 'node:crypto'
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { Resolver } from 'node:dns/promises'
 import { createServer } from 'node:http'
@@ -63,20 +63,58 @@ const [HUB_VERSION, HUB_VERSION_AT] = (() => {
 })()
 const log = text => { try { writeFileSync(join(DIR, 'hub.log'), `${new Date().toISOString()} ${text}\n`, { flag: 'a' }) } catch {} }
 
+// ---- what a restart keeps -----------------------------------------------------------------
+// Asked to restart (POST /restart), a hub writes STATE_FILE and stops without stopping its tunnel;
+// the hub started next takes over from it: the tunnel's address and the port it points at, K, the
+// phones it allowed with their keys and recent nonces, their push subscriptions and the VAPID key
+// those were made for. The phones reconnect in the seconds between and are never asked to scan.
+// The file is read once and deleted; one older than KEPT_MS, or whose tunnel is gone, is not used
+// (its tunnel, still running, is stopped).
+const STATE_FILE = join(DIR, 'state.json')
+const KEPT_MS = 10 * 60_000
+const isCloudflared = pid => {
+  try {
+    process.kill(pid, 0)
+    return /cloudflared/.test(execFileSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8', timeout: 3000 }))
+  } catch {
+    return false
+  }
+}
+const kept = (() => {
+  let s
+  try {
+    s = JSON.parse(readFileSync(STATE_FILE, 'utf8'))
+  } catch {
+    return null
+  }
+  rmSync(STATE_FILE, { force: true })
+  const pid = Number(s?.tunnel?.pid)
+  const isLive = pid > 0 && isCloudflared(pid)
+  if (isLive && s.token && s.tunnel.url && s.port && Date.now() - Number(s.savedAt) < KEPT_MS) return s
+  if (isLive) try { process.kill(pid, 'SIGTERM') } catch {}
+  return null
+})()
+// a tunnel a hub left with no state (the hub killed outright): stopped, not left pointing nowhere
+const TUNNEL_PID_FILE = join(DIR, 'tunnel.pid')
+try {
+  const stray = Number(readFileSync(TUNNEL_PID_FILE, 'utf8'))
+  if (stray > 0 && stray !== Number(kept?.tunnel?.pid) && isCloudflared(stray)) process.kill(stray, 'SIGTERM')
+} catch {}
+
 // ---- state --------------------------------------------------------------------------------
-const TOKEN = randomBytes(32).toString('base64url')
+const TOKEN = kept?.token ?? randomBytes(32).toString('base64url')
 let tunnelUrl = ''
 let tunnelError = ''
 let version = 0 // moves on every change a phone should see
 const sessions = new Map() // session id -> { snapshot, seenAt, inbox: string[] }
-const subscriptions = new Map() // endpoint -> { sub, device }
+const subscriptions = new Map(kept?.subscriptions ?? []) // endpoint -> { sub, device }
 const waiters = new Set() // long-poll responses waiting for the next version
 let pairFails = 0
 let notice = { title: 'Claude', body: 'Nothing yet.', at: 0, session: '' }
 let lastPhoneAt = Date.now()
 let lastSessionAt = Date.now()
 
-const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
+const privateKey = kept?.vapid ? createPrivateKey({ key: kept.vapid, format: 'jwk' }) : generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).privateKey
 const jwk = privateKey.export({ format: 'jwk' })
 const VAPID_PUBLIC = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, 'base64url'), Buffer.from(jwk.y, 'base64url')]).toString('base64url')
 
@@ -377,10 +415,11 @@ function imageOf(session, n) {
 const subtle = globalThis.crypto.subtle
 const te = new TextEncoder(), td = new TextDecoder()
 const ROOT = Buffer.from(TOKEN, 'base64url') // K, in the QR link's #fragment; it never crosses the wire
-async function hkdf(ikm, salt, info, usage) {
+// `isExtractable`: a phone's key, which a restart writes to STATE_FILE
+async function hkdf(ikm, salt, info, usage, isExtractable = false) {
   const base = await subtle.importKey('raw', ikm, 'HKDF', false, ['deriveKey'])
   const algo = usage === 'hmac' ? { name: 'HMAC', hash: 'SHA-256', length: 256 } : { name: 'AES-GCM', length: 256 }
-  return subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt, info: te.encode(info) }, base, algo, false, usage === 'hmac' ? ['sign', 'verify'] : ['encrypt', 'decrypt'])
+  return subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt, info: te.encode(info) }, base, algo, isExtractable, usage === 'hmac' ? ['sign', 'verify'] : ['encrypt', 'decrypt'])
 }
 const AUTH = await hkdf(ROOT, new Uint8Array(0), 'qsb/auth', 'hmac')
 const b64 = buf => Buffer.from(buf).toString('base64url')
@@ -388,7 +427,12 @@ const unb64 = str => new Uint8Array(Buffer.from(String(str), 'base64url'))
 const CLOCK_SKEW = 120_000
 
 // each phone: its key, from an ECDH with this hub salted with K; allowed or not by a terminal
-const devices = new Map() // id -> { key, name, at, seenAt, code, isApproved, isDenied, nonces: Map<n, ts> }
+const devices = new Map() // id -> { key, raw, name, at, seenAt, code, isApproved, isDenied, nonces: Map<n, ts> }
+// the phones the hub before allowed, as it wrote them
+for (const d of kept?.devices ?? []) {
+  const key = await subtle.importKey('raw', unb64(d.raw), 'AES-GCM', false, ['encrypt', 'decrypt']).catch(() => undefined)
+  if (key) devices.set(d.id, { key, raw: d.raw, name: d.name, at: d.at, seenAt: d.seenAt, code: '', isApproved: true, isDenied: false, nonces: new Map(d.nonces ?? []) })
+}
 // A request to pair waits a minute for Allow in a terminal; then it is gone, and the phone scans again.
 const PAIR_MS = Number(process.env.QSB_PAIR_MS) || 60_000 // tests shorten it
 const isExpired = d => !d.isApproved && Date.now() - d.at >= PAIR_MS
@@ -600,11 +644,12 @@ const pub = createServer(async (req, res) => {
       const mine = await subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits'])
       const hubPub = b64(await subtle.exportKey('raw', mine.publicKey))
       const secret = await subtle.deriveBits({ name: 'ECDH', public: theirs }, mine.privateKey, 256)
-      const key = await hkdf(secret, ROOT, `qsb/device|${phonePub}|${hubPub}`, 'aes')
+      const key = await hkdf(secret, ROOT, `qsb/device|${phonePub}|${hubPub}`, 'aes', true)
+      const raw = b64(await subtle.exportKey('raw', key))
       const id = randomBytes(16).toString('base64url')
       const code = Array.from({ length: 4 }, () => CODE_CHARS[randomInt(CODE_CHARS.length)]).join('')
       for (const [k, d] of devices) if (isExpired(d)) devices.delete(k)
-      devices.set(id, { key, name: deviceName(String(req.headers['user-agent'] ?? '')), at: Date.now(), seenAt: Date.now(), code, isApproved: false, isDenied: false, nonces: new Map() })
+      devices.set(id, { key, raw, name: deviceName(String(req.headers['user-agent'] ?? '')), at: Date.now(), seenAt: Date.now(), code, isApproved: false, isDenied: false, nonces: new Map() })
       const mac = b64(await subtle.sign('HMAC', AUTH, te.encode(`welcome|${id}|${hubPub}|${phonePub}|${code}`)))
       bump()
       log(`pair asked: ${code}`)
@@ -670,6 +715,8 @@ function statusOf() {
     pending: [...devices.entries()].filter(([, d]) => !d.isApproved && !d.isDenied && !isExpired(d)).map(([id, d]) => ({ id, code: d.code, name: d.name, at: d.at, expiresAt: d.at + PAIR_MS })),
     phones: Date.now() - lastPhoneAt < 40_000 ? [...devices.values()].filter(d => d.isApproved && Date.now() - d.seenAt < 40_000).length : 0,
     isLocked: pairFails >= MAX_PAIR_FAILS,
+    // a restart (POST /restart) keeps the address and the paired phones
+    canHandOver: true,
     tts: { state: ttsState(), isLoaded: tts.isReady },
     subscriptions: subscriptions.size,
   }
@@ -770,6 +817,11 @@ const ctl = createServer(async (req, res) => {
     send(res, 200, { ok: true })
     return shutdown(0)
   }
+  // stop for a hub started next to take over: the tunnel left running, what it needs written down
+  if (route === 'POST /restart') {
+    send(res, 200, { ok: true, isHandOver: Boolean(tunnelUrl) })
+    return shutdown(0, Boolean(tunnelUrl))
+  }
   send(res, 404, { error: 'not found' })
 })
 
@@ -817,6 +869,9 @@ function findCloudflared() {
     if (d && existsSync(join(d, 'cloudflared'))) return join(d, 'cloudflared')
   return ''
 }
+// cloudflared runs detached, writing to tunnel.log rather than to this hub's pipes, so it outlives a
+// hub that restarts; the hub reads its address from the log, and watches its pid, adopted or not
+let tunnelPid = 0
 function startTunnel(port) {
   if (process.env.QSB_REMOTE_LOCAL) return void (tunnelUrl = `http://127.0.0.1:${port}`) // tests: no tunnel
   const bin = findCloudflared()
@@ -826,38 +881,93 @@ function startTunnel(port) {
     log(tunnelError)
     return shutdown(3)
   }
-  tunnel = spawn(bin, ['tunnel', '--no-autoupdate', '--url', `http://127.0.0.1:${port}`], { stdio: ['ignore', 'pipe', 'pipe'] })
-  const scan = chunk => {
-    const m = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/.exec(String(chunk))
-    if (m && !tunnelSeen) {
-      tunnelSeen = m[0]
-      log(`tunnel ${tunnelSeen}, waiting for its name to resolve`)
-      void whenResolvable(tunnelSeen)
+  const logFile = join(DIR, 'tunnel.log')
+  const out = openSync(logFile, 'w', 0o600)
+  tunnel = spawn(bin, ['tunnel', '--no-autoupdate', '--url', `http://127.0.0.1:${port}`], { detached: true, stdio: ['ignore', out, out] })
+  closeSync(out)
+  tunnel.unref()
+  tunnelPid = tunnel.pid
+  writeFileSync(TUNNEL_PID_FILE, String(tunnelPid), { mode: 0o600 })
+  const scan = setInterval(() => {
+    let text = ''
+    try { text = readFileSync(logFile, 'utf8') } catch {}
+    const m = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/.exec(text)
+    if (!m || tunnelSeen) return
+    clearInterval(scan)
+    tunnelSeen = m[0]
+    log(`tunnel ${tunnelSeen}, waiting for its name to resolve`)
+    void whenResolvable(tunnelSeen)
+  }, 300)
+  scan.unref()
+  watchTunnel()
+}
+// the tunnel gone (killed, crashed): the hub stops, as it always has
+function watchTunnel() {
+  setInterval(() => {
+    if (isShuttingDown || !tunnelPid) return
+    try {
+      process.kill(tunnelPid, 0)
+    } catch {
+      tunnelError = 'the tunnel stopped'
+      log(tunnelError)
+      tunnelPid = 0
+      shutdown(1)
     }
+  }, 2000).unref()
+}
+// what the hub started next needs to take over (POST /restart)
+function writeState() {
+  const state = {
+    savedAt: Date.now(),
+    token: TOKEN,
+    port: pub.address()?.port,
+    tunnel: { pid: tunnelPid, url: tunnelUrl },
+    vapid: privateKey.export({ format: 'jwk' }),
+    devices: [...devices.entries()].filter(([, d]) => d.isApproved && d.raw).map(([id, d]) => ({ id, raw: d.raw, name: d.name, at: d.at, seenAt: d.seenAt, nonces: [...d.nonces] })),
+    subscriptions: [...subscriptions.entries()],
   }
-  tunnel.stdout.on('data', scan)
-  tunnel.stderr.on('data', scan)
-  tunnel.on('exit', code => {
-    tunnelError = `the tunnel stopped (cloudflared exit ${code})`
-    log(tunnelError)
-    shutdown(1)
-  })
+  writeFileSync(STATE_FILE, JSON.stringify(state), { mode: 0o600 })
+  chmodSync(STATE_FILE, 0o600)
 }
 
 let isShuttingDown = false
-function shutdown(code = 0) {
+// `isHandOver`: the tunnel stays and STATE_FILE says what the hub started next takes over; else
+// the tunnel stops with the hub and nothing is kept
+function shutdown(code = 0, isHandOver = false) {
   if (isShuttingDown) return
   isShuttingDown = true
-  log(`stopping (${code})`)
+  log(`stopping (${code})${isHandOver ? ', the tunnel kept for the next hub' : ''}`)
   for (const w of waiters) w()
   stopTts()
-  if (tunnel && tunnel.exitCode === null) tunnel.kill('SIGTERM')
+  if (isHandOver) {
+    try {
+      writeState()
+    } catch (err) {
+      log(`could not write the state: ${err}`)
+      isHandOver = false
+    }
+  }
+  isHandedOver = isHandOver
+  if (!isHandOver) {
+    rmSync(STATE_FILE, { force: true })
+    if (tunnelPid) try { process.kill(tunnelPid, 'SIGTERM') } catch {}
+  }
   pub.close()
   ctl.close()
   rmSync(SOCK, { force: true })
   setTimeout(() => process.exit(code), 300).unref()
 }
 for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => shutdown(0))
+// however the hub ends (an error it did not catch, among others), its tunnel ends with it unless
+// handed over
+let isHandedOver = false
+process.on('exit', () => {
+  if (!isHandedOver && tunnelPid) try { process.kill(tunnelPid, 'SIGTERM') } catch {}
+})
+process.on('uncaughtException', err => {
+  log(String(err?.stack ?? err))
+  shutdown(1)
+})
 process.on('SIGHUP', () => undefined) // started detached: a closed terminal is no reason to stop
 
 // sessions that stopped calling in are dropped; with none for two minutes, or no phone for the
@@ -881,6 +991,25 @@ probe.on('error', () => {
 })
 function listening() {
   chmodSync(SOCK, 0o600)
+  // taking over: the port the tunnel points at; taken meanwhile, a port and a tunnel of its own
+  if (kept) {
+    pub.once('error', err => {
+      log(`port ${kept.port} not free (${err.code}): a new tunnel`)
+      try { process.kill(Number(kept.tunnel.pid), 'SIGTERM') } catch {}
+      pub.listen(0, '127.0.0.1', () => {
+        log(`hub ${process.pid} on 127.0.0.1:${pub.address().port}`)
+        startTunnel(pub.address().port)
+      })
+    })
+    pub.listen(kept.port, '127.0.0.1', () => {
+      tunnelPid = Number(kept.tunnel.pid)
+      tunnelUrl = kept.tunnel.url
+      writeFileSync(TUNNEL_PID_FILE, String(tunnelPid), { mode: 0o600 })
+      log(`hub ${process.pid} on 127.0.0.1:${kept.port}, taking over ${tunnelUrl} with ${devices.size} phone(s)`)
+      watchTunnel()
+    })
+    return
+  }
   pub.listen(0, '127.0.0.1', () => {
     log(`hub ${process.pid} on 127.0.0.1:${pub.address().port}`)
     startTunnel(pub.address().port)
