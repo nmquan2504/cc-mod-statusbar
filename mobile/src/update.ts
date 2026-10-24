@@ -12,7 +12,6 @@ import * as SecureStore from 'expo-secure-store'
 import { VERSION } from './version'
 
 const REPO = 'nmquan2504/cc-mod-statusbar'
-const APK = 'claude-remote.apk'
 const EVERY_MS = 12 * 3600_000
 const CHECKED_KEY = 'updateCheckedAt'
 const SKIPPED_KEY = 'updateSkipped'
@@ -33,9 +32,7 @@ export async function latest(): Promise<Release | null> {
   const rel = await r.json()
   const version = String(rel.tag_name ?? '').replace(/^v/, '')
   const asset = (name: string) => (rel.assets as { name: string; browser_download_url: string }[] | undefined)?.find(a => a.name === name)?.browser_download_url ?? ''
-  // the APK named with its version (from 0.16.2), else the one named claude-remote.apk
-  const named = `claude-remote-${version}.apk`
-  const file = asset(named) ? named : APK
+  const file = `claude-remote-${version}.apk`
   const apk = asset(file), sha = asset(`${file}.sha256`)
   return /^\d+\.\d+\.\d+$/.test(version) && isNewer(version, VERSION) && apk && sha ? { version, apk, sha, notes: String(rel.body ?? '') } : null
 }
