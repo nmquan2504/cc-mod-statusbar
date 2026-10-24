@@ -279,6 +279,8 @@ const VI = {
   'Private notifications': 'Thông báo riêng tư',
   'Only "Claude has responded" or "Claude needs you" shows, on the lock screen and in the shade.': 'Chỉ hiện "Claude đã trả lời" hoặc "Claude cần bạn", trên màn hình khoá và thanh thông báo.',
   'Blur when you leave the app': 'Làm mờ khi rời ứng dụng',
+  'Blur when untouched': 'Làm mờ khi không chạm',
+  'After this long without a tap or a scroll; a tap brings the page back.': 'Sau chừng này không chạm hay cuộn; chạm một cái là trang hiện lại.',
   'The app switcher shows no code or chat.': 'Trình chuyển ứng dụng không hiện code hay chat.',
   'App lock': 'Khoá ứng dụng',
   'This browser cannot lock the page.': 'Trình duyệt này không khoá được trang.',
