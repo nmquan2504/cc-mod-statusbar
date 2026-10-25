@@ -84,6 +84,19 @@ export function segments(text) {
   return out
 }
 
+// The first piece cut short, so the voice starts sooner (the Mac makes a piece in about half its
+// length, and the next is made while one plays): a first piece of more than `most` words ends at
+// its first comma, semicolon or colon after 3 words, else after `most` words; a tail of fewer than
+// 3 words stays with it
+export function quickFirst(parts, most = 8) {
+  const [first, ...rest] = parts
+  const words = first ? first.text.split(' ') : []
+  if (words.length <= most) return parts
+  let cut = words.findIndex((w, i) => i >= 2 && i < most && /[,;:]$/.test(w)) + 1 || most
+  if (words.length - cut < 3) return parts
+  return [{ lang: first.lang, text: words.slice(0, cut).join(' ') }, { lang: first.lang, text: words.slice(cut).join(' ') }, ...rest]
+}
+
 // Apple's novelty voices, listed beside the real ones on an iPhone or a Mac: never picked by itself,
 // never offered
 const NOVELTY = new Set(['Albert', 'Bad News', 'Bahh', 'Bells', 'Boing', 'Bubbles', 'Cellos', 'Deranged', 'Good News',
@@ -111,4 +124,4 @@ export function pickVoice(voices, lang, name) {
   return (name && usable.find(v => v.name === name)) || usable[0] || null
 }
 
-globalThis.Speak = { speechText, segments, voicesFor, pickVoice, EN_RUN }
+globalThis.Speak = { speechText, segments, quickFirst, voicesFor, pickVoice, EN_RUN }
