@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { pickVoice, segments, speechText, voicesFor } from '../remote/speak.mjs'
+import { pickVoice, quickFirst, segments, speechText, voicesFor } from '../remote/speak.mjs'
 
 // Reading Claude's answer aloud on the phone (remote/speak.mjs; the page wires it to a button on
 // the bubble): what is said, and which voice says each piece.
@@ -66,4 +66,17 @@ test('the voices offered: Premium and Enhanced first, then the home region, the 
   expect(pickVoice(voices, 'en', 'Gone')?.name).toBe('Ava (Premium)')
   expect(pickVoice(voices, 'en', 'Albert')?.name).toBe('Ava (Premium)')
   expect(pickVoice([{ name: 'Albert', lang: 'en-US' }], 'vi')).toBeNull()
+})
+
+test('the first piece cut short, at its first comma, else after 8 words; a short tail stays', () => {
+  const vi = (text: string) => ({ lang: 'vi', text })
+  expect(quickFirst([vi('Mình đã sửa lỗi đăng nhập, giờ chạy lại toàn bộ test để kiểm tra.'), vi('Xong.')])).toEqual([
+    vi('Mình đã sửa lỗi đăng nhập,'), vi('giờ chạy lại toàn bộ test để kiểm tra.'), vi('Xong.'),
+  ])
+  expect(quickFirst([vi('một hai ba bốn năm sáu bảy tám chín mười mười một')])).toEqual([vi('một hai ba bốn năm sáu bảy tám'), vi('chín mười mười một')])
+  expect(quickFirst([vi('một hai ba bốn năm sáu bảy tám chín mười')])).toEqual([vi('một hai ba bốn năm sáu bảy tám chín mười')])
+  expect(quickFirst([vi('Đã xong.'), vi('Một câu dài hơn tám chữ ở phía sau thì vẫn để nguyên như vậy.')])).toEqual([
+    vi('Đã xong.'), vi('Một câu dài hơn tám chữ ở phía sau thì vẫn để nguyên như vậy.'),
+  ])
+  expect(quickFirst([])).toEqual([])
 })

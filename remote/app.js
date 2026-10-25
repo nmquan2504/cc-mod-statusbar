@@ -1015,7 +1015,9 @@ function followZeroInfo() {
 
 function speak(text) {
   stopSpeaking()
-  const parts = Speak.segments(Speak.speechText(text))
+  // the first piece short, for the voice to start sooner (Speak.quickFirst on an older hub's speak.mjs)
+  const pieces = Speak.segments(Speak.speechText(text))
+  const parts = Speak.quickFirst ? Speak.quickFirst(pieces) : pieces
   if (!parts.length) return
   speaking = text
   syncSpeakButtons()
