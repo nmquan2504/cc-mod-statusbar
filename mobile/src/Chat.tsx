@@ -3,7 +3,7 @@ import { ActivityIndicator, BackHandler, Linking, Pressable, StyleSheet, Text, V
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView } from 'react-native-webview'
 import type { WebViewMessageEvent } from 'react-native-webview'
-import type { ShouldStartLoadRequest, WebViewErrorEvent, WebViewHttpErrorEvent } from 'react-native-webview/lib/WebViewTypes'
+import type { ShouldStartLoadRequest, WebViewErrorEvent } from 'react-native-webview/lib/WebViewTypes'
 import * as IntentLauncher from 'expo-intent-launcher'
 import * as Notifications from 'expo-notifications'
 import * as Speech from 'expo-speech'
@@ -21,8 +21,10 @@ type WebViewHandle = { injectJavaScript: (js: string) => void }
 
 type Colors = { bg: string; text: string; dim: string; claude: string; bad: string; line: string; panel: string }
 
-// The chat: the hub's own page in a WebView, its E2E calls sealed here (src/bridge.ts). Links that
-// lead away from the hub open in the browser; Android's back closes the page's open layer first.
+// The chat: the hub's page, carried in the APK (scripts/page.js) and loaded from the phone, in a
+// WebView; its E2E calls sealed here (src/bridge.ts), the only thing that crosses the tunnel. Links
+// that lead away from it open in the browser; Android's back closes the page's open layer first.
+const PAGE = 'file:///android_asset/page/'
 export function Chat({ c, device, onUnpaired, onRescan, onCheckUpdate, onReady }: { c: Colors; device: Device; onUnpaired: () => void; onRescan: () => void; onCheckUpdate: () => Promise<unknown>; onReady: () => void }) {
   const web = useRef<WebViewHandle>(null)
   const insets = useSafeAreaInsets()
@@ -95,8 +97,9 @@ export function Chat({ c, device, onUnpaired, onRescan, onCheckUpdate, onReady }
         heard('', isVi ? 'Điện thoại này không có nhập giọng nói' : 'This phone has no voice input')
       }
     }
+    else if (m.t === 'rescan') onRescan()
     else if (m.t === 'insets') setInsetByPage(Number(m.top) > 0 || Number(m.bottom) > 0)
-  }, [device, onUnpaired, onCheckUpdate, reply, sendSettings])
+  }, [device, onUnpaired, onRescan, onCheckUpdate, reply, sendSettings])
 
   // the phone's voices, for the page's Read aloud voices
   const sendVoices = useCallback(async () => {
@@ -144,14 +147,15 @@ export function Chat({ c, device, onUnpaired, onRescan, onCheckUpdate, onReady }
     <View style={[styles.fill, { backgroundColor: c.bg, paddingTop: isInsetByPage ? 0 : insets.top, paddingBottom: isInsetByPage ? 0 : insets.bottom }]}>
       <WebView
         ref={web as never}
-        source={{ uri: `${device.base}/` }}
+        source={{ uri: `${PAGE}app.html` }}
+        allowFileAccess
         style={[styles.fill, { backgroundColor: c.bg }]}
         injectedJavaScriptBeforeContentLoaded={script}
         onMessage={onMessage}
         applicationNameForUserAgent={USER_AGENT}
-        originWhitelist={[device.base]}
+        originWhitelist={['file://*']}
         onShouldStartLoadWithRequest={(r: ShouldStartLoadRequest): boolean => {
-          if (r.url.startsWith(device.base) || r.url.startsWith('blob:') || r.url === 'about:blank') return true
+          if (r.url.startsWith(PAGE) || r.url.startsWith('blob:') || r.url.startsWith('data:') || r.url === 'about:blank') return true
           void Linking.openURL(r.url)
           return false
         }}
@@ -165,7 +169,6 @@ export function Chat({ c, device, onUnpaired, onRescan, onCheckUpdate, onReady }
           setFailed(e.nativeEvent.description || 'Lỗi mạng')
           onReady()
         }}
-        onHttpError={(e: WebViewHttpErrorEvent): void => { if (e.nativeEvent.statusCode >= 500) setFailed(`Hub trả lời ${e.nativeEvent.statusCode}`) }}
         allowsBackForwardNavigationGestures={false}
         pullToRefreshEnabled={false}
         overScrollMode="never"

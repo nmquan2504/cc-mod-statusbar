@@ -160,7 +160,7 @@ function App() {
           onUnpaired={unpaired}
           onCheckUpdate={checkUpdate}
           onReady={hideSplash}
-          onRescan={() => setPhase({ kind: 'scan' })} />
+          onRescan={scan} />
       )}
       {phase.kind === 'paired' && phase.isNew && <PushOff c={c} device={phase.device} onDone={pushOffDone} />}
       {release && !isLocked && <UpdateCard c={c} release={release} onClose={() => setRelease(null)} />}
