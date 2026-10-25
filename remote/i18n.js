@@ -292,6 +292,7 @@ const VI = {
   'Use the Android app': 'Dùng app Android',
   'notifications on': 'đang nhận thông báo',
   'App': 'Ứng dụng',
+  'Scan the new code': 'Quét mã mới',
   'Check for update': 'Kiểm tra cập nhật',
   'Updates come from the GitHub release, checked by their SHA-256.': 'Bản cập nhật lấy từ bản phát hành trên GitHub, được kiểm SHA-256.',
   'A newer app is out: download it': 'Đã có bản app mới: tải về',

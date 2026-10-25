@@ -10,7 +10,7 @@
 //
 // Messages from the page: { t: 'call', id, op, a } | { t: 'forget' } | { t: 'back', isHandled } |
 //   { t: 'set', key, value } | { t: 'speak', id, text, lang, voice, rate } | { t: 'hush' } |
-//   { t: 'insets', top, bottom } | { t: 'update' } | { t: 'listen', id }
+//   { t: 'insets', top, bottom } | { t: 'update' } | { t: 'listen', id } | { t: 'rescan' }
 // Answers into it: __qsb.done(id, result) | __qsb.fail(id, kind, message) | __qsb.back() |
 //   __qsb.settings(settings, note) | __qsb.voices(list) | __qsb.said(id, isOk) | __qsb.toast(title, body) |
 //   __qsb.heard(id, text, error)
@@ -42,7 +42,7 @@ export const bridge = (settings: AppSettings, version: string) => `(() => {
   Object.defineProperty(window, 'E2E', { configurable: false, get: () => E2E, set: () => undefined })
 
   // the page knows it runs in the app: what the app does itself, its Settings set here
-  const native = { platform: 'android', version: ${JSON.stringify(version)}, settings: ${JSON.stringify(settings)}, set: (key, value) => post({ t: 'set', key, value }), checkUpdate: () => post({ t: 'update' }) }
+  const native = { platform: 'android', version: ${JSON.stringify(version)}, settings: ${JSON.stringify(settings)}, set: (key, value) => post({ t: 'set', key, value }), checkUpdate: () => post({ t: 'update' }), rescan: () => post({ t: 'rescan' }) }
   Object.defineProperty(window, 'QSB_NATIVE', { configurable: false, get: () => native, set: () => undefined })
 
   // read aloud with the phone's own voices: the page's utterances, said by the app in turn

@@ -249,6 +249,11 @@ function showOffline(ms) {
   line.replaceChildren()
   if (!isGone) line.appendChild(el('span', 'spin')).append(icon('spark'))
   line.append(document.createTextNode(isGone ? tx('The link seems to have ended. If the remote was started again, scan its new QR code in the terminal.') : ` ${tx('Reconnecting…')}`))
+  // in the app: its scanner, for the new code
+  if (isGone && window.QSB_NATIVE?.rescan) {
+    const scan = line.appendChild(el('button', 'pbtn', tx('Scan the new code')))
+    scan.onclick = () => QSB_NATIVE.rescan()
+  }
 }
 async function follow() {
   let since = -1
@@ -2511,7 +2516,8 @@ function notifyState() {
   return Notification.permission === 'granted' && isSubscribed && !prefs.notifyOff ? 'on' : 'off'
 }
 function setupNotify() {
-  if (!('serviceWorker' in navigator)) return
+  // the Android app gives the notifications itself
+  if (window.QSB_NATIVE || !('serviceWorker' in navigator)) return
   navigator.serviceWorker.register('/sw.js').catch(() => undefined)
   // a push notification tapped while the app is open: its session
   navigator.serviceWorker.addEventListener('message', e => openSession(e.data?.open))
