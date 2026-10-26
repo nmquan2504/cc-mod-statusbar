@@ -139,7 +139,7 @@ async function pair() {
   }
   // a hub slow to answer, stopped, or its link ended: said on the gate, never a blank page
   let downSince = 0
-  const slow = setTimeout(() => showDown(0), 2000)
+  const slow = setTimeout(() => gate(tx('Connecting…')), 2000)
   for (;;) {
     const r = await E2E.call('paired').catch(err => err)
     clearTimeout(slow)
@@ -275,8 +275,11 @@ function showDown(ms) {
 }
 async function follow() {
   let since = -1
+  // the first state slow to come: the gate says so, as pair() does
+  const slow = setTimeout(() => { if ($('app').hidden) gate(tx('Connecting…')) }, 2000)
   for (;;) {
     const r = await E2E.call('state', { since }).catch(err => err)
+    clearTimeout(slow)
     if (r instanceof E2E.Unpaired) return gate(tx('Not paired. Scan the QR code in the terminal again.'), '', true)
     if (r instanceof Error || r.s !== 200) {
       failedSince ||= Date.now()

@@ -28,16 +28,20 @@ const PAGE = 'file:///android_asset/page/'
 export function Chat({ c, device, onUnpaired, onRescan, onCheckUpdate, onReady }: { c: Colors; device: Device; onUnpaired: () => void; onRescan: () => void; onCheckUpdate: () => Promise<unknown>; onReady: () => void }) {
   const web = useRef<WebViewHandle>(null)
   const insets = useSafeAreaInsets()
+  // the cover (Đang kết nối…) stays until the page says it shows something: never a blank screen
   const [isLoading, setLoading] = useState(true)
+  const [isLoaded, setLoaded] = useState(false)
   const [failed, setFailed] = useState('')
   // the WebView's renderer ended (Android frees it while the app is in the background), or the
   // page shows nothing: a new one, loaded again
   const [life, setLife] = useState(0)
   const restart = useCallback(() => {
     setLoading(true)
+    setLoaded(false)
     setLife(n => n + 1)
   }, [])
   const shownAt = useRef(0)
+  const loadAt = useRef(Date.now())
   const blankRestarts = useRef(0)
   // the page keeps clear of the system bars by itself (the WebView gives it their size): no margin here
   const [isInsetByPage, setInsetByPage] = useState(false)
@@ -111,6 +115,7 @@ export function Chat({ c, device, onUnpaired, onRescan, onCheckUpdate, onReady }
     else if (m.t === 'alive' && m.isShown) {
       shownAt.current = Date.now()
       blankRestarts.current = 0
+      setLoading(false)
     }
   }, [device, onUnpaired, onRescan, onCheckUpdate, reply, sendSettings])
 
@@ -135,31 +140,33 @@ export function Chat({ c, device, onUnpaired, onRescan, onCheckUpdate, onReady }
     })
   }, [isLoading, openSession])
 
-  // the page asked whether it shows its start screen or the chat, and is drawn (a WebView that
-  // thinks itself hidden draws nothing), 6 s after it loads and each time the app comes to the
-  // front: when not, or with no answer in 4 s, it is loaded again (twice at most in a row, then
-  // the screen that offers Thử lại)
+  // The page says when it shows its start screen or the chat, drawn (a WebView that thinks itself
+  // hidden draws nothing), and answers when asked, as the app comes back to the front. Not shown 4 s
+  // after it loaded, or no answer in 2.5 s: loaded again, twice at most in a row, then the screen
+  // that offers Thử lại. (The page shows its start screen within 2 s of a hub slow to answer.)
   useEffect(() => {
-    if (isLoading) return
+    if (!isLoaded) return
     let wait: ReturnType<typeof setTimeout> | undefined
-    const probe = () => {
-      const asked = Date.now()
-      reply(`window.ReactNativeWebView.postMessage(JSON.stringify({ t: 'alive', isShown: document.visibilityState === 'visible' && (!document.getElementById('gate').hidden || !document.getElementById('app').hidden) }))`)
+    const expect = (since: number, ms: number) => {
       clearTimeout(wait)
       wait = setTimeout(() => {
-        if (shownAt.current >= asked) return
+        if (shownAt.current >= since) return
         if (++blankRestarts.current > 2) return setFailed('Trang không hiện gì.')
         restart()
-      }, 4000)
+      }, ms)
     }
-    const first = setTimeout(probe, 6000)
-    const sub = AppState.addEventListener('change', s => { if (s === 'active') probe() })
+    expect(loadAt.current, 4000)
+    const sub = AppState.addEventListener('change', s => {
+      if (s !== 'active') return
+      const asked = Date.now()
+      reply('window.__qsb && window.__qsb.alive()')
+      expect(asked, 2500)
+    })
     return () => {
-      clearTimeout(first)
       clearTimeout(wait)
       sub.remove()
     }
-  }, [isLoading, reply, restart])
+  }, [isLoaded, reply, restart])
 
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -200,8 +207,9 @@ export function Chat({ c, device, onUnpaired, onRescan, onCheckUpdate, onReady }
           return false
         }}
         setSupportMultipleWindows={false}
+        onLoadStart={(): void => { loadAt.current = Date.now() }}
         onLoadEnd={(): void => {
-          setLoading(false)
+          setLoaded(true)
           onReady()
           void sendVoices()
         }}

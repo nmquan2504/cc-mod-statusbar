@@ -31,6 +31,7 @@ const VI = {
   // the link
   'The link seems to have ended. If the remote was started again, scan its new QR code in the terminal.': 'Link có vẻ đã hết. Nếu remote được bật lại, quét mã QR mới trong terminal.',
   'Reconnecting…': 'Đang kết nối lại…',
+  'Connecting…': 'Đang kết nối…',
   // the head and the drawer
   'Sessions': 'Phiên',
   'Session details': 'Chi tiết phiên',
