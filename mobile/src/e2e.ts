@@ -62,14 +62,32 @@ export async function pair(base: string, k: string, fetcher: typeof fetch = fetc
   return { device: { base, id: String(body.id), key: b64.enc(key) }, code: String(body.code) }
 }
 
+// The calls asked again and again, given up when the hub has not answered in this long (a long
+// poll waits 25 s at most): a link gone quiet, as when the hub stops, fails them instead of
+// holding them for ever (Android's fetch has no time limit). Others, an upload among them, wait.
+const LIMIT_MS: Record<string, number> = { state: 40_000, watch: 40_000, paired: 15_000 }
+
 // One sealed call: { s: status, b: body }. Unpaired when the hub no longer knows this device.
 export async function call(dev: Device, op: string, a: Record<string, unknown> = {}, fetcher: typeof fetch = fetch): Promise<{ s: number; b: any }> {
+  const limit = LIMIT_MS[op]
+  if (!limit) return send(dev, op, a, fetcher)
+  const stop = new AbortController()
+  const t = setTimeout(() => stop.abort(), limit)
+  try {
+    return await send(dev, op, a, fetcher, stop.signal)
+  } catch (err) {
+    throw stop.signal.aborted ? new Error('The hub did not answer.') : err
+  } finally {
+    clearTimeout(t)
+  }
+}
+async function send(dev: Device, op: string, a: Record<string, unknown>, fetcher: typeof fetch, signal?: AbortSignal): Promise<{ s: number; b: any }> {
   const key = b64.dec(dev.key)
   const n = b64.enc(random(12))
   const iv = random(12)
   const plain = te.encode(JSON.stringify({ op, a, ts: Date.now(), n }))
   const c = gcm(key, iv, te.encode(`req|${dev.id}`)).encrypt(plain)
-  const r = await fetcher(`${dev.base}/x`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ d: dev.id, iv: b64.enc(iv), c: b64.enc(c) }) })
+  const r = await fetcher(`${dev.base}/x`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ d: dev.id, iv: b64.enc(iv), c: b64.enc(c) }), signal })
   if (r.status === 401) throw new Unpaired('This phone is not paired with the hub now.')
   const sealed = await r.json().catch(() => null)
   if (!sealed || !sealed.c) throw new Error(`The hub answered ${r.status}.`)

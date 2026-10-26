@@ -30,6 +30,8 @@ export function Chat({ c, device, onUnpaired, onRescan, onCheckUpdate, onReady }
   const insets = useSafeAreaInsets()
   const [isLoading, setLoading] = useState(true)
   const [failed, setFailed] = useState('')
+  // the WebView's renderer ended (Android frees it while the app is in the background): a new one
+  const [life, setLife] = useState(0)
   // the page keeps clear of the system bars by itself (the WebView gives it their size): no margin here
   const [isInsetByPage, setInsetByPage] = useState(false)
   // the bridge as the page first loads, the settings as they were then; later ones are sent in
@@ -146,6 +148,7 @@ export function Chat({ c, device, onUnpaired, onRescan, onCheckUpdate, onReady }
   return (
     <View style={[styles.fill, { backgroundColor: c.bg, paddingTop: isInsetByPage ? 0 : insets.top, paddingBottom: isInsetByPage ? 0 : insets.bottom }]}>
       <WebView
+        key={life}
         ref={web as never}
         source={{ uri: `${PAGE}app.html` }}
         allowFileAccess
@@ -164,6 +167,10 @@ export function Chat({ c, device, onUnpaired, onRescan, onCheckUpdate, onReady }
           setLoading(false)
           onReady()
           void sendVoices()
+        }}
+        onRenderProcessGone={(): void => {
+          setLoading(true)
+          setLife(n => n + 1)
         }}
         onError={(e: WebViewErrorEvent): void => {
           setFailed(e.nativeEvent.description || 'Lỗi mạng')
