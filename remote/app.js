@@ -137,14 +137,20 @@ async function pair() {
     gate(tx('Scan the QR code in the terminal, or paste its link here.'), '', true)
     throw new Error('unpaired')
   }
+  // a hub slow to answer, stopped, or its link ended: said on the gate, never a blank page
+  let downSince = 0
+  const slow = setTimeout(() => showDown(0), 2000)
   for (;;) {
     const r = await E2E.call('paired').catch(err => err)
+    clearTimeout(slow)
     if (r instanceof E2E.Unpaired) {
       await E2E.forget()
       gate(tx('Not paired. Scan the QR code in the terminal again.'), '', true)
       throw r
     }
     if (r instanceof Error) {
+      downSince ||= Date.now()
+      showDown(Date.now() - downSince)
       await sleep(2000)
       continue
     }
@@ -217,6 +223,7 @@ let pairUntil = 0
 let pairTimer = 0
 function gate(text, code, canPaste, secondsLeft) {
   $('gate-app').hidden = true
+  $('gate-rescan').hidden = true
   $('gate-text').textContent = text
   $('gate-code').textContent = code || ''
   $('gate-code').hidden = !code
@@ -255,6 +262,17 @@ function showOffline(ms) {
     scan.onclick = () => QSB_NATIVE.rescan()
   }
 }
+// the hub not answering for `ms`: the line under the head once the chat shows, else the gate (the
+// chat is not up yet, as the app opens while the hub is stopped); in the app, its scanner for a new code
+function showDown(ms) {
+  if (!$('app').hidden) return showOffline(ms)
+  const isGone = ms >= LINK_GONE_MS
+  gate(isGone ? tx('The link seems to have ended. If the remote was started again, scan its new QR code in the terminal.') : tx('Reconnecting…'))
+  if (isGone && window.QSB_NATIVE?.rescan) {
+    $('gate-rescan').hidden = false
+    $('gate-scan').onclick = () => QSB_NATIVE.rescan()
+  }
+}
 async function follow() {
   let since = -1
   for (;;) {
@@ -262,7 +280,7 @@ async function follow() {
     if (r instanceof E2E.Unpaired) return gate(tx('Not paired. Scan the QR code in the terminal again.'), '', true)
     if (r instanceof Error || r.s !== 200) {
       failedSince ||= Date.now()
-      showOffline(Date.now() - failedSince)
+      showDown(Date.now() - failedSince)
       await sleep(3000)
       continue
     }
