@@ -135,15 +135,16 @@ export function Chat({ c, device, onUnpaired, onRescan, onCheckUpdate, onReady }
     })
   }, [isLoading, openSession])
 
-  // the page asked whether it shows its start screen or the chat, 6 s after it loads and each time
-  // the app comes to the front: with neither, or no answer in 4 s, it is loaded again (twice at
-  // most in a row, then the screen that offers Thử lại)
+  // the page asked whether it shows its start screen or the chat, and is drawn (a WebView that
+  // thinks itself hidden draws nothing), 6 s after it loads and each time the app comes to the
+  // front: when not, or with no answer in 4 s, it is loaded again (twice at most in a row, then
+  // the screen that offers Thử lại)
   useEffect(() => {
     if (isLoading) return
     let wait: ReturnType<typeof setTimeout> | undefined
     const probe = () => {
       const asked = Date.now()
-      reply(`window.ReactNativeWebView.postMessage(JSON.stringify({ t: 'alive', isShown: !document.getElementById('gate').hidden || !document.getElementById('app').hidden }))`)
+      reply(`window.ReactNativeWebView.postMessage(JSON.stringify({ t: 'alive', isShown: document.visibilityState === 'visible' && (!document.getElementById('gate').hidden || !document.getElementById('app').hidden) }))`)
       clearTimeout(wait)
       wait = setTimeout(() => {
         if (shownAt.current >= asked) return
