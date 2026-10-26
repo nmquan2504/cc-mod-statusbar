@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, BackHandler, Linking, Pressable, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, AppState, BackHandler, Linking, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView } from 'react-native-webview'
 import type { WebViewMessageEvent } from 'react-native-webview'
@@ -30,8 +30,15 @@ export function Chat({ c, device, onUnpaired, onRescan, onCheckUpdate, onReady }
   const insets = useSafeAreaInsets()
   const [isLoading, setLoading] = useState(true)
   const [failed, setFailed] = useState('')
-  // the WebView's renderer ended (Android frees it while the app is in the background): a new one
+  // the WebView's renderer ended (Android frees it while the app is in the background), or the
+  // page shows nothing: a new one, loaded again
   const [life, setLife] = useState(0)
+  const restart = useCallback(() => {
+    setLoading(true)
+    setLife(n => n + 1)
+  }, [])
+  const shownAt = useRef(0)
+  const blankRestarts = useRef(0)
   // the page keeps clear of the system bars by itself (the WebView gives it their size): no margin here
   const [isInsetByPage, setInsetByPage] = useState(false)
   // the bridge as the page first loads, the settings as they were then; later ones are sent in
@@ -101,6 +108,10 @@ export function Chat({ c, device, onUnpaired, onRescan, onCheckUpdate, onReady }
     }
     else if (m.t === 'rescan') onRescan()
     else if (m.t === 'insets') setInsetByPage(Number(m.top) > 0 || Number(m.bottom) > 0)
+    else if (m.t === 'alive' && m.isShown) {
+      shownAt.current = Date.now()
+      blankRestarts.current = 0
+    }
   }, [device, onUnpaired, onRescan, onCheckUpdate, reply, sendSettings])
 
   // the phone's voices, for the page's Read aloud voices
@@ -124,6 +135,32 @@ export function Chat({ c, device, onUnpaired, onRescan, onCheckUpdate, onReady }
     })
   }, [isLoading, openSession])
 
+  // the page asked whether it shows its start screen or the chat, and is drawn (a WebView that
+  // thinks itself hidden draws nothing), 6 s after it loads and each time the app comes to the
+  // front: when not, or with no answer in 4 s, it is loaded again (twice at most in a row, then
+  // the screen that offers Thử lại)
+  useEffect(() => {
+    if (isLoading) return
+    let wait: ReturnType<typeof setTimeout> | undefined
+    const probe = () => {
+      const asked = Date.now()
+      reply(`window.ReactNativeWebView.postMessage(JSON.stringify({ t: 'alive', isShown: document.visibilityState === 'visible' && (!document.getElementById('gate').hidden || !document.getElementById('app').hidden) }))`)
+      clearTimeout(wait)
+      wait = setTimeout(() => {
+        if (shownAt.current >= asked) return
+        if (++blankRestarts.current > 2) return setFailed('Trang không hiện gì.')
+        restart()
+      }, 4000)
+    }
+    const first = setTimeout(probe, 6000)
+    const sub = AppState.addEventListener('change', s => { if (s === 'active') probe() })
+    return () => {
+      clearTimeout(first)
+      clearTimeout(wait)
+      sub.remove()
+    }
+  }, [isLoading, reply, restart])
+
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
       web.current?.injectJavaScript('window.__qsb && window.__qsb.back(); true;')
@@ -138,7 +175,7 @@ export function Chat({ c, device, onUnpaired, onRescan, onCheckUpdate, onReady }
         <Text style={[styles.note, { color: c.text }]}>Không mở được hub.</Text>
         <Text style={[styles.note, { color: c.dim }]}>{failed}</Text>
         <Text style={[styles.note, { color: c.dim }]}>Remote có thể đã dừng, hoặc link đã đổi.</Text>
-        <Pressable style={[styles.button, { backgroundColor: c.claude }]} onPress={() => { setFailed(''); setLoading(true) }}>
+        <Pressable style={[styles.button, { backgroundColor: c.claude }]} onPress={() => { setFailed(''); blankRestarts.current = 0; restart() }}>
           <Text style={styles.buttonText}>Thử lại</Text>
         </Pressable>
         <Pressable onPress={onRescan}><Text style={[styles.link, { color: c.dim }]}>Quét lại mã QR</Text></Pressable>
@@ -168,10 +205,7 @@ export function Chat({ c, device, onUnpaired, onRescan, onCheckUpdate, onReady }
           onReady()
           void sendVoices()
         }}
-        onRenderProcessGone={(): void => {
-          setLoading(true)
-          setLife(n => n + 1)
-        }}
+        onRenderProcessGone={restart}
         onError={(e: WebViewErrorEvent): void => {
           setFailed(e.nativeEvent.description || 'Lỗi mạng')
           onReady()
