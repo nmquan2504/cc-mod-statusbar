@@ -10,7 +10,8 @@
 //
 // Messages from the page: { t: 'call', id, op, a } | { t: 'forget' } | { t: 'back', isHandled } |
 //   { t: 'set', key, value } | { t: 'speak', id, text, lang, voice, rate } | { t: 'hush' } |
-//   { t: 'insets', top, bottom } | { t: 'update' } | { t: 'listen', id } | { t: 'rescan' }
+//   { t: 'insets', top, bottom } | { t: 'update' } | { t: 'listen', id } | { t: 'rescan' } |
+//   { t: 'alive', isShown } (the app's probe, src/Chat.tsx)
 // Answers into it: __qsb.done(id, result) | __qsb.fail(id, kind, message) | __qsb.back() |
 //   __qsb.settings(settings, note) | __qsb.voices(list) | __qsb.said(id, isOk) | __qsb.toast(title, body) |
 //   __qsb.heard(id, text, error)

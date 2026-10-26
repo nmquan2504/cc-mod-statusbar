@@ -62,10 +62,10 @@ export async function pair(base: string, k: string, fetcher: typeof fetch = fetc
   return { device: { base, id: String(body.id), key: b64.enc(key) }, code: String(body.code) }
 }
 
-// The calls asked again and again, given up when the hub has not answered in this long (a long
+// The calls asked again and again (and the phones listed as the app is paired), given up when the hub has not answered in this long (a long
 // poll waits 25 s at most): a link gone quiet, as when the hub stops, fails them instead of
 // holding them for ever (Android's fetch has no time limit). Others, an upload among them, wait.
-const LIMIT_MS: Record<string, number> = { state: 40_000, watch: 40_000, paired: 15_000 }
+const LIMIT_MS: Record<string, number> = { state: 40_000, watch: 40_000, paired: 15_000, devices: 15_000 }
 
 // One sealed call: { s: status, b: body }. Unpaired when the hub no longer knows this device.
 export async function call(dev: Device, op: string, a: Record<string, unknown> = {}, fetcher: typeof fetch = fetch): Promise<{ s: number; b: any }> {

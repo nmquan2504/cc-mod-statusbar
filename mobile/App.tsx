@@ -83,9 +83,12 @@ function App() {
   // (with neither notifications nor reading aloud, it does not run)
   const device = phase.kind === 'paired' ? phase.device : null
   const isListening = Boolean(device) && (prefs.notify || prefs.readAloud)
+  // (a device replaced while the notices were set up, as a new QR code opened the app, starts none)
   useEffect(() => {
     if (!device || !isListening) return void stopListening()
-    void setUpNotices().then(() => startListening(device, unpaired)).catch(() => undefined)
+    let isGone = false
+    void setUpNotices().then(() => isGone ? undefined : startListening(device, unpaired)).catch(() => undefined)
+    return () => { isGone = true }
   }, [device, isListening, unpaired])
 
   // the app in front: the notices in the shade are read
