@@ -11,10 +11,10 @@
 // Messages from the page: { t: 'call', id, op, a } | { t: 'forget' } | { t: 'back', isHandled } |
 //   { t: 'set', key, value } | { t: 'speak', id, text, lang, voice, rate } | { t: 'hush' } |
 //   { t: 'insets', top, bottom } | { t: 'update' } | { t: 'listen', id } | { t: 'rescan' } |
-//   { t: 'alive', isShown } (the app's probe, src/Chat.tsx)
+//   { t: 'alive', isShown } (as it changes, and asked by __qsb.alive())
 // Answers into it: __qsb.done(id, result) | __qsb.fail(id, kind, message) | __qsb.back() |
 //   __qsb.settings(settings, note) | __qsb.voices(list) | __qsb.said(id, isOk) | __qsb.toast(title, body) |
-//   __qsb.heard(id, text, error)
+//   __qsb.heard(id, text, error) | __qsb.alive()
 import type { AppSettings } from './settings'
 
 export const bridge = (settings: AppSettings, version: string) => `(() => {
@@ -129,7 +129,18 @@ export const bridge = (settings: AppSettings, version: string) => `(() => {
   for (const name of ['SpeechRecognition', 'webkitSpeechRecognition'])
     Object.defineProperty(window, name, { configurable: false, get: () => Recognition, set: () => undefined })
 
+  // whether the page shows its start screen or the chat, drawn: told as it changes, and when asked
+  let wasShown = null
+  const tellShown = isAsked => {
+    const gate = document.getElementById('gate'), app = document.getElementById('app')
+    const isShown = document.visibilityState === 'visible' && Boolean(gate && app) && (!gate.hidden || !app.hidden)
+    if (isAsked || isShown !== wasShown) post({ t: 'alive', isShown })
+    wasShown = isShown
+  }
+  setInterval(() => tellShown(false), 250)
+
   window.__qsb = {
+    alive() { tellShown(true) },
     done(id, r) { const w = waiting.get(id); waiting.delete(id); w && w.resolve(r) },
     fail(id, kind, message) {
       const w = waiting.get(id); waiting.delete(id)

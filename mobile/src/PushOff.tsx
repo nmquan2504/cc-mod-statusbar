@@ -35,7 +35,13 @@ export function PushOff({ c, device, onDone }: { c: Colors; device: Device; onDo
     onDone()
   }
 
-  if (!phones) return <View style={[styles.cover, { backgroundColor: c.bg }]}><ActivityIndicator color={c.claude} /></View>
+  if (!phones)
+    return (
+      <View style={[styles.cover, { backgroundColor: c.bg }]}>
+        <ActivityIndicator color={c.claude} />
+        <Text style={[styles.note, { color: c.dim }]}>Đang kết nối…</Text>
+      </View>
+    )
   return (
     <View style={[styles.cover, { backgroundColor: c.bg }]}>
       <Text style={[styles.title, { color: c.text }]}>Thông báo trùng</Text>
