@@ -257,7 +257,7 @@
   .hblock { border-radius: 6px; cursor: pointer; }
   .hblock.on { background: rgba(217, 119, 87, .14); outline: 1px solid rgba(217, 119, 87, .5); }
   /* the hub not answering: a line under the head */
-  .offline { position: fixed; top: var(--top); left: 0; right: 0; z-index: 9; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--line); color: var(--warn); font-size: 13px; text-align: center; }
+  .offline { position: fixed; top: var(--top); left: 0; right: 0; z-index: 9; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--line); color: var(--warn); font-size: 13px; text-align: center; }
   .offline.gone { color: var(--bad); }
   .offline .spin { display: inline-flex; animation: spin 2s linear infinite; }
   .offline .spin svg.ic { width: 13px; height: 13px; }
@@ -429,7 +429,7 @@
   .toast.tap { cursor: pointer; }
   .toast { touch-action: pan-y; user-select: none; -webkit-user-select: none; }
   .toast { position: fixed; left: 12px; right: 12px; top: calc(var(--top) + 8px); z-index: 40; background: var(--panel); border: 1px solid var(--claude); border-radius: 12px; padding: 10px 12px; }
-  .paste { display: flex; gap: 8px; margin-top: 16px; }
+  .paste { display: flex; justify-content: center; gap: 8px; margin-top: 16px; }
   .paste input { flex: 1; min-width: 0; height: 42px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 0 12px; font: 13px var(--mono); }
   .gate { max-width: 420px; margin: 20vh auto 0; padding: 0 16px; text-align: center; }
   .gate .left { color: var(--dim); font: 600 14px var(--mono); margin-top: 6px; } .gate .left.low { color: var(--warn); }

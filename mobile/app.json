@@ -2,7 +2,7 @@
   "expo": {
     "name": "Claude remote",
     "slug": "claude-remote",
-    "version": "0.17.2",
+    "version": "0.17.3",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -25,7 +25,7 @@
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "com.google.android.c2dm.permission.RECEIVE"
       ],
-      "versionCode": 1702,
+      "versionCode": 1703,
       "permissions": [
         "android.permission.REQUEST_INSTALL_PACKAGES"
       ]
