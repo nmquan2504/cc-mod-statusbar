@@ -107,7 +107,7 @@ export async function startListening(device: Device, onUnpaired: () => void) {
     taskName: 'claude-remote',
     taskTitle: 'Claude remote',
     taskDesc: 'Đã kết nối · đọc to khi Claude trả lời',
-    taskIcon: { name: 'ic_launcher', type: 'mipmap' },
+    taskIcon: { name: 'notification_icon', type: 'drawable' },
     color: '#d97757',
     linkingURI: 'clauderemote://',
     foregroundServiceType: ['remoteMessaging'],
