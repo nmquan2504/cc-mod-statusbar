@@ -2,7 +2,7 @@
   "expo": {
     "name": "Claude remote",
     "slug": "claude-remote",
-    "version": "0.17.6",
+    "version": "0.17.7",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -25,7 +25,7 @@
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "com.google.android.c2dm.permission.RECEIVE"
       ],
-      "versionCode": 1706,
+      "versionCode": 1707,
       "permissions": [
         "android.permission.REQUEST_INSTALL_PACKAGES"
       ]
@@ -64,6 +64,7 @@
         }
       ],
       "./plugins/with-release-signing",
+      "./plugins/with-theme",
       [
         "expo-splash-screen",
         {
@@ -77,8 +78,7 @@
           }
         }
       ],
-      "./plugins/with-page",
-      "./plugins/with-theme"
+      "./plugins/with-page"
     ]
   }
 }
