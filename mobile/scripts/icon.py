@@ -60,5 +60,8 @@ if __name__ == '__main__':
         ('icon', art(512, 512, 2.3, bg=True), 1024),
         ('splash-icon', art(512, 512, 2.0), 1024),  # on the splash's own orange
         ('favicon', art(512, 512, 2.3, bg=True), 48),
+        # the status bar's icon: white on clear, the screen near the canvas's full width (Android
+        # draws it 24 dp high, so the launcher icon's padding left it a speck)
+        ('notification-icon', art(48, 48, 0.39, mono=True), 96),
     ]:
         subprocess.run(['rsvg-convert', '-w', str(size), '-h', str(size), '-o', os.path.join(ASSETS, f'{name}.png')], input=svg.encode(), check=True)
