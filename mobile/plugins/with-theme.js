@@ -13,11 +13,19 @@ const colors = value => c => {
   return c
 }
 
+// The task's colours (the app switcher's card, the open animation) come from the activity's own
+// theme in the manifest, the splash theme, which is Theme.DeviceDefault underneath: Samsung's blue
+// unless set here as well
+const SPLASH = { name: 'Theme.App.SplashScreen', parent: 'Theme.SplashScreen' }
+
 module.exports = config => {
   config = withAndroidColors(config, colors(LIGHT))
   config = withAndroidColorsNight(config, colors(DARK))
   return withAndroidStyles(config, c => {
-    c.modResults = assignStylesValue(c.modResults, { add: true, parent: getAppThemeGroup(), name: 'android:windowBackground', value: '@color/appBackground' })
+    const set = (parent, name) => { c.modResults = assignStylesValue(c.modResults, { add: true, parent, name, value: '@color/appBackground' }) }
+    set(getAppThemeGroup(), 'android:windowBackground')
+    for (const theme of [getAppThemeGroup(), SPLASH])
+      for (const name of ['android:colorPrimary', 'android:colorPrimaryDark', 'android:colorBackground', 'android:colorBackgroundFloating']) set(theme, name)
     return c
   })
 }
