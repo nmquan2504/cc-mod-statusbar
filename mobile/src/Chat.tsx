@@ -221,6 +221,7 @@ export function Chat({ c, device, onUnpaired, onRescan, onCheckUpdate, onReady }
         allowsBackForwardNavigationGestures={false}
         pullToRefreshEnabled={false}
         overScrollMode="never"
+        setBuiltInZoomControls={false}
         mediaPlaybackRequiresUserAction={false}
         webviewDebuggingEnabled={__DEV__}
       />
