@@ -1,0 +1,15 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'io.github.nmquan2504'
+version = '1.0.0'
+
+android {
+  namespace "io.github.nmquan2504.downloads"
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+}

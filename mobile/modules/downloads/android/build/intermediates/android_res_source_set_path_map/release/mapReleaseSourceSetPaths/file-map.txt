@@ -1,0 +1,9 @@
+io.github.nmquan2504.downloads-pngs-0 /Users/quan.nguyen/Q/Projects/-/cc-mod-statusbar/mobile/modules/downloads/android/build/generated/res/pngs/release
+io.github.nmquan2504.downloads-updated_navigation_xml-1 /Users/quan.nguyen/Q/Projects/-/cc-mod-statusbar/mobile/modules/downloads/android/build/generated/updated_navigation_xml/release
+io.github.nmquan2504.downloads-mergeReleaseResources-2 /Users/quan.nguyen/Q/Projects/-/cc-mod-statusbar/mobile/modules/downloads/android/build/intermediates/incremental/release/mergeReleaseResources/merged.dir
+io.github.nmquan2504.downloads-mergeReleaseResources-3 /Users/quan.nguyen/Q/Projects/-/cc-mod-statusbar/mobile/modules/downloads/android/build/intermediates/incremental/release/mergeReleaseResources/stripped.dir
+io.github.nmquan2504.downloads-release-4 /Users/quan.nguyen/Q/Projects/-/cc-mod-statusbar/mobile/modules/downloads/android/build/intermediates/merged_res/release/mergeReleaseResources
+io.github.nmquan2504.downloads-release-5 /Users/quan.nguyen/Q/Projects/-/cc-mod-statusbar/mobile/modules/downloads/android/build/intermediates/packaged_res/release/packageReleaseResources
+io.github.nmquan2504.downloads-main-6 /Users/quan.nguyen/Q/Projects/-/cc-mod-statusbar/mobile/modules/downloads/android/src/main/res
+io.github.nmquan2504.downloads-release-7 /Users/quan.nguyen/Q/Projects/-/cc-mod-statusbar/mobile/modules/downloads/android/src/release/res
+gradleHome-0 /Users/quan.nguyen/.gradle
