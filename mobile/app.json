@@ -2,7 +2,7 @@
   "expo": {
     "name": "Claude remote",
     "slug": "claude-remote",
-    "version": "0.17.7",
+    "version": "0.17.8",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
