@@ -11,10 +11,10 @@
 // Messages from the page: { t: 'call', id, op, a } | { t: 'forget' } | { t: 'back', isHandled } |
 //   { t: 'set', key, value } | { t: 'speak', id, text, lang, voice, rate } | { t: 'hush' } |
 //   { t: 'insets', top, bottom } | { t: 'update' } | { t: 'listen', id } | { t: 'rescan' } |
-//   { t: 'alive', isShown } (as it changes, and asked by __qsb.alive())
+//   { t: 'alive', isShown } (as it changes, and asked by __qsb.alive()) | { t: 'file', id, how, a }
 // Answers into it: __qsb.done(id, result) | __qsb.fail(id, kind, message) | __qsb.back() |
 //   __qsb.settings(settings, note) | __qsb.voices(list) | __qsb.said(id, isOk) | __qsb.toast(title, body) |
-//   __qsb.heard(id, text, error) | __qsb.alive()
+//   __qsb.heard(id, text, error) | __qsb.alive() | __qsb.filed(id, name, error)
 import type { AppSettings } from './settings'
 
 export const bridge = (settings: AppSettings, version: string) => `(() => {
@@ -43,7 +43,16 @@ export const bridge = (settings: AppSettings, version: string) => `(() => {
   Object.defineProperty(window, 'E2E', { configurable: false, get: () => E2E, set: () => undefined })
 
   // the page knows it runs in the app: what the app does itself, its Settings set here
-  const native = { platform: 'android', version: ${JSON.stringify(version)}, settings: ${JSON.stringify(settings)}, set: (key, value) => post({ t: 'set', key, value }), checkUpdate: () => post({ t: 'update' }), rescan: () => post({ t: 'rescan' }) }
+  // a file of the session saved in the phone's Downloads or opened in one of its apps (how: 'save' |
+  // 'open'), fetched by the app itself: { name } as saved (Android may add (1)), or { error }
+  const filing = new Map()
+  let fileNext = 1
+  const file = (how, a) => new Promise(resolve => {
+    const id = fileNext++
+    filing.set(id, resolve)
+    post({ t: 'file', id, how, a })
+  })
+  const native = { platform: 'android', version: ${JSON.stringify(version)}, settings: ${JSON.stringify(settings)}, set: (key, value) => post({ t: 'set', key, value }), checkUpdate: () => post({ t: 'update' }), rescan: () => post({ t: 'rescan' }), file }
   Object.defineProperty(window, 'QSB_NATIVE', { configurable: false, get: () => native, set: () => undefined })
 
   // read aloud with the phone's own voices: the page's utterances, said by the app in turn
@@ -179,6 +188,11 @@ export const bridge = (settings: AppSettings, version: string) => `(() => {
         fire(r, 'result', { results: Object.assign([result], { length: 1 }), resultIndex: 0 })
       } else if (error) fire(r, 'error', { error })
       fire(r, 'end')
+    },
+    filed(id, name, error) {
+      const r = filing.get(id)
+      filing.delete(id)
+      if (r) r({ name, error })
     },
     said(id, isOk) {
       const u = said.get(id)

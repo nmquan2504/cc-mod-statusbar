@@ -2,6 +2,9 @@
 // hub started with QSB_REMOTE_LOCAL (no tunnel), its control socket allowing the request.
 //   node --experimental-strip-types scripts/e2e-check.mts <hub dir>
 import { execFileSync } from 'node:child_process'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { call, pair, Unpaired } from '../src/e2e.ts'
 import { parseLink } from '../src/link.ts'
 
@@ -11,7 +14,14 @@ const ctl = (method: string, path: string, body?: unknown) =>
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 const check = (name: string, ok: boolean, detail: unknown = '') => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${name} ${ok ? '' : JSON.stringify(detail)}`); if (!ok) process.exitCode = 1 }
 
-ctl('POST', '/session?id=t1', { folder: 'shop', transcript: [], images: [], edited: [], changes: [], busy: false })
+// the session's folder, with a file of each kind the phone shows, saves or opens
+const root = mkdtempSync(join(tmpdir(), 'qsb-files-'))
+writeFileSync(join(root, 'notes.md'), '# Notes\n')
+writeFileSync(join(root, 'report.pdf'), '%PDF-1.4\nno NUL in its head\n')
+writeFileSync(join(root, 'data.bin'), Buffer.from([1, 0, 2, 3]))
+writeFileSync(join(root, 'clip.mp4'), Buffer.from([0, 0, 0, 24]))
+writeFileSync(join(root, '.env'), 'KEY=1\n')
+ctl('POST', '/session?id=t1', { folder: 'shop', roots: [root], transcript: [], images: [], edited: [], changes: [], busy: false })
 const link = parseLink(ctl('GET', '/status').link)
 check('the QR link parses', Boolean(link?.k && link.base.startsWith('http')), link)
 check('a link with no K does not', parseLink('https://x.trycloudflare.com/') === null)
@@ -26,6 +36,20 @@ ctl('POST', '/allow', { id: ctl('GET', '/status').pending[0].id })
 check('after Allow: paired', (await call(device, 'paired')).s === 200)
 const state = await call(device, 'state', { since: -1 })
 check('a sealed call answers the state', state.s === 200 && state.b.sessions?.[0]?.folder === 'shop', state.b?.sessions)
+// files: each with its kind and type, its bytes sent whole (raw); a secret never
+const file = (name: string, raw = false) => call(device, 'file', { session: 't1', path: join(root, name), ...(raw ? { raw } : {}) })
+const md = await file('notes.md')
+check('a text file: its text and type', md.s === 200 && md.b.kind === 'text' && md.b.type === 'text/markdown' && md.b.text === '# Notes\n' && md.b.isTooBig === false, md.b)
+const pdf = await file('report.pdf')
+check('a PDF is a document, though its head holds no NUL', pdf.s === 200 && pdf.b.kind === 'binary' && pdf.b.type === 'application/pdf' && pdf.b.text === undefined, pdf.b)
+const bin = await file('data.bin', true)
+check('a binary\'s bytes, raw, with its name', bin.s === 200 && bin.b.type === 'application/octet-stream' && bin.b.name === 'data.bin' && Buffer.from(bin.b.b64, 'base64').equals(Buffer.from([1, 0, 2, 3])), bin.b)
+const mdRaw = await file('notes.md', true)
+check('a text file\'s bytes, raw', mdRaw.s === 200 && Buffer.from(mdRaw.b.b64, 'base64').toString() === '# Notes\n', mdRaw.b)
+const mp4 = await file('clip.mp4')
+check('a video', mp4.s === 200 && mp4.b.kind === 'video' && mp4.b.type === 'video/mp4', mp4.b)
+const env = await file('.env', true)
+check('a secret is locked, raw or not', env.s === 403 && env.b.isLocked && !env.b.b64, env.b)
 const devs = await call(device, 'devices')
 check('the hub lists this phone as itself', devs.b.devices.some((d: any) => d.isThis), devs.b)
 // the app's service: watch waits for the next notice, and answers it with its folder

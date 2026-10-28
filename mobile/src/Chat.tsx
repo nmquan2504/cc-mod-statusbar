@@ -8,6 +8,7 @@ import * as IntentLauncher from 'expo-intent-launcher'
 import * as Notifications from 'expo-notifications'
 import * as Speech from 'expo-speech'
 import { bridge } from './bridge'
+import { handFile } from './files'
 import { askUnlock } from './lock'
 import { onNoticeOpened } from './notices'
 import { onSettings, saveSettings, settings } from './settings'
@@ -81,6 +82,11 @@ export function Chat({ c, device, onUnpaired, onRescan, onCheckUpdate, onReady }
         onError: () => said(false),
       })
     } else if (m.t === 'hush') void Speech.stop()
+    else if (m.t === 'file') {
+      const filed = (name: string, error = '') => reply(`window.__qsb.filed(${Number(m.id)}, ${JSON.stringify(name)}, ${JSON.stringify(error)})`)
+      handFile(device, m.how === 'save' ? 'save' : 'open', m.a && typeof m.a === 'object' ? m.a : {})
+        .then(name => filed(name), (e: unknown) => filed('', e instanceof Error ? e.message : String(e)))
+    }
     else if (m.t === 'update') {
       // Check for update in Settings: the card when there is one, else a toast saying why not
       const toast = (title: string, body = '') => reply(`window.__qsb.toast(${JSON.stringify(title)}, ${JSON.stringify(body)})`)

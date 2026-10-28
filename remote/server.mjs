@@ -222,9 +222,27 @@ async function diffOf(session, path) {
   return run(['git', 'diff', '--no-color', '--no-index', '--', '/dev/null', abs], s.cwd)
 }
 const IMAGE_TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml' }
-// a sound file the phone plays, sent whole as an image is; past AUDIO_MAX its size alone
+// a sound file or a video the phone plays, sent whole as an image is
 const AUDIO_TYPES = { '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.opus': 'audio/ogg', '.flac': 'audio/flac', '.webm': 'audio/webm' }
-const AUDIO_MAX = 20 * 1024 * 1024
+const VIDEO_TYPES = { '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.mov': 'video/quicktime', '.3gp': 'video/3gpp' }
+// a document or an archive: never shown as text, though its first 8 KB may hold no NUL byte; the
+// phone saves it, or opens it in one of its own apps, which Android picks by this type
+const DOC_TYPES = {
+  '.pdf': 'application/pdf', '.epub': 'application/epub+zip', '.rtf': 'application/rtf',
+  '.doc': 'application/msword', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xls': 'application/vnd.ms-excel', '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.ppt': 'application/vnd.ms-powerpoint', '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.odt': 'application/vnd.oasis.opendocument.text', '.ods': 'application/vnd.oasis.opendocument.spreadsheet', '.odp': 'application/vnd.oasis.opendocument.presentation',
+  '.pages': 'application/vnd.apple.pages', '.numbers': 'application/vnd.apple.numbers',
+  '.zip': 'application/zip', '.gz': 'application/gzip', '.tgz': 'application/gzip', '.tar': 'application/x-tar', '.7z': 'application/x-7z-compressed', '.rar': 'application/vnd.rar',
+  '.apk': 'application/vnd.android.package-archive', '.mkv': 'video/x-matroska', '.avi': 'video/x-msvideo',
+  '.heic': 'image/heic', '.bmp': 'image/bmp', '.tif': 'image/tiff', '.tiff': 'image/tiff', '.ico': 'image/x-icon',
+  '.ttf': 'font/ttf', '.otf': 'font/otf', '.woff': 'font/woff', '.woff2': 'font/woff2',
+}
+// a text file's type, for the app that opens it; any other text is text/plain
+const TEXT_TYPES = { '.csv': 'text/csv', '.tsv': 'text/tab-separated-values', '.html': 'text/html', '.htm': 'text/html', '.md': 'text/markdown', '.json': 'application/json', '.xml': 'text/xml', '.ics': 'text/calendar', '.vcf': 'text/vcard' }
+// past RAW_MAX a file's size alone: a call carries the whole of it, sealed, in base64
+const RAW_MAX = 20 * 1024 * 1024
 
 // ---- browsing a session's folders: its own, those added, and the files it holds in context ----
 // The same paths the mod's file menu shows locked (hooks/lib/catalog.ts): the project's secrets and
@@ -324,21 +342,23 @@ function fileOf(session, path) {
   let st
   try { st = statSync(place.target) } catch { return { status: 404, body: { error: 'No such file.' } } }
   if (!st.isFile()) return { status: 400, body: { error: 'Not a file.' } }
-  const ext = extname(place.target).toLowerCase()
-  if (IMAGE_TYPES[ext]) return { status: 200, body: { kind: 'image', size: st.size, name: basename(place.target) }, image: { file: place.target, type: IMAGE_TYPES[ext] } }
-  if (AUDIO_TYPES[ext]) {
-    const isTooBig = st.size > AUDIO_MAX
-    return { status: 200, body: { kind: 'audio', size: st.size, name: basename(place.target), isTooBig }, image: isTooBig ? undefined : { file: place.target, type: AUDIO_TYPES[ext] } }
-  }
+  const ext = extname(place.target).toLowerCase(), name = basename(place.target)
+  // every file's bytes may be fetched (raw) to show, save or open on the phone, up to RAW_MAX
+  const isTooBig = st.size > RAW_MAX
+  const as = (kind, type, more = {}) => ({ status: 200, body: { kind, size: st.size, name, type, isTooBig, ...more }, raw: isTooBig ? undefined : { file: place.target, type } })
+  if (IMAGE_TYPES[ext]) return as('image', IMAGE_TYPES[ext])
+  if (AUDIO_TYPES[ext]) return as('audio', AUDIO_TYPES[ext])
+  if (VIDEO_TYPES[ext]) return as('video', VIDEO_TYPES[ext])
+  if (DOC_TYPES[ext]) return as('binary', DOC_TYPES[ext])
   // a file with a NUL byte in its first 8 KB is binary: its size alone
   const head = Buffer.alloc(Math.min(8192, st.size))
   const fd = openSync(place.target, 'r')
   try { readSync(fd, head, 0, head.length, 0) } finally { closeSync(fd) }
-  if (head.includes(0)) return { status: 200, body: { kind: 'binary', size: st.size, name: basename(place.target) } }
+  if (head.includes(0)) return as('binary', 'application/octet-stream')
   const buf = Buffer.alloc(Math.min(TEXT_MAX, st.size))
   const fd2 = openSync(place.target, 'r')
   try { readSync(fd2, buf, 0, buf.length, 0) } finally { closeSync(fd2) }
-  return { status: 200, body: { kind: 'text', text: buf.toString('utf8'), size: st.size, isCut: st.size > TEXT_MAX, name: basename(place.target), ext: ext.slice(1) } }
+  return as('text', TEXT_TYPES[ext] ?? 'text/plain', { text: buf.toString('utf8'), isCut: st.size > TEXT_MAX, ext: ext.slice(1) })
 }
 // ---- ZeroTTS: the phone's Vietnamese voice, made on the Mac ----------------------------------
 // zerotts-setup.sh (run by /zerotts-install) puts a Python and the model under TTS_HOME; tts.py,
@@ -593,8 +613,9 @@ async function answerOp(dev, id, op, a, res) {
     }
     case 'file': {
       const r = fileOf(session, String(a.path ?? ''))
-      if (r.image && a.raw) return [200, { type: r.image.type, b64: readFileSync(r.image.file).toString('base64') }]
-      return [r.status, r.body]
+      if (!a.raw || r.status !== 200) return [r.status, r.body]
+      if (!r.raw) return [413, { error: 'Too big to send to the phone: over 20 MB.' }]
+      return [200, { type: r.raw.type, name: r.body.name, b64: readFileSync(r.raw.file).toString('base64') }]
     }
     case 'ttsinfo':
       // asked with warm by a phone that reads with ZeroTTS: the model loads now, not at the first piece

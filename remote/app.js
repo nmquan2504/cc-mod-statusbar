@@ -1439,7 +1439,8 @@ function renderImages(root) {
 
 const size = n => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`)
 
-// ---- one file: text with line numbers and syntax colors, an image, or a binary's size ----------
+// ---- one file: text with line numbers and syntax colors, an image, a player, or a binary's size,
+// each with a way to save it or, in the app, to open it in one of the phone's own apps -------------
 const LANGS = { js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'javascript', ts: 'typescript', tsx: 'typescript', mts: 'typescript', py: 'python', rb: 'ruby', go: 'go', rs: 'rust', java: 'java', kt: 'kotlin', swift: 'swift', c: 'c', h: 'c', cpp: 'cpp', cc: 'cpp', hpp: 'cpp', cs: 'csharp', php: 'php', sh: 'bash', bash: 'bash', zsh: 'bash', json: 'json', yml: 'yaml', yaml: 'yaml', toml: 'ini', ini: 'ini', md: 'markdown', html: 'xml', xml: 'xml', svg: 'xml', css: 'css', scss: 'scss', sql: 'sql', dockerfile: 'dockerfile', makefile: 'makefile', lua: 'lua', diff: 'diff' }
 const HIGHLIGHT_MAX = 200 * 1024
 let hljsLoading = null
@@ -1454,6 +1455,49 @@ function loadHighlighter() {
   })
   return hljsLoading
 }
+// Save, and in the app Open: the app fetches the file itself and writes it into the phone's
+// Downloads, or hands it to the app Android picks by its type; a browser downloads it from a blob
+function fileActions(path, data) {
+  const row = el('div', 'fileacts')
+  if (data.isTooBig) {
+    row.append(el('span', 'meta', tx('Over 20 MB: too big to send to the phone.')))
+    return row
+  }
+  const act = (label, busy, run) => {
+    const b = row.appendChild(el('button', 'pbtn', label))
+    b.onclick = async () => {
+      b.disabled = true
+      b.textContent = busy
+      try { await run() } finally {
+        b.disabled = false
+        b.textContent = label
+      }
+    }
+  }
+  const native = window.QSB_NATIVE
+  if (native?.file) {
+    const hand = async how => {
+      const r = await native.file(how, { session: snap ? snap.id : '', path })
+      if (r.error) toast({ title: tx(how === 'open' ? 'Could not open the file.' : 'Could not save the file.'), body: txSent(r.error) })
+      else if (how === 'save') toast({ title: tx('Saved in Downloads'), body: r.name })
+    }
+    act(tx('Open in an app'), tx('Opening…'), () => hand('open'))
+    act(tx('Save to the phone'), tx('Saving…'), () => hand('save'))
+  } else if (!native) {
+    act(tx('Download'), tx('Loading…'), async () => {
+      const url = await imageUrl('file', { path, raw: true })
+      if (!url) return toast({ title: tx('Could not save the file.'), body: '' })
+      const a = el('a')
+      a.href = url
+      a.download = data.name || 'file'
+      document.body.append(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    })
+  }
+  return row
+}
 // `atLine`: the line a search found, marked and scrolled to
 async function showFile(path, atLine) {
   const body = openViewer(shortPath(path))
@@ -1462,26 +1506,33 @@ async function showFile(path, atLine) {
   const data = r.b || {}
   body.replaceChildren()
   if (r.s !== 200) return body.append(el('div', 'none', txSent(data.error) || tx('Could not open the file.')))
+  const tooBig = () => el('div', 'none', tx('Too big to show here: over 20 MB.'))
   if (data.kind === 'image') {
+    body.append(el('div', 'meta pad', `${tx('Image')} · ${size(data.size)}`), fileActions(path, data))
+    if (data.isTooBig) return body.append(tooBig())
     const img = body.appendChild(el('img'))
     img.src = await imageUrl('file', { path, raw: true })
     return
   }
-  // a sound file: a player, the file fetched sealed as an image is
-  if (data.kind === 'audio') {
-    body.append(el('div', 'meta pad', `${tx('Audio')} · ${size(data.size)}`))
-    if (data.isTooBig) return body.append(el('div', 'none', tx('Too big to play here: over 20 MB.')))
-    const player = body.appendChild(el('audio', 'player'))
+  // a sound file or a video: a player, the file fetched sealed as an image is
+  if (data.kind === 'audio' || data.kind === 'video') {
+    body.append(el('div', 'meta pad', `${tx(data.kind === 'audio' ? 'Audio' : 'Video')} · ${size(data.size)}`), fileActions(path, data))
+    if (data.isTooBig) return body.append(tooBig())
+    const player = body.appendChild(el(data.kind, 'player'))
     player.controls = true
     player.preload = 'auto'
+    if (data.kind === 'video') player.playsInline = true
     const url = await imageUrl('file', { path, raw: true })
     if (!url) return player.replaceWith(el('div', 'none', tx('Could not open the file.')))
     player.src = url
     return
   }
-  if (data.kind === 'binary') return body.append(el('div', 'none', tx('A binary file, {size}.', { size: size(data.size) })))
+  if (data.kind === 'binary') {
+    body.append(el('div', 'none', tx('A binary file, {size}.', { size: size(data.size) })))
+    return body.append(fileActions(path, data))
+  }
   const lines = data.text.replace(/\n$/, '').split('\n')
-  body.append(el('div', 'meta pad', `${tx('{n} lines', { n: lines.length })} · ${size(data.size)}${data.isCut ? ` · ${tx('the first 512 KB')}` : ''}`))
+  body.append(el('div', 'meta pad', `${tx('{n} lines', { n: lines.length })} · ${size(data.size)}${data.isCut ? ` · ${tx('the first 512 KB')}` : ''}`), fileActions(path, data))
   const code = body.appendChild(el('div', 'codeview'))
   const gutter = code.appendChild(el('pre', 'gutter', lines.map((_, i) => i + 1).join('\n')))
   // a tap on a line number marks that line and opens a box under the file to ask Claude about it;

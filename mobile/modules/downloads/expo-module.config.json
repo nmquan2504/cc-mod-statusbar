@@ -1,0 +1,6 @@
+{
+  "platforms": ["android"],
+  "android": {
+    "modules": ["io.github.nmquan2504.downloads.DownloadsModule"]
+  }
+}
