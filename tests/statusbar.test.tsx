@@ -90,25 +90,41 @@ test('the bar: +, /, model, folder and branch, two gauges, mode and the shield',
   for (const surface of SURFACES) {
     // wide enough for the full labels and the arena (the compact bar has its own test)
     const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface, ...BAND, props: { ...BAND.props, bodyColumns: 160 } } as never)
-    await band.press({ key: 'model' }) // opening a menu reads the model and the usage
+    // opening a menu reads the model and the usage (the desktop's bar has no model button by default)
+    await band.press({ key: surface === 'terminal' ? 'model' : 'usage' })
+    if (surface !== 'terminal') await band.press({ key: 'close-menu' })
     const bar = await textOf(band)
-    expect((await band.find({ key: 'add' }))?.text).toContain(' + ')
-    expect((await band.find({ key: 'model' }))?.text).toContain('Sonnet 5.5')
+    expect((await band.find({ key: 'add' }))?.text).toContain('+')
     expect(bar).toContain('23%')
     expect(bar).toContain('41%')
     expect(bar).not.toContain('ctx')
     expect(bar).toContain('shop')
-    expect((await band.find({ key: 'git' }))?.text).toMatch(/^\/shop ⎇ /) // the folder after a slash, no icon
     expect(bar).toContain(' ⎇ feat/login')
     expect(bar).toContain(' ✎2 ⇡2 ⇣1')
-    // 23% and 41%: both fills green, no amber or red cell in them
     if (surface === 'terminal') {
+      // 23% and 41%: both fills green, no amber or red cell in them
       expect(bar).toContain('#4ade80')
       expect(bar).not.toContain('#fbbf24')
       expect(bar).not.toContain('#f87171')
+      expect((await band.find({ key: 'add' }))?.text).toContain(' + ')
+      expect((await band.find({ key: 'git' }))?.text).toMatch(/^\/shop ⎇ /) // the folder after a slash, no icon
+      expect((await band.find({ key: 'model' }))?.text).toContain('Sonnet 5.5')
+      expect((await band.find({ key: 'mode' }))?.text).toContain('manual')
+    } else {
+      // Desktop shows the model, the effort and the mode by its own prompt box: the bar leaves them out
+      expect(await band.find({ key: 'model' })).toBeFalsy()
+      expect(await band.find({ key: 'effort' })).toBeFalsy()
+      expect(await band.find({ key: 'mode' })).toBeFalsy()
+      // the desktop's own bar: words and native buttons, the gauges an SVG, none of the terminal's glyphs
+      // plain buttons, a character for each icon: no terminal pills, no arcade
+      expect((await band.find({ key: 'git' }))?.text).toBe('▤ shop  ⎇ feat/login ✎2 ⇡2 ⇣1')
+      expect((await band.find({ key: 'usage' }))?.text).toBe('5h ▰▱▱▱ 23%   wk ▰▰▱▱ 41%')
+      expect(bar).not.toContain('backgroundColor')
+      expect(bar).not.toContain('¬✻')
+      expect(bar).not.toContain('‹ ')
+      expect((await band.find({ key: 'guard' }))?.text).toMatch(/^◈ /)
+      expect((await band.find({ key: 'claude' }))?.text).toContain('Tasks')
     }
-    else expect(bar).toContain('▰▱▱▱')
-    expect((await band.find({ key: 'mode' }))?.text).toContain('manual')
     await band.unmount()
   }
 })
@@ -200,7 +216,7 @@ test('the gauges follow session.measure, the figures the footer shows', async ($
   engine(on)
   on('session.measure', (_, e) => ({ changed: e.changed }))
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'desktop', ...BAND } as never)
-  await band.press({ key: 'model' })
+  await band.press({ key: 'usage' })
   await ($ as any).session.measure({
     context: { window: 1 },
     rateLimits: [{ kind: 'five_hour', percentUsed: 8 }, { kind: 'seven_day', percentUsed: 36 }],
@@ -640,8 +656,8 @@ test('settings: usage gauges off leaves the figures alone on the bar', async ($,
   engine(on)
   settingsStore(on)
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'desktop', ...BAND, props: { ...BAND.props, bodyColumns: 180 } } as never)
-  await band.press({ key: 'model' }) // reads the usage
-  expect(await textOf(band)).toContain('▰')
+  await band.press({ key: 'usage' }) // reads the usage
+  expect((await band.find({ key: 'usage' }))?.text).toContain('▰')
   await band.press({ key: 'add' })
   await band.press({ key: 'settings' })
   await band.press({ key: 'set:usageGauge' })
@@ -2201,4 +2217,18 @@ test('an order moved by hand is kept as saved', async ($, on) => {
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, bodyColumns: 160 } } as never)
   const bar = await textOf(band)
   expect(bar.indexOf('manual')).toBeGreaterThan(bar.indexOf('shop'))
+})
+
+test('desktop: model, effort and mode stay off the bar until Settings turns them on', async ($, on) => {
+  engine(on)
+  settingsStore(on)
+  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'desktop', ...BAND } as never)
+  await band.press({ key: 'usage' })
+  expect(await band.find({ key: 'model' })).toBeFalsy()
+  await band.press({ key: 'add' })
+  await band.press({ key: 'settings' })
+  await band.press({ key: 'set:desktopSessionItems' })
+  await band.press({ key: 'close-menu' })
+  expect((await band.find({ key: 'model' }))?.text).toContain('Sonnet 5.5')
+  expect((await band.find({ key: 'mode' }))?.text).toContain('manual')
 })
