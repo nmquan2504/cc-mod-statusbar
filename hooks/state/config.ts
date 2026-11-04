@@ -15,6 +15,9 @@ export const cfg = {
   barMode: true,
   barGuard: true,
   arcade: true,
+  // Claude Code Desktop shows the model, the effort and the mode by its own prompt box: on, the bar
+  // shows them there too
+  desktopSessionItems: false,
   // the items' order, left to right, as BAR_ITEMS keys; those before the arena sit left of it
   barOrder: 'barModel,barEffort,barMode,barFolder,barGit,arcade,barUsage,barRemote,barImages,barMcp,barGuard',
   // on: the 4-cell gauge and the figure (5h ▰▱▱▱ 21%); off: the figure alone (5h 21%)
@@ -148,6 +151,7 @@ export const SETTINGS: ((
   | { key: CfgKey; kind: 'number'; label: string; note: string; step: number; min: number; max: number; unit: string; stops?: readonly number[]; span?: true }
 ) & { group?: 'remote' })[] = [
   { key: 'usageGauge', kind: 'switch', label: 'Usage gauges', note: 'on: gauge and figure (5h ▰▱▱▱ 21%); off: the figure alone (5h 21%)' },
+  { key: 'desktopSessionItems', kind: 'switch', label: 'Model, effort, mode on Desktop', note: "Claude Desktop shows them by its own prompt box; on: the bar shows them too" },
   { key: 'gitMarks', kind: 'switch', label: 'Git marks', note: 'files changed, commits to push and to pull' },
   { key: 'ctxChip', kind: 'switch', label: 'Context chip', note: 'ctx n% on the bar past the threshold below' },
   { key: 'turnToast', kind: 'switch', label: 'Turn toast', note: "a long turn's time and cost when it ends" },

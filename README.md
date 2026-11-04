@@ -31,6 +31,10 @@ A click on the bar gives it the keyboard without highlighting `+`: the focus rin
 
 The bar is not drawn in the extension's panel: the panel draws every button as its own bright native button whatever colors the mod asks for, and nothing drawn there came close to the terminal's look. The hooks still run there: the dangerous-command check, the vault, the guardrails readings, auto-continue and the `hi` schedule.
 
+## In Claude Code Desktop
+
+The Code tab of the desktop app draws a bar of its own. Desktop draws a button's text in one color and gives a non-plain button a grey frame, so the terminal's filled pills do not carry over. Every item is a plain button, a character and a few words: `+`, `/`, `▤ folder  ⎇ branch ✎2`, `☰ Tasks` (`◷ 1:12 $0.08` while a turn runs), `5h ▰▱▱▱ 7%   wk ▰▱▱▱ 30%`, `⇄ 2`, `⌁ 22`, `▣ 3` and `◈ ✓` (`◈ ! 2/3` while a check fails). The bar has no frame, since Desktop frames it, and no arena. The suggestion chips, `? Claude asks` and `↑ Update mod` stay framed buttons. The model, the effort and the mode are left off, because Desktop shows them beside its own prompt box; the Settings switch Model, effort, mode on Desktop puts them back as `✦ Opus 5.5`, `◔ high` and `⏵ manual`. The terminal's bar is unchanged.
+
 ## On a narrow terminal
 
 When the full bar would leave the arena fewer than 16 cells, the bar switches to its compact labels: the model as `S5.5`, the mode as its icon alone, the effort as its first letter, folder and branch cut to 14 characters, and the usage figures without gauges. If even the compact bar leaves no room, the arena steps out and Claude stands at the head of the right group. Either way the bar stays on one row.
@@ -156,6 +160,7 @@ hooks/register.tsx              the entry: registers the hook groups below, in t
 hooks/events/                   the hooks, one file per group: session, tools, secret-tools, prompt,
                                 turn, commands, permissions, ui
 hooks/ui/band.tsx               the band in the terminal: the bar, the arena, the menu above it (none in VS Code)
+hooks/ui/desktopBar.tsx         the bar in Claude Code Desktop: plain buttons, a character for each item
 hooks/ui/menus/                 one file per menu (add, commands, model, effort, git, usage, mcp,
                                 mode, guard, tasks, settings, images, files, web, automation, remote,
                                 ask);

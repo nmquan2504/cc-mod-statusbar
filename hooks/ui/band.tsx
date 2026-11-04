@@ -14,6 +14,7 @@ import { barOrder, cfg } from '../state/config'
 import type { CfgKey } from '../state/config'
 import { rt } from '../state/runtime'
 import { drawMenu } from './menus/index'
+import { desktopBar } from './desktopBar'
 import { chipsNow, dismissChips, sendChip } from '../features/chips'
 
 // The atoms this file reads or writes (each file declares its own: the engine reads an atom only
@@ -318,6 +319,53 @@ export async function drawBand($: any, e: any, next: any) {
   }
 
   const chips = chipsNow()
+  // A surface that draws native buttons gets a bar of its own: words, not the terminal's glyphs.
+  if (e.surface !== 'terminal') {
+    return desktopBar($, els, {
+      open,
+      menuTree: open !== null ? await drawMenu($, els, open, false) : null,
+      chips,
+      model: b.model,
+      modelColor: ms.color,
+      effort: b.effort,
+      effortColor: effortColor(b.effort),
+      mode: m.label.split(' (')[0]!,
+      modeColor: m.color,
+      folder: b.folder,
+      branch: cfg.barGit ? b.branch : null,
+      gitMarks: cfg.barGit ? gitMarks : '',
+      isGitJoined,
+      five: b.five,
+      week: b.week,
+      ctx,
+      isCtxShown: !!ctxLabel,
+      guardOk: ok,
+      guardOf: checks.length,
+      isGuardAlert: isAlert,
+      dangers: dangerCount,
+      mcpLive: liveMcp,
+      mcpFailed,
+      images: imageCount,
+      remoteText: pairs.length ? `⇄ ? ${secondsToPair(pairs[0]!)}s` : isRemoteWaiting() ? `⇄ ${spinnerFrame()}` : rs?.phones ? `⇄ ${rs.phones}` : '⇄',
+      remoteColor,
+      isAsking: !!askLabel,
+      broken: broken ? {
+        name: taskName(broken.command),
+        press: async () => {
+          broken.isSeen = true
+          rt.openDetail = `bg:${broken.id}`
+          await openMenu($, 'tasks')
+        },
+      } : null,
+      continueAt: waiting ? vnClock(waiting.at) : '',
+      isModBehind: !!rt.modBehind,
+      turnText: isTurnShown ? turnText.replace(/^◷ /, '') : '',
+      isBusy: rt.isBusy,
+      running,
+      order,
+      split,
+    })
+  }
   return (
     <Box flexDirection="column" width={e.props.bodyColumns} borderStyle="round" borderColor={open ? 'claude' : 'subtle'} paddingX={1}>
       {/* the menu opens upward: the bar stays next to the prompt */}
