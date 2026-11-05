@@ -4,7 +4,8 @@
 //
 //   the control socket   <dir>/hub.sock, <dir> = $TMPDIR/qsb-remote-<uid> (mode 700): the mods
 //                        POST /session (a heartbeat with the snapshot), GET /inbox, GET /status,
-//                        POST /notify, POST /allow, POST /deny, POST /stop
+//                        POST /notify, POST /allow, POST /deny, POST /stop, POST /held (a dialog
+//                        of Claude Code's own, held for the phone: dialog-hook.mjs), POST /released
 //   the public server    127.0.0.1:<random>, reached only through the tunnel
 //
 // Pairing and every call after it are end-to-end encrypted (e2e.js holds the phone's half): the QR
@@ -25,6 +26,7 @@ import { connect } from 'node:net'
 import { homedir } from 'node:os'
 import { basename, dirname, extname, isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { heldAsk, heldCall, heldDecision } from './held.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const DIR = process.argv[2]
@@ -172,10 +174,17 @@ function bump() {
   waiters.clear()
 }
 
-// what the phone sees: every live session, newest first, without the inboxes
+// ---- Claude Code's own dialogs, held for the phone (dialog-hook.mjs; the wording in held.mjs) --
+// a session gone: its held calls are let go, and their dialogs ask alone
+function dropHeld(s) {
+  for (const h of s?.held ?? []) h.finish(null)
+}
+
+// what the phone sees: every live session, newest first, without the inboxes; a held dialog is
+// the session's question while the mod asks none of its own
 function stateOf() {
   const list = [...sessions.entries()]
-    .map(([id, s]) => ({ id, ...s.snapshot, queued: [...(s.snapshot.queued ?? []), ...s.inbox] }))
+    .map(([id, s]) => ({ id, ...s.snapshot, queued: [...(s.snapshot.queued ?? []), ...s.inbox], ask: s.snapshot.ask ?? (s.held?.length ? heldAsk(s.held[0]) : null) }))
     .sort((a, b) => Number(b.busy) - Number(a.busy) || (b.lastAt ?? 0) - (a.lastAt ?? 0))
   return { version, sessions: list, notice }
 }
@@ -562,9 +571,16 @@ async function answerOp(dev, id, op, a, res) {
     case 'answer': {
       const s = sessions.get(session)
       const askId = String(a.id ?? '')
-      if (!s || !s.snapshot.ask || s.snapshot.ask.id !== askId) return [409, { error: 'That question is already answered.' }]
       const answers = {}
       for (const [q, v] of Object.entries(a.answers ?? {})) if (typeof v === 'string') answers[String(q).slice(0, 2000)] = v.slice(0, 4000)
+      // a dialog the engine holds: the hook waiting on it prints the decision
+      if (askId.startsWith('held:')) {
+        const h = s?.held?.find(x => `held:${x.hid}` === askId)
+        if (!h) return [409, { error: 'That question is already answered.' }]
+        h.finish(heldDecision(h, answers, a.isDismissed === true))
+        return [200, { ok: true }]
+      }
+      if (!s || !s.snapshot.ask || s.snapshot.ask.id !== askId) return [409, { error: 'That question is already answered.' }]
       s.answer = { id: askId, answers, isDismissed: a.isDismissed === true }
       bump()
       return [200, { ok: true }]
@@ -873,8 +889,45 @@ const ctl = createServer(async (req, res) => {
     return send(res, 200, { ok: true })
   }
   if (route === 'POST /bye') {
+    dropHeld(sessions.get(id))
     if (sessions.delete(id)) bump()
     return send(res, 200, { ok: true })
+  }
+  // The session saw a held dialog answered at the computer (the call ran, or was refused) or its
+  // turn end: the engine leaves the hook running, so the hub lets it go and the phone drops it.
+  // With a tool, the held calls of that tool (and that call, when a text names it); else every one.
+  if (route === 'POST /released') {
+    const s = sessions.get(id)
+    const body = (await readJson(req)) ?? {}
+    for (const h of [...(s?.held ?? [])]) {
+      const isIt = typeof body.tool !== 'string' || (h.tool === body.tool && (typeof body.text !== 'string' || heldCall(h.input) === body.text))
+      if (isIt) h.finish(null)
+    }
+    return send(res, 200, { ok: true })
+  }
+  // A dialog of Claude Code's own, up at the computer (dialog-hook.mjs): held until the phone
+  // answers it, or the hook goes (answered at the computer). A session the remote is off in, or
+  // one this hub does not know, gets no decision at once: the dialog asks alone.
+  if (route === 'POST /held') {
+    const s = sessions.get(id)
+    const body = await readJson(req, MAX_SNAPSHOT)
+    if (!s || !body || typeof body.tool !== 'string') return send(res, 200, { decision: null })
+    const h = { hid: randomBytes(6).toString('hex'), tool: body.tool.slice(0, 200), input: body.input && typeof body.input === 'object' ? body.input : {}, suggestions: Array.isArray(body.suggestions) ? body.suggestions : null, at: Date.now() }
+    let isDone = false
+    h.finish = decision => {
+      if (isDone) return
+      isDone = true
+      s.held = (s.held ?? []).filter(x => x !== h)
+      bump()
+      if (!res.writableEnded && !res.destroyed) send(res, 200, { decision })
+    }
+    res.on('close', () => h.finish(null))
+    s.held = [...(s.held ?? []), h]
+    const q = heldAsk(h).questions[0]
+    notice = { title: `Claude needs you · /${String(s.snapshot.folder ?? '')}`.slice(0, 80), body: String(h.tool === 'AskUserQuestion' ? q?.question ?? '' : `Asks to use ${h.tool}: ${heldCall(h.input)}`).slice(0, 300), at: Date.now(), session: id }
+    bump()
+    void pushAll()
+    return
   }
   if (route === 'POST /notify') {
     const body = await readJson(req)
@@ -1062,7 +1115,7 @@ process.on('SIGHUP', () => undefined) // started detached: a closed terminal is 
 // idle time, the hub stops and the link with it
 setInterval(() => {
   const now = Date.now()
-  for (const [id, s] of sessions) if (now - s.seenAt > 15_000) { sessions.delete(id); bump() }
+  for (const [id, s] of sessions) if (now - s.seenAt > 15_000) { dropHeld(s); sessions.delete(id); bump() }
   for (const [id, d] of devices) if (d.isApproved && now - d.seenAt > DEVICE_TTL) { dropDevice(id); log(`unpaired, not seen for a week: ${d.name}`) }
   if (now - lastSessionAt > SESSION_TTL) return shutdown(0)
   if (now - lastPhoneAt > idleMs) shutdown(0)

@@ -4,6 +4,7 @@ import { logAudit } from '../features/audit'
 import { keepEdit, lineCount } from '../features/edits'
 import { hostsOf, keepEgress } from '../features/egress'
 import { keepMcpCall } from '../features/mcp'
+import { releaseHeld } from '../features/remote'
 import { IN_TEXT, SERVICE, cache } from '../features/vault'
 import { describeCall } from '../features/work'
 import { dangerOf } from '../lib/danger'
@@ -101,6 +102,8 @@ export function registerTools(on: On) {
       return r
     } finally {
       if (isMain) rt.nowTool = ''
+      // a dialog the phone was shown, answered at the computer: the phone drops it
+      if (!e.agentId && rt.isHooked) void releaseHeld($, e.tool, e as Record<string, unknown>).catch(() => undefined)
     }
   })
 

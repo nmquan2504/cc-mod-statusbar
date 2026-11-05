@@ -142,6 +142,32 @@ async function hubDir($: any) {
   return remote.dir
 }
 
+// Whether remote/dialog-hook.mjs runs in this session: its SessionStart hook left a mark named by the
+// session's id. A session started before the hook was installed has none and asks in the band.
+export async function isHooked($: any) {
+  if (rt.isHooked) return true
+  const dir = await hubDir($)
+  const id: string = await $.session.id().catch(() => '')
+  if (!dir || !/^[\w-]+$/.test(id)) return false
+  rt.isHooked = await $.fs.exists(`${dir}/hooked/${id}`).catch(() => false)
+  return rt.isHooked
+}
+
+// A dialog the hub holds for the phone was answered at the computer: the call ran or was refused,
+// or the turn ended. Claude Code leaves the hook running then, so the hub is told to let it go and
+// the phone drops the question. The call is named by its tool and the text the dialog shows (the
+// command, the file, the URL); with no tool, every dialog held for this session goes. The spinner is
+// no sign: it can turn to tool-use before the dialog comes up.
+export async function releaseHeld($: any, tool?: string, call?: Record<string, unknown>) {
+  if (!rt.isHooked || !remote.isJoined) return
+  const id: string = await $.session.id().catch(() => '')
+  if (!id) return
+  const str = (v: unknown) => (typeof v === 'string' ? v : '')
+  const named = call ? str(call.command) || str(call.file_path) || str(call.notebook_path) || str(call.url) || str(call.pattern) : ''
+  const text = named.length > 1500 ? `${named.slice(0, 1500)}… ${named.length - 1500} more characters` : named
+  await hub($, 'POST', `/released?id=${encodeURIComponent(id)}`, tool ? { tool, ...(text ? { text } : {}) } : {})
+}
+
 export async function hub($: any, method: string, path: string, body?: unknown) {
   if (!(await hubDir($))) return undefined
   const r = await $.http.fetch(`http://hub${path}`, {
@@ -743,8 +769,9 @@ async function snapshotOf($: any) {
     lastAt: remote.lastAt,
     // the question Claude waits on, for the phone to answer
     ask: ask.pending && !ask.pending.result ? { id: ask.pending.id, questions: ask.pending.questions } : null,
-    // the permission prompts waiting for the person, shown on the phone; answered at the computer
-    permissions: waitingPrompts(Date.now()).map(p => ({ ...p, text: hide(p.text) })),
+    // the permission prompts waiting for the person, shown on the phone; answered at the computer.
+    // With the dialog hook the hub shows them itself, as questions the phone answers.
+    permissions: rt.isHooked ? [] : waitingPrompts(Date.now()).map(p => ({ ...p, text: hide(p.text) })),
     // the pages the phone opened in the last ten minutes
     pages: Object.values(remote.pages).filter(p => Date.now() - p!.at < 600_000),
     // the mod's version this session loaded, for the foot of the phone's drawer
@@ -758,6 +785,8 @@ export async function tickRemote($: any) {
   if (!cfg.selfRemote) return
   const id = await $.session.id().catch(() => '')
   if (!id) return
+  // the dialog hook's mark, looked for until found: its SessionStart hook may run after the mod's
+  if (!rt.isHooked) await isHooked($)
   // a session nothing draws (an SDK or -p run, such as claude-mem's observer) stays off the phone;
   // the terminal, the VS Code extension and the desktop app each draw one. Asked again until one
   // does: a client may attach a moment after the session starts.

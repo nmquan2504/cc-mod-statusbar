@@ -366,6 +366,17 @@ test('one question, one choice, no previews: a pick is the answer, with no Submi
   expect(isOneTap([{ question: 'Name?', kind: 'text' }])).toBe(false)
 })
 
+// remote/dialog-hook.mjs marks the session at its start: the engine's dialog then asks, and the hub
+// puts the same dialog on the phone, so the band asks nothing of its own
+const HOOKED = '/tmp/qsb-remote-501/hooked/sess-1'
+test('with the dialog hook in the session, Claude Code\'s own dialog asks Claude\'s questions, not the band', async ($, on) => {
+  on('fs.exists', (_: unknown, e: any) => ({ value: e.path === HOOKED }))
+  const band = await asking($, on)
+  const r = await ($ as any).tool.call({ tool: 'AskUserQuestion', questions: QUESTIONS })
+  expect(r.text).toBe('the engine asked')
+  expect(await textOf(band)).not.toContain('Which database?')
+})
+
 test('Dismiss refuses the call with a reason; shut, the menu leaves a chip that opens it again', async ($, on) => {
   const band = await asking($, on)
   const call = ($ as any).tool.call({ tool: 'AskUserQuestion', questions: QUESTIONS.slice(0, 1) })
