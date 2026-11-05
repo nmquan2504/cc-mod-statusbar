@@ -1,4 +1,4 @@
-import { failedTask, taskName } from '../features/work'
+import { failedTasks } from '../features/work'
 import { atom, read } from 'claude-code'
 import type { MenuKind } from '../../types'
 import { ARENA_GAP, ARENA_MIN, arena, arenaRuns, endRound, resetArena } from '../features/arena'
@@ -132,9 +132,16 @@ export async function drawBand($: any, e: any, next: any) {
   // ⏵ 14:20: a "continue" waits for a rate-limit window to reset
   const waiting = await read($, autoContinue)
   const continueLabel = waiting ? ` ⏵ ${vnClock(waiting.at)} ` : ''
-  // ✘ npm run: a background command failed or logged an error; a press opens its log
-  const broken = failedTask()
-  const brokenLabel = broken ? ` ✘ ${taskName(broken.command)} ` : ''
+  // ✘ 2: the background commands that failed or logged an error; a press opens the newest one's log
+  // and marks them all seen
+  const brokenAll = failedTasks()
+  const broken = brokenAll.at(-1)
+  const brokenLabel = broken ? ` ✘ ${brokenAll.length} ` : ''
+  const openBroken = async () => {
+    for (const t of brokenAll) t.isSeen = true
+    rt.openDetail = `bg:${broken!.id}`
+    await openMenu($, 'tasks')
+  }
   // ↑ mod: the mod's own repository has new commits upstream; a press pulls them and reloads
   const updateLabel = rt.modBehind ? ' ↑ mod ' : ''
   // ? Claude asks: a question waits and its menu is shut; a press opens it again
@@ -349,14 +356,7 @@ export async function drawBand($: any, e: any, next: any) {
       remoteText: pairs.length ? `⇄ ? ${secondsToPair(pairs[0]!)}s` : isRemoteWaiting() ? `⇄ ${spinnerFrame()}` : rs?.phones ? `⇄ ${rs.phones}` : '⇄',
       remoteColor,
       isAsking: !!askLabel,
-      broken: broken ? {
-        name: taskName(broken.command),
-        press: async () => {
-          broken.isSeen = true
-          rt.openDetail = `bg:${broken.id}`
-          await openMenu($, 'tasks')
-        },
-      } : null,
+      broken: broken ? { count: brokenAll.length, press: openBroken } : null,
       continueAt: waiting ? vnClock(waiting.at) : '',
       isModBehind: !!rt.modBehind,
       turnText: isTurnShown ? turnText.replace(/^◷ /, '') : '',
@@ -436,11 +436,7 @@ export async function drawBand($: any, e: any, next: any) {
             </Button>
           ) : null}
           {brokenLabel ? (
-            <Button key="bgerr" plain hover={{ scope: 'qsb-bgerr', bold: true }} onPress={async () => {
-              broken!.isSeen = true
-              rt.openDetail = `bg:${broken!.id}`
-              await openMenu($, 'tasks')
-            }}>
+            <Button key="bgerr" plain hover={{ scope: 'qsb-bgerr', bold: true }} onPress={openBroken}>
               <Text backgroundColor="error" color="inverseText" bold>{brokenLabel}</Text>
             </Button>
           ) : null}

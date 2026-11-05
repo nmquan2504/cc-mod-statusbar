@@ -37,7 +37,7 @@ export type BarData = {
   remoteText: string
   remoteColor: string
   isAsking: boolean
-  broken: { name: string; press: () => Promise<void> } | null
+  broken: { count: number; press: () => Promise<void> } | null
   continueAt: string
   isModBehind: boolean
   turnText: string
@@ -152,7 +152,7 @@ export function desktopBar($: any, els: any, d: BarData) {
             <Button key="ask-chip" variant="primary" onPress={() => showAsk($)}>? Claude asks</Button>
           ) : null}
           {d.broken ? (
-            <Button key="bgerr" plain onPress={d.broken.press}>{`✘ ${d.broken.name}`}</Button>
+            <Button key="bgerr" plain onPress={d.broken.press}>{`✘ ${d.broken.count}`}</Button>
           ) : null}
           {d.continueAt ? (
             <Button key="continue" plain onPress={go('usage')}>{`⏵ ${d.continueAt}`}</Button>

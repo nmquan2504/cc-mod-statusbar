@@ -1786,18 +1786,38 @@ test('a background command stops from the tasks menu, after a second press', asy
   expect((await band.find({ key: 'bg:bx2' }))?.text).toContain('killed')
 })
 
-test('a background command that fails turns a red ✘ chip on the bar; it opens the log, and @ puts the log in the prompt', async ($, on) => {
+test('a background command that fails turns a red ✘ 1 chip on the bar; it opens the log, and @ puts the log in the prompt', async ($, on) => {
   const { filled } = bgEngine(on, 'Error: listen EADDRINUSE: address already in use :::5173\n')
   await ($ as any).tool.call({ tool: 'Bash', command: 'npm run dev', run_in_background: true })
   await ($ as any).prompt.submit({ text: '<task-notification>\n<task-id>bx2</task-id>\n<status>failed</status>\n<summary>exited with code 1</summary>\n</task-notification>', wait: false })
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, bodyColumns: 160 } } as never)
-  expect((await band.find({ key: 'bgerr' }))?.text).toBe(' ✘ npm run ')
+  expect((await band.find({ key: 'bgerr' }))?.text).toBe(' ✘ 1 ') // the count alone, no command
   await band.press({ key: 'bgerr' })
   expect(await textOf(band)).toContain('EADDRINUSE')
   await band.press({ key: 'bglog@:bx2' })
   expect(filled.join('')).toContain('EADDRINUSE')
   expect(filled.join('')).toContain('npm run dev')
   // @ shut the menu; the command was seen, so its chip goes
+  expect(await band.find({ key: 'bgerr' })).toBeUndefined()
+})
+
+test('two failed background commands: the chip counts them, ✘ 2, on the terminal and the desktop; a press clears it', async ($, on) => {
+  engine(on, { run: argv => (argv[0] === 'sh' && String(argv[2]).includes('/tasks') ? { exitCode: 0, stdout: 'Error: boom\n', stderr: '' } : undefined) })
+  on('session.id', () => ({ value: 's' }))
+  on('prompt.submit', (_: unknown, e: any) => ({ text: e.text }))
+  let n = 0
+  on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: `bf${++n}` } }))
+  const t = $ as any
+  for (const command of ['npm run dev', 'npm run build']) await t.tool.call({ tool: 'Bash', command, run_in_background: true })
+  for (const id of ['bf1', 'bf2']) await t.prompt.submit({ text: `<task-notification><task-id>${id}</task-id><status>failed</status></task-notification>`, wait: false })
+  for (const surface of SURFACES) {
+    const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface, ...BAND, props: { ...BAND.props, bodyColumns: 160 } } as never)
+    expect((await band.find({ key: 'bgerr' }))?.text?.trim()).toBe('✘ 2')
+    await band.unmount()
+  }
+  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, bodyColumns: 160 } } as never)
+  await band.press({ key: 'bgerr' })
+  await band.press({ key: 'close-menu' })
   expect(await band.find({ key: 'bgerr' })).toBeUndefined()
 })
 
