@@ -48,8 +48,10 @@ export type RemoteStatus = {
 }
 export const remote = {
   dir: '',
-  // a tick of tickRemote under way: the next waits for it, so one queued text goes in once
+  // a tick of tickRemote under way (since when): the next waits for it, so one queued text goes in
+  // once; a tick stuck past TICK_STUCK_MS no longer holds the others back
   isTicking: false,
+  tickAt: 0,
   // the hub's last answer; null while none answers
   status: null as RemoteStatus | null,
   isStarting: false,
@@ -142,7 +144,8 @@ const sockOf = () => `${remote.dir}/hub.sock`
 // owned by this user, mode 700. Another user who made it first could answer on hub.sock, and what
 // that socket sends back goes in as prompts; so until the folder passes, there is no hub. `isMade`:
 // made now when missing (the hub's start).
-const OWN_DIR = '[ -n "$2" ] && mkdir -m 700 "$1" 2>/dev/null; [ -d "$1" ] && [ ! -L "$1" ] && [ -O "$1" ] && [ "$(stat -f %Lp "$1" 2>/dev/null || stat -c %a "$1")" = 700 ]'
+// `find -perm 700` matches the mode exactly, the same on macOS and Linux (stat's flags differ).
+const OWN_DIR = '[ -n "$2" ] && mkdir -m 700 "$1" 2>/dev/null; [ -d "$1" ] && [ ! -L "$1" ] && [ -O "$1" ] && [ -n "$(find "$1" -maxdepth 0 -perm 700 2>/dev/null)" ]'
 async function hubDir($: any, isMade = false) {
   if (remote.dir) return remote.dir
   const r = await $.process.run(['id', '-u']).catch(() => undefined)
@@ -171,12 +174,21 @@ export async function isHooked($: any) {
 // the phone drops the question. The call is named by its tool and its input, which the hub matches
 // to the input the dialog was raised for (held.mjs isHeldCall); with no tool, every dialog held for
 // this session goes. The spinner is no sign: it can turn to tool-use before the dialog comes up.
+// A call's input as the hub compares it (remote/held.mjs shrinkInput, the same): keys sorted, a
+// string over 2000 characters cut to its start and length, so a big Write stays a small request.
+export function shrinkInput(v: unknown): unknown {
+  if (typeof v === 'string') return v.length > 2000 ? `${v.slice(0, 1980)}…(${v.length})` : v
+  if (Array.isArray(v)) return v.map(shrinkInput)
+  if (v && typeof v === 'object') return Object.fromEntries(Object.keys(v).sort().map(k => [k, shrinkInput((v as Record<string, unknown>)[k])]))
+  return v
+}
+
 export async function releaseHeld($: any, tool?: string, call?: Record<string, unknown>) {
   if (!rt.isHooked || !remote.isJoined) return
   const id: string = await $.session.id().catch(() => '')
   if (!id) return
   const { tool: _t, agentId: _a, tool_use_id: _u, ...input } = call ?? {}
-  await hub($, 'POST', `/released?id=${encodeURIComponent(id)}`, tool ? { tool, input } : {})
+  await hub($, 'POST', `/released?id=${encodeURIComponent(id)}`, tool ? { tool, input: shrinkInput(input) } : { all: true })
 }
 
 export async function hub($: any, method: string, path: string, body?: unknown) {
@@ -791,9 +803,11 @@ async function snapshotOf($: any) {
 
 // Every two seconds with the setting on: join the hub when one runs, send this session's
 // snapshot, take what the phone sent, and tell the terminal of a phone asking to pair.
+const TICK_STUCK_MS = 30_000
 export async function tickRemote($: any) {
-  if (remote.isTicking) return
+  if (remote.isTicking && Date.now() - remote.tickAt < TICK_STUCK_MS) return
   remote.isTicking = true
+  remote.tickAt = Date.now()
   try {
     await tickRemoteOnce($)
   } finally {

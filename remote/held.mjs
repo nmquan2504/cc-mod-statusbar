@@ -7,6 +7,8 @@
 // from the phone allows this call only; the rules it would add wait for Allow in the terminal
 // (heldRules, taken by the mod), as every rule a phone loosens does. Kept out of server.mjs so the
 // plugin's tests run it.
+import { maskSecrets } from './mask.mjs'
+
 export const HELD_YES = 'Yes'
 export const HELD_NO = 'No'
 const ruleText = r => (r?.ruleContent ? `${r.toolName}(${r.ruleContent})` : String(r?.toolName ?? ''))
@@ -15,8 +17,9 @@ const ruleText = r => (r?.ruleContent ? `${r.toolName}(${r.ruleContent})` : Stri
 export function allowRulesOf(list) {
   const rules = []
   for (const u of Array.isArray(list) ? list : []) if (u?.type === 'addRules' && u.behavior === 'allow') rules.push(...(u.rules ?? []).map(ruleText))
-  return rules.filter(r => /^[\w-]+(\([^()\n]{1,300}\))?$/.test(r))
+  return rules.filter(r => /^[\w-]+(\([^()\n]{1,300}\))?$/.test(r) && maskSecrets(r) === r)
 }
+// a rule holding something shaped like a secret is not offered: the phone would show it
 export const suggestionText = list => allowRulesOf(list).join(', ').slice(0, 300)
 export const heldAlways = h => `Yes, and don't ask again: ${suggestionText(h.suggestions)}`
 // the call as the dialog shows it: the whole command, the file or the URL, else the input
@@ -57,7 +60,17 @@ export function heldRules(h, answers, isDismissed) {
 
 // Whether a call that ended is this held one: the same tool, and the input the dialog showed (each
 // field the hook was given, the same in the call).
+// The mod sends the call's input shrunk (hooks/features/remote.ts shrinkInput), so both sides are
+// shrunk the same way before they are compared.
 export function isHeldCall(h, tool, input) {
   if (h.tool !== tool || !input || typeof input !== 'object') return false
-  return Object.entries(h.input).every(([k, v]) => JSON.stringify(input[k]) === JSON.stringify(v))
+  return Object.entries(h.input).every(([k, v]) => JSON.stringify(shrinkInput(input[k])) === JSON.stringify(shrinkInput(v)))
+}
+
+// keys sorted, a string over 2000 characters cut to its start and its length (under 2000 again, so a second pass changes nothing)
+export function shrinkInput(v) {
+  if (typeof v === 'string') return v.length > 2000 ? `${v.slice(0, 1980)}…(${v.length})` : v
+  if (Array.isArray(v)) return v.map(shrinkInput)
+  if (v && typeof v === 'object') return Object.fromEntries(Object.keys(v).sort().map(k => [k, shrinkInput(v[k])]))
+  return v
 }

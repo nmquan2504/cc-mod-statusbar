@@ -13,4 +13,5 @@ export function heldCall(input: Record<string, unknown>): string
 export function heldAsk(h: Held): { id: string; questions: HeldQuestion[] }
 export function heldDecision(h: Held, answers: Record<string, string>, isDismissed: boolean): HeldDecision
 export function heldRules(h: Held, answers: Record<string, string>, isDismissed: boolean): string[]
+export function shrinkInput(v: unknown): unknown
 export function isHeldCall(h: Held, tool: string, input: Record<string, unknown>): boolean

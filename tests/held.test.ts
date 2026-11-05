@@ -1,5 +1,6 @@
 import { expect, test } from 'claude-code/testing'
-import { heldAsk, heldCall, heldDecision, heldRules, isHeldCall, suggestionText } from '../remote/held.mjs'
+import { shrinkInput as modShrink } from '../hooks/features/remote'
+import { heldAsk, heldCall, heldDecision, heldRules, isHeldCall, shrinkInput, suggestionText } from '../remote/held.mjs'
 import type { Held } from '../remote/held.mjs'
 
 // Claude Code's own dialogs, held for the phone (remote/held.mjs): the question the phone is
@@ -46,6 +47,17 @@ test('a call that ended is matched to its own held dialog by its input, not by i
   expect(isHeldCall(a, 'WebFetch', { query: 'bun test' })).toBe(false)
   const grep = held({ tool: 'Grep', input: { pattern: 'TODO', path: '/work/a' } })
   expect(isHeldCall(grep, 'Grep', { pattern: 'TODO', path: '/work/b' })).toBe(false)
+  // a big Write is sent shrunk, and matched shrunk; the mod and the hub shrink alike
+  const big = 'x'.repeat(5000)
+  const write = held({ tool: 'Write', input: { file_path: '/work/a.md', content: big } })
+  expect(isHeldCall(write, 'Write', modShrink({ content: big, file_path: '/work/a.md' }) as Record<string, unknown>)).toBe(true)
+  for (const v of [{ b: 1, a: [{ d: 'y'.repeat(3000), c: null }] }, 'short', 7]) expect(JSON.stringify(modShrink(v))).toBe(JSON.stringify(shrinkInput(v)))
+})
+
+test('a suggested rule holding something shaped like a secret is not offered on the phone', () => {
+  const token = `ghp_${'Ab1'.repeat(12)}`
+  const rules = [{ type: 'addRules', behavior: 'allow', destination: 'localSettings', rules: [{ toolName: 'Bash', ruleContent: `curl -H "Authorization: Bearer ${token}":*` }, { toolName: 'Bash', ruleContent: 'npm test:*' }] }]
+  expect(suggestionText(rules)).toBe('Bash(npm test:*)')
 })
 
 test('the phone\'s answer is the decision: Yes allows, No denies with what to do instead', () => {
