@@ -1,5 +1,4 @@
 import { closeMenu, openMenu } from '../features/menu'
-import { showAsk } from '../features/ask'
 import { updateNow } from '../features/update'
 import { dismissChips, sendChip } from '../features/chips'
 import { TITLES } from '../lib/catalog'
@@ -36,7 +35,6 @@ export type BarData = {
   images: number
   remoteText: string
   remoteColor: string
-  isAsking: boolean
   broken: { count: number; press: () => Promise<void> } | null
   continueAt: string
   isModBehind: boolean
@@ -148,9 +146,6 @@ export function desktopBar($: any, els: any, d: BarData) {
         </Box>
         <Box flexDirection="row" gap={2} alignItems="center" flexWrap="wrap">
           {tasks}
-          {d.isAsking ? (
-            <Button key="ask-chip" variant="primary" onPress={() => showAsk($)}>? Claude asks</Button>
-          ) : null}
           {d.broken ? (
             <Button key="bgerr" plain onPress={d.broken.press}>{`✘ ${d.broken.count}`}</Button>
           ) : null}
