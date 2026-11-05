@@ -4,6 +4,7 @@ import type { AskPending, AskQuestion } from './ask'
 import { countAsk, rulesFor } from './permissions'
 import { notifyRemote } from './remote'
 import { describeCall } from './work'
+import { rt } from '../state/runtime'
 
 // The atoms this file reads or writes (each file declares its own: the engine reads an atom only
 // where a const of the same file made it; the same plugin and key are the same value).
@@ -66,6 +67,8 @@ export async function tickPrompts($: any) {
   const due = duePrompts(Date.now())
   if (!due.length) return
   for (const p of due) await countAsk($, rulesFor({ tool_name: p.tool, tool_input: p.input })).catch(() => undefined)
+  // with the dialog hook the hub has told the phone already, the moment the dialog came up
+  if (rt.isHooked) return
   const folder = (await read($, bar)).folder
   const what = due.map(p => describeCall({ tool: p.tool, ...p.input })).join('; ')
   await notifyRemote($, `Claude needs you · /${folder}`, oneLine(`Asks to run ${what}`, 200)).catch(() => undefined)

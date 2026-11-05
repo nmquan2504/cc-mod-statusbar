@@ -4,7 +4,7 @@ import { suggestNext } from '../features/chips'
 import { planContinue } from '../features/automation'
 import { readGuard } from '../features/guard'
 import { clearPrompts } from '../features/prompts'
-import { notifyRemote, readRemoteMessages, remote } from '../features/remote'
+import { notifyRemote, readRemoteMessages, releaseHeld, remote } from '../features/remote'
 import { refreshBar } from '../features/status'
 import { keepUsage, liveLimits } from '../features/usage'
 
@@ -75,6 +75,8 @@ export function registerTurn(on: On) {
   on('turn.complete', async ($, e, next) => {
     // a turn that ended (an Esc at the dialog among them) leaves no prompt waiting
     if (!e.agentId) clearPrompts()
+    // and no dialog held for the phone: the engine leaves the hook running past an answer at the computer
+    if (!e.agentId) void releaseHeld($).catch(() => undefined)
     await refreshBar($)
     await readGuard($)
     // A main-loop turn the 5-hour or weekly limit stopped: "continue" once the window resets.

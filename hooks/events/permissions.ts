@@ -2,7 +2,7 @@ import { atom, read } from 'claude-code'
 import { ask, closeAsk, showAsk, waitForAnswer } from '../features/ask'
 import { allowRule, countAsk, rulesFor } from '../features/permissions'
 import { noteCheck, permissionQuestion, verdictOf } from '../features/prompts'
-import { notifyRemote, remote } from '../features/remote'
+import { isHooked, notifyRemote, remote } from '../features/remote'
 import { describeCall } from '../features/work'
 import { oneLine } from '../lib/format'
 import { cfg } from '../state/config'
@@ -21,15 +21,17 @@ const bar = atom({ plugin: 'cc-mod-statusbar', key: 'bar' } as const, {
 const OWN_DIALOG = new Set(['AskUserQuestion', 'ExitPlanMode', 'EnterPlanMode'])
 
 // Whether this ask is put to the person in the band and on the phone: Self remote linked, a band
-// to draw it, nothing else asked meanwhile, the main loop's own call, and the person the one who
-// decides. In auto mode the engine's ask goes to its classifier first, so only an ask a plugin
+// to draw it, no dialog hook in this session (remote/dialog-hook.mjs: the engine's dialog asks and
+// the phone answers it), nothing else asked meanwhile, the main loop's own call, and the person the
+// one who decides. In auto mode the engine's ask goes to its classifier first, so only an ask a plugin
 // made (one the classifier cannot settle) is taken; an organization's ceiling is left to the engine.
 async function isAskedHere($: any, e: any, r: any) {
   if (r?.decision !== 'ask' || !cfg.selfRemote || !remote.isJoined || ask.pending) return false
   if (!e.tool_use_id || e.agentId !== undefined || e.approver !== 'person' || e.ceiling !== undefined || OWN_DIALOG.has(e.tool)) return false
   if ((rt.probedMode ?? rt.hintMode) === 'auto' && !r.plugin) return false
   const surfaces: readonly string[] = await $.session.surfaces().catch(() => [])
-  return surfaces.includes('terminal')
+  // with the dialog hook the engine's own dialog asks, and the phone answers it beside the computer
+  return surfaces.includes('terminal') && !(await isHooked($))
 }
 
 export function registerPermissionCounts(on: On) {

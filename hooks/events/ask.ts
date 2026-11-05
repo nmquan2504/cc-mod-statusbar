@@ -1,5 +1,5 @@
 import { answerText, ask, closeAsk, showAsk, waitForAnswer } from '../features/ask'
-import { notifyRemote, remote } from '../features/remote'
+import { isHooked, notifyRemote, remote } from '../features/remote'
 import { oneLine } from '../lib/format'
 import { cfg } from '../state/config'
 
@@ -7,12 +7,15 @@ import type { On } from 'claude-code'
 
 export function registerAsk(on: On) {
   // With Self remote on and its hub running, Claude's questions go in the band and on the phone,
-  // never in the engine's dialog: the hook answers the call itself. With the remote off, where no
+  // never in the engine's dialog: the hook answers the call itself. Where the dialog hook runs
+  // (remote/dialog-hook.mjs) the engine's dialog asks instead, and the phone answers it there. With the remote off, where no
   // band draws (VS Code, a -p run), or while another question waits, the engine's dialog asks.
   on('tool.call', { tool: 'AskUserQuestion' }, async ($, e: any, next) => {
     const questions = Array.isArray(e.questions) ? e.questions : []
     if (!cfg.selfRemote || !remote.isJoined) return next(e)
     const surfaces: readonly string[] = await $.session.surfaces().catch(() => [])
+    // the dialog hook (remote/dialog-hook.mjs): the engine's dialog asks, and the phone answers it
+    if (surfaces.includes('terminal') && (await isHooked($))) return next(e)
     if (!surfaces.includes('terminal') || ask.pending || !questions.length) {
       // say why the engine's dialog asks: no band here, or a question already waits
       if (questions.length) $.ui.toast(`statusbar: the dialog asks (${ask.pending ? 'another question waits' : `no band on ${surfaces.join(', ') || 'this surface'}`})`)
