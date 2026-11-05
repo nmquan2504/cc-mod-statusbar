@@ -67,7 +67,12 @@ export async function dialog($: any, text: string, opts: { hidden?: boolean; ini
 }
 
 // ---------- keychain (value over stdin, never argv) ----------
+// A secret is one line of printable text: a newline would end `security -i`'s command and start
+// another, so a value holding a control character is refused before it reaches the keychain.
+export const isOneLine = (value: string) => !/[\u0000-\u001f\u007f]/.test(value)
+
 export async function kcSave($: any, name: string, value: string) {
+  if (!isOneLine(value) || !NAME_RE.test(name)) throw new Error('a secret is one line of text, its name letters, digits and _')
   const q = (s: string) => `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
   const mac = await $.process.run(['security', '-i'], {
     stdin: `add-generic-password -U -a ${name} -s ${SERVICE} -w ${q(value)}\n`,
@@ -113,6 +118,7 @@ export async function acquire($: any, want: { name?: string; purpose?: string })
   const why = want.purpose ? `\n\nClaude says: ${want.purpose.slice(0, 300)}` : ''
   const value = await dialog($, `${name0 ? `Value for ${name0}` : 'Paste a secret (token, API key)'}.${why}`, { hidden: true })
   if (!value) return { error: 'cancelled' }
+  if (!isOneLine(value)) return { error: 'a secret is one line of text: no line breaks or control characters; nothing saved' }
 
   const known = byValue(value) ?? (name0 ? byName(name0) : undefined)
   let name = name0 ?? known?.name
@@ -148,6 +154,7 @@ export type Typed = { value?: unknown; name?: unknown; host?: unknown; header?: 
 export function typedSecret(given: Typed, stored: (name: string) => Binding | undefined): { value: string; name: string; binding: Binding } | { error: string } {
   const value = typeof given.value === 'string' ? given.value.trim() : ''
   if (!value) return { error: 'no value given; nothing saved' }
+  if (!isOneLine(value)) return { error: 'a secret is one line of text: no line breaks or control characters; nothing saved' }
   const name0 = typeof given.name === 'string' && given.name.trim() ? normName(given.name) : undefined
   if (name0 && !NAME_RE.test(name0)) return { error: `"${given.name}" is not a valid NAME (A-Z, 0-9, _)` }
   const known = byValue(value) ?? (name0 ? byName(name0) : undefined)
@@ -196,6 +203,21 @@ export async function listSecrets($: any) {
     }),
   )
   return rows.length ? rows.join('\n') : 'No secrets saved.'
+}
+
+// A shell command that reads a keychain or Secret Service item, whichever item it names: the vault's
+// items need no keychain prompt for /usr/bin/security, which added them.
+export const KEYCHAIN_READ = /\b(?:find-generic-password|find-internet-password|dump-keychain)\b|\bsecret-tool\b[\s\S]*\b(?:lookup|search)\b/
+
+// A tool's result with every value this session's vault holds put back as [secret:NAME]: strings in
+// plain objects and arrays, the rest as it was.
+export function scrubDeep<T>(v: T): T {
+  if (!cache.size) return v
+  if (typeof v === 'string') return scrub(v) as T
+  if (Array.isArray(v)) return v.map(scrubDeep) as T
+  if (v && typeof v === 'object' && Object.getPrototypeOf(v) === Object.prototype)
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, scrubDeep(x)])) as T
+  return v
 }
 
 export const scrub = (s: string) => {

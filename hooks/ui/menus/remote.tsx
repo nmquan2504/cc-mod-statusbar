@@ -84,7 +84,7 @@ export async function drawRemoteMenu($: any, els: any, _isTerminal: boolean, ent
     <Box flexDirection="column">
       {s.error ? <Text color="error">{s.error}</Text> : null}
       {!s.url && !s.error ? waiting("Waiting for the tunnel's address") : null}
-      {s.isLocked ? <Text color="error">Pairing is locked after 10 wrong links. Stop and start again.</Text> : null}
+      {s.isLocked ? <Text color="error">Pairing is paused after 10 wrong links in 10 minutes; it opens again by itself.</Text> : null}
       {pendingPairs().map(p => (
         <Box key={`pend:${p.id}`} flexDirection="row" gap={1}>
           <Text color="warning" bold>{`${p.name} asks to pair: pick the code it shows`}</Text>

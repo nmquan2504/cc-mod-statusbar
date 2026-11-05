@@ -118,7 +118,9 @@ const VI = {
   'Secret not saved': 'Chưa lưu bí mật',
   'Secret saved': 'Đã lưu bí mật',
   'Answered': 'Đã trả lời',
-  'The question was answered on the Mac.': 'Câu hỏi đã được trả lời trên Mac.',
+  'The question closed on the Mac.': 'Câu hỏi đã đóng trên Mac.',
+  'Closed': 'Đã đóng',
+  'A secret is one line of text: no line breaks.': 'Secret phải nằm trên một dòng, không xuống dòng.',
   // Claude's questions
   'Claude asks': 'Claude hỏi',
   'Dismiss': 'Bỏ qua',
@@ -128,7 +130,7 @@ const VI = {
   'Other: type your own answer': 'Khác: nhập câu trả lời của bạn',
   'Dismissed': 'Đã bỏ qua',
   'Claude goes on without an answer.': 'Claude tiếp tục mà không có câu trả lời.',
-  'Claude has your answer.': 'Claude đã nhận câu trả lời.',
+  'Sent. If the Mac answered first, its answer stands.': 'Đã gửi. Nếu Mac trả lời trước thì câu trả lời trên Mac được giữ.',
   // files
   'Files & images': 'Tệp & ảnh',
   'Search file names and contents': 'Tìm tên tệp và nội dung',
@@ -379,7 +381,7 @@ const VI_SENT = {
   'That question is already answered.': 'Câu hỏi đó đã được trả lời.',
   'Search for 2 to 200 characters.': 'Tìm từ 2 đến 200 ký tự.',
   'Refused in the terminal.': 'Terminal đã từ chối.',
-  'Pairing is locked after too many wrong links. Stop and start the remote again.': 'Ghép đôi bị khoá vì quá nhiều link sai. Tắt rồi bật lại remote.',
+  'Pairing is paused after too many wrong links. Try again in 10 minutes.': 'Ghép đôi tạm dừng vì quá nhiều link sai. Thử lại sau 10 phút.',
   'Outside the folders this session works in.': 'Ngoài các thư mục phiên này làm việc.',
   'Outside the folders and the context of this session.': 'Ngoài các thư mục và ngữ cảnh của phiên này.',
   'Not paired. Scan the QR code in the terminal again.': 'Chưa ghép đôi. Quét lại mã QR trong terminal.',
@@ -428,7 +430,7 @@ function localText(lang, text) {
 
 // A notice in `lang`: its title's words (Done, Claude needs you, 3 files) and the mod's own lines in
 // its body; the folder, the time, the cost, the session's title and Claude's words as written
-const NOTICE_HEAD = { 'Done': 'Xong', 'Claude needs you': 'Claude cần bạn', 'Claude asks you': 'Claude hỏi bạn' }
+const NOTICE_HEAD = { 'Done': 'Xong', 'Claude needs you': 'Claude cần bạn' }
 const NOTICE_BODY = { 'Claude finished.': 'Claude đã xong.', 'Claude finished or needs you.': 'Claude đã xong hoặc cần bạn.', 'Nothing yet.': 'Chưa có gì.' }
 function localNotice(lang, n) {
   if (lang !== 'vi' || !n) return n

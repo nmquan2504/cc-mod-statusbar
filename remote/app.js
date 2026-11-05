@@ -103,6 +103,8 @@ const opened = new Set() // the tool rows opened to their output
 // the question Claude waits on: what this phone picked and typed so far, and whether it was put away
 let askDraft = { id: '', picks: {}, other: {} }
 let askHiddenId = ''
+// the session whose question the ask page shows: its question going away is news, another's is not
+let askOpenFor = ''
 try { picked = localStorage.getItem('qsb-session') || '' } catch {}
 // a push notification opened with the app shut: /?s=<session> picks the session it came from
 const openedFor = new URLSearchParams(location.search).get('s')
@@ -1906,6 +1908,7 @@ function openAsk(isAsked) {
   if (!snap?.ask) return
   if (isAsked) askHiddenId = ''
   renderAsk()
+  askOpenFor = snap.id
   $('ask').hidden = false
 }
 async function sendAnswer(isDismissed) {
@@ -1921,7 +1924,8 @@ async function sendAnswer(isDismissed) {
   }
   askHiddenId = a.id
   $('ask').hidden = true
-  toast({ title: isDismissed ? tx('Dismissed') : tx('Answered'), body: isDismissed ? tx('Claude goes on without an answer.') : tx('Claude has your answer.') })
+  // the dialog may have been answered at the computer a moment before: then that answer stands
+  toast({ title: isDismissed ? tx('Dismissed') : tx('Answered'), body: isDismissed ? tx('Claude goes on without an answer.') : tx('Sent. If the Mac answered first, its answer stands.') })
 }
 
 // ---- one drawing for every update ----------------------------------------------------------------
@@ -1973,7 +1977,8 @@ function render() {
   renderFacts()
   if (!snap.ask && !$('ask').hidden) {
     $('ask').hidden = true
-    toast({ title: tx('Answered'), body: tx('The question was answered on the Mac.') })
+    // answered on the Mac, or the turn ended there
+    if (askOpenFor === snap.id) toast({ title: tx('Closed'), body: tx('The question closed on the Mac.') })
   }
   if (isFollowing) toBottom()
   else $('jump').hidden = false
@@ -1988,6 +1993,8 @@ function openSession(id) {
   $('open-drawer').classList.toggle('unread', unread.size > 0)
   try { localStorage.setItem('qsb-session', picked) } catch {}
   closeLayers()
+  // another session's question, if it has one, opens with the next drawing
+  $('ask').hidden = true
   render()
 }
 

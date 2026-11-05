@@ -1,5 +1,7 @@
 import { expect, test } from 'claude-code/testing'
+import { SENSITIVE } from '../hooks/lib/catalog'
 import { maskSecrets } from '../hooks/lib/mask'
+import { SENSITIVE as HUB_SENSITIVE, maskSecrets as hubMask } from '../remote/mask.mjs'
 
 // What the phone is not shown (hooks/lib/mask.ts): strings shaped like a secret in the texts. The
 // test keys are built from parts, so no whole one sits in the source.
@@ -27,4 +29,16 @@ test('code, paths and short words read as written', () => {
     'ask-ant to sort',
     'TOKEN=abc',
   ]) expect(maskSecrets(text)).toBe(text)
+})
+
+test('the hub masks and locks as the mod does: both copies of the rules agree', () => {
+  const samples = [`token ${fake('ghp_', 36)}`, 'OPENAI_API_KEY=abc123xyz789', `id ${'AKIA'}${'ABCDEFGHIJKLMNOP'}`, 'plain words', 'const token = getToken()']
+  for (const t of samples) expect(hubMask(t)).toBe(maskSecrets(t))
+  expect(HUB_SENSITIVE.source).toBe(SENSITIVE.source)
+})
+
+test('the credentials a home folder keeps beyond keys are locked too', () => {
+  const locked = ['.config/gh/hosts.yml', '.zsh_history', '.bash_history', '.cargo/credentials.toml', '.cargo/credentials', '.vault-token', '.claude/.credentials.json']
+  expect(locked.filter(p => !SENSITIVE.test(p))).toEqual([])
+  expect(['src/history.ts', 'docs/credentials.md', '.config/ghostty/config'].filter(p => SENSITIVE.test(p))).toEqual([])
 })

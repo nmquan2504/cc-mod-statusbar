@@ -101,7 +101,8 @@ export function registerTurn(on: On) {
       } else if (isLimit && cfg.autoContinue) $.ui.toast(`statusbar: the limit stopped ${MAX_TRIES} tries in a row; auto-continue gave up`)
       rt.isContinueTurn = false
     }
-    if (rt.turnStartedAt) {
+    // the main loop's turn: an agent ending mid-turn neither ends it nor sums it up
+    if (rt.turnStartedAt && !e.agentId) {
       rt.turnEndedAt = await $.clock.now()
       const took = rt.turnEndedAt - rt.turnStartedAt
       const cost = (await read($, usage))?.costUsd
@@ -109,7 +110,7 @@ export function registerTurn(on: On) {
       // a quick answer needs no toast; a long one may have run while you looked away
       if (cfg.turnToast && took >= cfg.turnToastSeconds * 1000) $.ui.toast(`statusbar: done in ${clockOf(took)}${spent}`)
       // the phone hears of every main-loop turn's end, with the start of Claude's answer
-      if (cfg.selfRemote && !e.agentId) {
+      if (cfg.selfRemote) {
         const folder = (await read($, bar)).folder
         // the folder and what the turn changed: "Done · /shop · 3 files"
         const files = (await read($, edited)).length

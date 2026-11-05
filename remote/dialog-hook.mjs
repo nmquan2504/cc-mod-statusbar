@@ -1,17 +1,20 @@
 // The phone's half of Claude Code's own dialogs: a command hook, named in hooks/hooks.json.
 //
 //   node dialog-hook.mjs session-start   SessionStart: marks this session as one the hook runs in,
-//                                        so the mod leaves its questions to the engine's dialog
+//                                        so the mod leaves the phone's questions to the hub
 //   node dialog-hook.mjs permission      PermissionRequest: the dialog is up; the hook asks the
 //                                        hub to show it on the phone and waits for the answer
 //
 // Claude Code runs a PermissionRequest hook beside its dialog: the person answers at the computer
-// (the engine then ends this process) or on the phone (the hub answers this request, and the hook
-// prints the decision, which closes the dialog). With no hub, or a session the remote is off in,
-// the hub answers null and the hook prints nothing: the dialog alone asks. Node 18 or newer.
+// (the engine leaves this process running; the mod has the hub let it go) or on the phone (the hub
+// answers this request, and the hook prints the decision, which closes the dialog). With no hub, or
+// a session the remote is off in, the hub answers null and the hook prints nothing: the dialog alone
+// asks. The hook trusts the folder only when it is this user's own (owndir.mjs), and prints only an
+// allow or a deny it builds itself: never a rewritten command, a rule or a mode. Node 18 or newer.
 import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { request } from 'node:http'
 import { join } from 'node:path'
+import { isOwnDir } from './owndir.mjs'
 
 const DIR = `/tmp/qsb-remote-${process.getuid?.() ?? ''}`
 const MARKS = join(DIR, 'hooked')
@@ -32,7 +35,13 @@ const stdin = () =>
 const idOf = e => (/^[\w-]{1,128}$/.test(String(e?.session_id ?? '')) ? String(e.session_id) : '')
 
 function markSession(id) {
-  mkdirSync(MARKS, { recursive: true, mode: 0o700 })
+  try {
+    mkdirSync(DIR, { mode: 0o700 })
+  } catch {}
+  try {
+    mkdirSync(MARKS, { mode: 0o700 })
+  } catch {}
+  if (!isOwnDir(DIR) || !isOwnDir(MARKS)) return
   writeFileSync(join(MARKS, id), String(Date.now()))
   // the marks of sessions gone a week
   for (const name of readdirSync(MARKS)) {
@@ -62,13 +71,26 @@ function held(id, body) {
   })
 }
 
+// The decision as the engine reads it, built from the hub's answer: allow or deny, a message, and
+// for AskUserQuestion the answers (strings, for the questions asked) with the input unchanged.
+function decisionOf(d, e) {
+  if (d?.behavior === 'deny') return { behavior: 'deny', message: String(d.message ?? 'The person declined this call.').slice(0, 4000) }
+  if (d?.behavior !== 'allow') return null
+  if (e.tool_name !== 'AskUserQuestion') return { behavior: 'allow' }
+  const asked = new Set((Array.isArray(e.tool_input?.questions) ? e.tool_input.questions : []).map(q => String(q?.question ?? '')))
+  const answers = {}
+  for (const [q, a] of Object.entries(d.updatedInput?.answers ?? {})) if (asked.has(q) && typeof a === 'string') answers[q] = a.slice(0, 4000)
+  return Object.keys(answers).length ? { behavior: 'allow', updatedInput: { ...e.tool_input, answers } } : null
+}
+
 async function main() {
   const e = JSON.parse((await stdin()) || '{}')
   const id = idOf(e)
   if (!id) return
   if (process.argv[2] === 'session-start') return markSession(id)
-  if (process.argv[2] !== 'permission' || SKIP.has(e.tool_name)) return
-  const decision = await held(id, { tool: String(e.tool_name ?? ''), input: e.tool_input ?? {}, suggestions: e.permission_suggestions ?? null })
+  if (process.argv[2] !== 'permission' || SKIP.has(e.tool_name) || !isOwnDir(DIR)) return
+  const answer = await held(id, { tool: String(e.tool_name ?? ''), input: e.tool_input ?? {}, suggestions: e.permission_suggestions ?? null })
+  const decision = decisionOf(answer, e)
   if (!decision) return
   process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PermissionRequest', decision } }))
 }

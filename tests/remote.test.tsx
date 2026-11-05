@@ -107,13 +107,42 @@ test('switched on, ⇄ opens the menu; Start takes two presses and starts the hu
   await band.press({ key: 'remote' })
   expect(await textOf(band)).toContain('Start the remote')
   await band.press({ key: 'remote-start' })
-  expect(argvs.some(a => a[0] === '/bin/sh')).toBe(false)
+  expect(argvs.some(a => a[0] === '/bin/sh' && a[2]!.includes('nohup'))).toBe(false)
   expect(toasts.join()).toContain('press again within 5 s to start the remote')
   await band.press({ key: 'remote-start' })
-  const sh = argvs.find(a => a[0] === '/bin/sh' && a[2]!.includes('nohup'))!
+  // the folder must be this user's own (mode 700, no link) before the hub starts in it
+  const own = argvs.findIndex(a => a[0] === '/bin/sh' && a[2]!.includes('[ -O "$1" ]'))
+  const start = argvs.findIndex(a => a[0] === '/bin/sh' && a[2]!.includes('nohup'))
+  expect(own).toBeGreaterThan(-1)
+  expect(start).toBeGreaterThan(own)
+  const sh = argvs[start]!
   expect(sh[2]).toContain('nohup node "$0" "$1" "$2"')
   expect(sh[3]).toMatch(/\/remote\/server\.mjs$/)
   expect(sh.slice(4)).toEqual(['/tmp/qsb-remote-501', '30'])
+})
+
+test('a hub folder another user made first (or a link, or open to others) is never used', async ($, on) => {
+  const argvs: string[][] = []
+  const toasts: string[] = []
+  const posted: string[] = []
+  engine(on, { argvs, toasts, hub: path => (posted.push(path), STATUS), run: argv => (argv[0] === '/bin/sh' && argv[2]?.includes('[ -O "$1" ]') ? { ...ran(), exitCode: 1 } : undefined) })
+  on('session.surfaces', () => ({ value: ['terminal'] }))
+  on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
+  on('ui.status', () => ({ value: undefined }))
+  on('agent.list', () => ({ value: [] }))
+  on('tool.register', (_: unknown, e: { name: string }) => ({ value: { tool: e.name } }))
+  on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
+  const clock = mock.clock(on)
+  await ($ as any).session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+  const band = await $.ui.mount({ plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await switchOn(band)
+  await clock.advance(2000)
+  expect(posted).toEqual([]) // its socket is never asked
+  await band.press({ key: 'remote' })
+  await band.press({ key: 'remote-start' })
+  await band.press({ key: 'remote-start' })
+  expect(argvs.some(a => a[0] === '/bin/sh' && a[2]!.includes('nohup'))).toBe(false)
+  expect(toasts.join()).toContain("not this user's own folder")
 })
 
 test('with the hub up: the QR code on request, a phone asking to pair with its code, Allow sent to the hub', async ($, on) => {
