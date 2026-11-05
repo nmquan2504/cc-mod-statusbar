@@ -1,7 +1,6 @@
 import { atom, read, update } from 'claude-code'
 import { oneLine, shortModel } from '../lib/format'
 import { suggestionChips } from '../lib/suggest'
-import { ask, settleAsk } from './ask'
 import { buildPage, isPage, pageAction } from './pages'
 import type { Page, PageName } from './pages'
 import { waitingPrompts } from './prompts'
@@ -767,8 +766,6 @@ async function snapshotOf($: any) {
     suggestions: rt.isBusy ? [] : suggestionChips(remote.suggestion, rt.answerChips),
     vaultNote: remote.vaultNote,
     lastAt: remote.lastAt,
-    // the question Claude waits on, for the phone to answer
-    ask: ask.pending && !ask.pending.result ? { id: ask.pending.id, questions: ask.pending.questions } : null,
     // the permission prompts waiting for the person, shown on the phone; answered at the computer.
     // With the dialog hook the hub shows them itself, as questions the phone answers.
     permissions: rt.isHooked ? [] : waitingPrompts(Date.now()).map(p => ({ ...p, text: hide(p.text) })),
@@ -852,15 +849,6 @@ export async function tickRemote($: any) {
   if (inbox?.stop === true && rt.isBusy && rt.turnId) {
     const r = await $.turn.abort({ turnId: rt.turnId }).then(() => '', (err: unknown) => String(err))
     $.ui.toast(r ? `statusbar: remote: the turn did not stop (${oneLine(r, 100)})` : 'statusbar: remote: stopped from the phone')
-  }
-  // the phone answered Claude's question: only the question's own texts count as keys
-  const a = inbox?.answer
-  if (a && ask.pending && a.id === ask.pending.id) {
-    const known = new Set(ask.pending.questions.map(q => q.question))
-    const answers = Object.fromEntries(Object.entries(a.answers ?? {}).filter(([q, v]) => known.has(q) && typeof v === 'string' && v.trim()).map(([q, v]) => [q, oneLine(String(v), 2000)]))
-    if (a.isDismissed) settleAsk(a.id, 'dismissed', 'phone')
-    else if (Object.keys(answers).length) settleAsk(a.id, { answers }, 'phone')
-    $.ui.invalidate('ui.render')
   }
   // a page the phone opened, or a press on one: carried out, the page built again, and the
   // snapshot sent at once rather than at the next tick

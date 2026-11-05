@@ -3,7 +3,6 @@ import { atom, read } from 'claude-code'
 import type { MenuKind } from '../../types'
 import { ARENA_GAP, ARENA_MIN, arena, arenaRuns, endRound, resetArena } from '../features/arena'
 import { closeMenu, openMenu } from '../features/menu'
-import { ask, showAsk } from '../features/ask'
 import { isRemoteWaiting, pendingPairs, remote, secondsToPair, spinnerFrame } from '../features/remote'
 import { updateNow } from '../features/update'
 import { TITLES, effortColor, effortIcon, modeStyle, modelStyle } from '../lib/catalog'
@@ -144,8 +143,6 @@ export async function drawBand($: any, e: any, next: any) {
   }
   // ↑ mod: the mod's own repository has new commits upstream; a press pulls them and reloads
   const updateLabel = rt.modBehind ? ' ↑ mod ' : ''
-  // ? Claude asks: a question waits and its menu is shut; a press opens it again
-  const askLabel = ask.pending && !ask.pending.result && open !== 'ask' ? ' ? Claude asks ' : ''
   // ⇄: Self remote, with the setting on; ⇄ 2 while two phones watch, ⇄ ? while one asks to pair
   // the remote menu shut after showing its QR code: the next opening keeps it hidden (q shows it)
   if (open !== 'remote' && remote.isQrSeen) {
@@ -195,7 +192,7 @@ export async function drawBand($: any, e: any, next: any) {
     // a gap before every item in the left group (+ and ⁄ open it), between the items in the right
     const cellsOf = (keys: string[]) => keys.map(k => width[k] ?? 0).filter(Boolean).reduce((n, w) => n + 1 + w, 0)
     const left = 3 + 1 + 3 + cellsOf(order.slice(0, split))
-    const rightCells = (askLabel ? 1 + askLabel.length : 0) + (brokenLabel ? 1 + brokenLabel.length : 0) + (continueLabel ? 1 + continueLabel.length : 0)
+    const rightCells = (brokenLabel ? 1 + brokenLabel.length : 0) + (continueLabel ? 1 + continueLabel.length : 0)
       + (updateLabel ? 1 + updateLabel.length : 0) + cellsOf(order.slice(split + 1))
     const right = Math.max(0, rightCells - 1)
     return { folderText, branchText, marksText, modelLabel, modeLabel, effortLabel, showGauge, left, right }
@@ -355,7 +352,6 @@ export async function drawBand($: any, e: any, next: any) {
       images: imageCount,
       remoteText: pairs.length ? `⇄ ? ${secondsToPair(pairs[0]!)}s` : isRemoteWaiting() ? `⇄ ${spinnerFrame()}` : rs?.phones ? `⇄ ${rs.phones}` : '⇄',
       remoteColor,
-      isAsking: !!askLabel,
       broken: broken ? { count: brokenAll.length, press: openBroken } : null,
       continueAt: waiting ? vnClock(waiting.at) : '',
       isModBehind: !!rt.modBehind,
@@ -428,11 +424,6 @@ export async function drawBand($: any, e: any, next: any) {
           {ctxLabel && !cfg.barUsage ? (
             <Button key="usage" plain hover={{ scope: 'qsb-usage', bold: true }} onPress={() => openMenu($, 'usage')}>
               {ctxText}
-            </Button>
-          ) : null}
-          {askLabel ? (
-            <Button key="ask-chip" plain hover={{ scope: 'qsb-ask', bold: true }} onPress={() => showAsk($)}>
-              <Text backgroundColor="warning" color="inverseText" bold>{askLabel}</Text>
             </Button>
           ) : null}
           {brokenLabel ? (

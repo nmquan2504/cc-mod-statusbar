@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import { ASK_KEY, rulesFor } from '../hooks/features/permissions'
 import { SENSITIVE } from '../hooks/lib/catalog'
 import { suggestPrompt, suggestionChips, suggestionsFrom } from '../hooks/lib/suggest'
-import { SHOW_MS, WAIT_MS, clearPrompts, duePrompts, noteCheck, noteSpinner, permissionQuestion, prompts, verdictOf, waitingPrompts } from '../hooks/features/prompts'
+import { SHOW_MS, WAIT_MS, clearPrompts, duePrompts, noteCheck, noteSpinner, prompts, waitingPrompts } from '../hooks/features/prompts'
 
 // The hooks registered here sit beneath the plugin and stand for the engine: the model,
 // the rate limits, the settings, the command list, the file system and the prompt box.
@@ -2089,7 +2089,7 @@ test('a permission prompt is told from tool.check and the spinner, not the class
   noteCheck(call('b'), { decision: 'allow' }, 0) // let run: no dialog
   noteCheck(call('c', { agentId: 'ag1' }), ask, 0) // an agent's: not the main loop
   noteCheck(call('d', { tool_use_id: undefined }), ask, 0) // a $.tool.check query
-  noteCheck(call('e', { tool: 'AskUserQuestion' }), ask, 0) // the ask feature's own dialog
+  noteCheck(call('e', { tool: 'AskUserQuestion' }), ask, 0) // Claude's question, no permission prompt
   noteCheck(call('f', { approver: undefined }), ask, 0) // nobody can be asked
   expect(prompts.pending.map(p => p.id)).toEqual(['a'])
   // the phone sees it after SHOW_MS, with what it would run and why it asks
@@ -2108,22 +2108,6 @@ test('a permission prompt is told from tool.check and the spinner, not the class
   noteSpinner('tool-use')
   expect(duePrompts(20 + WAIT_MS).map(p => p.id)).toEqual(['h'])
   clearPrompts()
-})
-
-test('a permission prompt asked in the band and on the phone: Yes, Yes always, No with what to do instead', () => {
-  const rule = rulesFor({ tool_name: 'Bash', tool_input: { command: 'mkdir /tmp/x' } })[0]!
-  expect(rule).toBe('Bash(mkdir:*)')
-  const q = permissionQuestion('Bash', { command: 'mkdir /tmp/x' }, rule, 'The path is outside the working directories.')
-  expect(q.description).toBe('mkdir /tmp/x\nThe path is outside the working directories.')
-  expect(q.options!.map(o => o.label)).toEqual(['Yes', "Yes, and don't ask again for Bash(mkdir:*)", 'No'])
-  const said = (a: string) => verdictOf({ answers: { [q.question]: a } }, rule)
-  expect(said('Yes')).toEqual({ decision: 'allow', reason: 'The person allowed it.' })
-  expect(said("Yes, and don't ask again for Bash(mkdir:*)")).toMatchObject({ decision: 'allow', isAlways: true })
-  expect(said('No')).toEqual({ decision: 'deny', reason: 'The person declined this call.' })
-  expect(said('No, use the scratchpad')).toEqual({ decision: 'deny', reason: 'The person declined this call and said: use the scratchpad' })
-  expect(said('make it under ./tmp')).toEqual({ decision: 'deny', reason: 'The person declined this call and said: make it under ./tmp' })
-  expect(verdictOf('dismissed', rule).decision).toBe('deny')
-  expect(verdictOf(undefined, rule).decision).toBe('deny')
 })
 
 test('the secrets rule locks a project\'s secrets and the credentials a home folder keeps, not look-alikes', () => {

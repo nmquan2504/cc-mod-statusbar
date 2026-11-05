@@ -1,6 +1,5 @@
 import { atom, read } from 'claude-code'
 import { oneLine } from '../lib/format'
-import type { AskPending, AskQuestion } from './ask'
 import { countAsk, rulesFor } from './permissions'
 import { notifyRemote } from './remote'
 import { describeCall } from './work'
@@ -17,14 +16,13 @@ const bar = atom({ plugin: 'cc-mod-statusbar', key: 'bar' } as const, {
 // tool.check: a main-loop call the engine puts to a person, not let run since. While the dialog
 // waits the spinner stays on tool-input; it turns to tool-use the moment the call runs, or the
 // mode's classifier lets it. The phone shows it after SHOW_MS; after WAIT_MS it is counted toward
-// "Asked most" and the phone gets a push, once. These are the prompts the mod does not ask itself
-// (below): answered at the computer.
+// "Asked most" and the phone gets a push, once, unless the dialog hook told it already.
 export const SHOW_MS = 1000
 export const WAIT_MS = 5000
 type Pending = { id: string; tool: string; input: Record<string, unknown>; reason: string; at: number; isTold?: boolean }
 export const prompts = { pending: [] as Pending[], spinner: '' }
 
-// Questions put to the person are the ask feature's, which the phone shows on its own.
+// Claude's questions are no permission prompt: the dialog hook puts them on the phone as they are.
 const OWN_DIALOG = new Set(['AskUserQuestion'])
 
 export function noteCheck(e: { tool: string; input: unknown; tool_use_id?: string; agentId?: string; approver?: string }, r: { decision?: string; reason?: string }, now: number) {
@@ -72,35 +70,4 @@ export async function tickPrompts($: any) {
   const folder = (await read($, bar)).folder
   const what = due.map(p => describeCall({ tool: p.tool, ...p.input })).join('; ')
   await notifyRemote($, `Claude needs you · /${folder}`, oneLine(`Asks to run ${what}`, 200)).catch(() => undefined)
-}
-
-// With Self remote on, a permission prompt is asked as Claude's questions are: in the band and on
-// the phone, the first answer in deciding, and the engine's dialog not shown. "Yes, and don't ask
-// again" adds the rule "Asked most" would suggest; a No can say what to do instead, in the Other box.
-export const YES = 'Yes'
-export const NO = 'No'
-export const alwaysLabel = (rule: string) => `Yes, and don't ask again for ${rule}`
-
-export function permissionQuestion(tool: string, input: Record<string, unknown>, rule: string, reason: string): AskQuestion {
-  return {
-    header: 'Permission',
-    question: `Claude wants to use ${tool}: allow it?`,
-    description: [callText(input), reason].filter(Boolean).join('\n'),
-    options: [
-      { label: YES, description: 'this time' },
-      { label: alwaysLabel(rule), description: 'adds the rule to .claude/settings.local.json' },
-      { label: NO, description: 'or type below what Claude should do instead' },
-    ],
-  }
-}
-
-// The verdict for tool.check from the answer: the label picked, then any text typed.
-export function verdictOf(result: AskPending['result'], rule: string): { decision: 'allow' | 'deny'; reason: string; isAlways?: boolean } {
-  if (!result || result === 'dismissed') return { decision: 'deny', reason: 'The person dismissed the permission prompt without allowing the call.' }
-  const a = String(Object.values(result.answers)[0] ?? '').trim()
-  const always = alwaysLabel(rule)
-  if (a === always || a.startsWith(`${always}, `)) return { decision: 'allow', reason: `The person allowed it and added ${rule} to the allow rules.`, isAlways: true }
-  if (a === YES || a.startsWith(`${YES}, `)) return { decision: 'allow', reason: 'The person allowed it.' }
-  const said = a === NO ? '' : a.startsWith(`${NO}, `) ? a.slice(NO.length + 2) : a
-  return { decision: 'deny', reason: said ? `The person declined this call and said: ${said}` : 'The person declined this call.' }
 }

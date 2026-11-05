@@ -1,7 +1,6 @@
 import type { MenuKind } from '../../../types'
 
 import { drawAddMenu } from './add'
-import { drawAskMenu } from './ask'
 import { drawCommandsMenu } from './commands'
 import { drawEffortMenu } from './effort'
 import { makeEntry } from './entry'
@@ -41,7 +40,6 @@ export async function drawMenu($: any, els: any, kind: MenuKind, isTerminal: boo
       case 'tasks': return drawTasksMenu($, els, isTerminal, entry)
       case 'guard': return drawGuardMenu($, els, isTerminal, entry)
       case 'remote': return drawRemoteMenu($, els, isTerminal, entry)
-      case 'ask': return drawAskMenu($, els, isTerminal, entry)
       default: return undefined
     }
   })()

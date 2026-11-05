@@ -1,6 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
 import { contextOf, midTurnsIn, pairChoices, phoneCommand, phoneMayRun, sessionTitleIn, transcriptOf } from '../hooks/features/remote'
-import { isOneTap } from '../hooks/features/ask'
 import { qrMatrix, qrRows } from '../hooks/lib/qr'
 
 // Self remote: the ⇄ chip and its menu. The hooks registered here stand for the engine; the hub
@@ -248,32 +247,8 @@ test('the session title: the last /rename name, else the last title Claude Code 
   expect(sessionTitleIn([])).toBe('')
 })
 
-// ---- Claude's AskUserQuestion, asked in the band ---------------------------------------------
+// ---- the notices the phone gets ------------------------------------------------------------
 declare function setTimeout(callback: (...args: never[]) => void, ms: number): unknown
-const QUESTIONS = [
-  { question: 'Which database?', header: 'DB', multiSelect: false, options: [{ label: 'Postgres', description: 'relational', preview: 'CREATE TABLE users (...)' }, { label: 'SQLite', description: 'one file' }] },
-  { question: 'Which checks?', header: 'Checks', multiSelect: true, options: [{ label: 'lint', description: '' }, { label: 'types', description: '' }, { label: 'tests', description: '' }] },
-]
-// the session on a surface, with the engine's own dialog beneath the mod (it answers only when the
-// band does not); `isLinked`: Self remote switched on and this session joined to a running hub
-async function asking($: any, on: any, surface = 'terminal', isLinked = true) {
-  engine(on, { hub: () => STATUS })
-  on('session.surfaces', () => ({ value: [surface] }))
-  on('tool.call', { tool: 'AskUserQuestion' }, () => ({ result: { answers: { native: 'dialog' } }, text: 'the engine asked' }))
-  on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
-  on('ui.status', () => ({ value: undefined }))
-  on('agent.list', () => ({ value: [] }))
-  on('tool.register', (_: unknown, e: { name: string }) => ({ value: { tool: e.name } }))
-  on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
-  const clock = mock.clock(on)
-  await $.session.start({ cwd: '/work/shop', surface, isInteractive: true })
-  const band = await $.ui.mount({ plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
-  if (isLinked) {
-    await switchOn(band)
-    await clock.advance(2000) // the remote's tick: this session joins the hub
-  }
-  return band
-}
 const settle = () => new Promise(r => setTimeout(r, 30))
 
 test('a notice names the folder alone, not the session\'s title', async ($, on) => {
@@ -292,16 +267,17 @@ test('a notice names the folder alone, not the session\'s title', async ($, on) 
   on('agent.list', () => ({ value: [] }))
   on('tool.register', (_: unknown, e: { name: string }) => ({ value: { tool: e.name } }))
   on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
+  on('turn.start', () => ({ turnId: 't1' }))
+  on('turn.complete', () => ({ text: 'ok' }))
   const clock = mock.clock(on)
   await ($ as any).session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
   const band = await $.ui.mount({ plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   await switchOn(band)
   await clock.advance(2000)
-  const call = ($ as any).tool.call({ tool: 'AskUserQuestion', questions: QUESTIONS })
+  await ($ as any).turn.start({ text: 'fix it', turnId: 't1', kind: 'engine' })
+  await ($ as any).turn.complete({ text: 'ok', reason: 'answer', answer: 'Fixed.' })
   await settle()
-  expect(notices.at(-1)).toMatchObject({ title: 'Claude asks you · /shop', body: 'Which database?' })
-  await band.press({ key: 'ask-dismiss' })
-  await call
+  expect(notices.at(-1)).toMatchObject({ title: 'Done · /shop', body: 'Fixed.' })
 })
 
 test('the Done notice names the files the turn changed', async ($, on) => {
@@ -329,76 +305,6 @@ test('the Done notice names the files the turn changed', async ($, on) => {
   await settle()
   expect(notices.at(-1)?.title).toBe('Done · /shop · 2 files')
   expect(notices.at(-1)?.body).toBe('Fixed.')
-})
-
-test('a question opens in the band, every one at once; picks and Other go back as the dialog words them', async ($, on) => {
-  const band = await asking($, on)
-  const call = ($ as any).tool.call({ tool: 'AskUserQuestion', questions: QUESTIONS })
-  await settle()
-  const drawn = await textOf(band)
-  for (const seen of ['Which database?', 'Which checks?', 'Postgres', 'one file', 'pick an option to see its preview', 'Submit 0/2']) expect(drawn).toContain(seen)
-  await band.press({ key: 'ask:0:0' })
-  expect(await textOf(band)).toContain('CREATE TABLE users') // the picked option's preview
-  await band.press({ key: 'ask:1:0' })
-  await band.press({ key: 'ask:1:2' })
-  await (band as any).input({ key: 'ask-other:1', text: 'docs' })
-  await band.press({ key: 'ask-submit' })
-  const r = await call
-  expect(r.result.answers).toEqual({ 'Which database?': 'Postgres', 'Which checks?': 'lint, tests, docs' })
-  expect(r.text).toBe('Your questions have been answered: "Which database?"="Postgres", "Which checks?"="lint, tests, docs". You can now continue with these answers in mind.')
-  await settle()
-  expect(await textOf(band)).not.toContain('Which database?') // the menu shut with the answer
-})
-
-test('one question, one choice, no previews: a pick is the answer, with no Submit', async ($, on) => {
-  const band = await asking($, on)
-  const one = [{ question: 'Ship it?', header: 'Ship', multiSelect: false, options: [{ label: 'Yes', description: '' }, { label: 'No', description: '' }] }]
-  const call = ($ as any).tool.call({ tool: 'AskUserQuestion', questions: one })
-  await settle()
-  await band.press({ key: 'ask:0:1' })
-  const r = await call
-  expect(r.result.answers).toEqual({ 'Ship it?': 'No' })
-  // a preview, several questions or several choices: Submit sends them
-  expect(isOneTap(one)).toBe(true)
-  expect(isOneTap(QUESTIONS.slice(0, 1))).toBe(false)
-  expect(isOneTap([...one, ...one])).toBe(false)
-  expect(isOneTap([{ ...one[0]!, multiSelect: true }])).toBe(false)
-  expect(isOneTap([{ question: 'Name?', kind: 'text' }])).toBe(false)
-})
-
-// remote/dialog-hook.mjs marks the session at its start: the engine's dialog then asks, and the hub
-// puts the same dialog on the phone, so the band asks nothing of its own
-const HOOKED = '/tmp/qsb-remote-501/hooked/sess-1'
-test('with the dialog hook in the session, Claude Code\'s own dialog asks Claude\'s questions, not the band', async ($, on) => {
-  on('fs.exists', (_: unknown, e: any) => ({ value: e.path === HOOKED }))
-  const band = await asking($, on)
-  const r = await ($ as any).tool.call({ tool: 'AskUserQuestion', questions: QUESTIONS })
-  expect(r.text).toBe('the engine asked')
-  expect(await textOf(band)).not.toContain('Which database?')
-})
-
-test('Dismiss refuses the call with a reason; shut, the menu leaves a chip that opens it again', async ($, on) => {
-  const band = await asking($, on)
-  const call = ($ as any).tool.call({ tool: 'AskUserQuestion', questions: QUESTIONS.slice(0, 1) })
-  await settle()
-  await band.press({ key: 'close-menu' })
-  expect((await band.find({ key: 'ask-chip' }))?.text).toBe(' ? Claude asks ')
-  await band.press({ key: 'ask-chip' })
-  await band.press({ key: 'ask-dismiss' })
-  const r = await call
-  expect(r.deny).toContain('dismissed the question')
-})
-
-test('where no band draws (VS Code), the engine\'s own dialog asks', async ($, on) => {
-  await asking($, on, 'vscode')
-  const r = await ($ as any).tool.call({ tool: 'AskUserQuestion', questions: QUESTIONS.slice(0, 1) })
-  expect(r.text).toBe('the engine asked')
-})
-
-test('with Self remote off, or on with no hub running, the engine\'s own dialog asks', async ($, on) => {
-  await asking($, on, 'terminal', false)
-  const r = await ($ as any).tool.call({ tool: 'AskUserQuestion', questions: QUESTIONS.slice(0, 1) })
-  expect(r.text).toBe('the engine asked')
 })
 
 test('a session the VS Code extension draws joins the hub; one nothing draws (-p, an SDK run) stays off', async ($, on) => {

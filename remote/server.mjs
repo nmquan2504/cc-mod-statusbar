@@ -180,11 +180,11 @@ function dropHeld(s) {
   for (const h of s?.held ?? []) h.finish(null)
 }
 
-// what the phone sees: every live session, newest first, without the inboxes; a held dialog is
-// the session's question while the mod asks none of its own
+// what the phone sees: every live session, newest first, without the inboxes; the first dialog
+// held for the phone is the session's question
 function stateOf() {
   const list = [...sessions.entries()]
-    .map(([id, s]) => ({ id, ...s.snapshot, queued: [...(s.snapshot.queued ?? []), ...s.inbox], ask: s.snapshot.ask ?? (s.held?.length ? heldAsk(s.held[0]) : null) }))
+    .map(([id, s]) => ({ id, ...s.snapshot, queued: [...(s.snapshot.queued ?? []), ...s.inbox], ask: s.held?.length ? heldAsk(s.held[0]) : null }))
     .sort((a, b) => Number(b.busy) - Number(a.busy) || (b.lastAt ?? 0) - (a.lastAt ?? 0))
   return { version, sessions: list, notice }
 }
@@ -567,22 +567,15 @@ async function answerOp(dev, id, op, a, res) {
       bump()
       return [200, { ok: true, queued: Boolean(s.snapshot.busy) }]
     }
-    // the answer to the question Claude waits on; the session takes it at its next call
+    // the answer to a dialog the engine holds: the hook waiting on it prints the decision
     case 'answer': {
       const s = sessions.get(session)
       const askId = String(a.id ?? '')
       const answers = {}
       for (const [q, v] of Object.entries(a.answers ?? {})) if (typeof v === 'string') answers[String(q).slice(0, 2000)] = v.slice(0, 4000)
-      // a dialog the engine holds: the hook waiting on it prints the decision
-      if (askId.startsWith('held:')) {
-        const h = s?.held?.find(x => `held:${x.hid}` === askId)
-        if (!h) return [409, { error: 'That question is already answered.' }]
-        h.finish(heldDecision(h, answers, a.isDismissed === true))
-        return [200, { ok: true }]
-      }
-      if (!s || !s.snapshot.ask || s.snapshot.ask.id !== askId) return [409, { error: 'That question is already answered.' }]
-      s.answer = { id: askId, answers, isDismissed: a.isDismissed === true }
-      bump()
+      const h = s?.held?.find(x => `held:${x.hid}` === askId)
+      if (!h) return [409, { error: 'That question is already answered.' }]
+      h.finish(heldDecision(h, answers, a.isDismissed === true))
       return [200, { ok: true }]
     }
     // a secret typed on the phone: held for the session to take into the keychain, never logged,
@@ -850,14 +843,12 @@ const ctl = createServer(async (req, res) => {
   if (route === 'GET /inbox') {
     const s = sessions.get(id)
     const texts = s ? s.inbox.splice(0) : []
-    const answer = s?.answer
     const secrets = s?.secrets ?? []
     const pages = s?.pages ?? []
     const stop = s?.stop === true
     const earlier = s?.earlier === true
     const unqueue = s?.unqueue ?? []
     if (s) {
-      delete s.answer
       delete s.secrets
       delete s.pages
       delete s.stop
@@ -870,7 +861,7 @@ const ctl = createServer(async (req, res) => {
       s.text = ''
       bump()
     }
-    return send(res, 200, { texts, answer, secrets, pages, stop, unqueue, earlier })
+    return send(res, 200, { texts, secrets, pages, stop, unqueue, earlier })
   }
   // /zerotts-install, the install done: the voice loaded now, so the first piece does not wait
   if (route === 'POST /tts-warm') {
