@@ -24,6 +24,9 @@ export const prompts = { pending: [] as Pending[], spinner: '' }
 
 // Claude's questions are no permission prompt: the dialog hook puts them on the phone as they are.
 const OWN_DIALOG = new Set(['AskUserQuestion'])
+// The dialogs the dialog hook leaves to the computer (remote/dialog-hook.mjs SKIP): with the hook in
+// the session, these are the only prompts the phone shows as cards and hears of from the mod.
+export const COMPUTER_ONLY = new Set(['ExitPlanMode', 'EnterPlanMode'])
 
 export function noteCheck(e: { tool: string; input: unknown; tool_use_id?: string; agentId?: string; approver?: string }, r: { decision?: string; reason?: string }, now: number) {
   if (r.decision !== 'ask' || !e.tool_use_id || e.agentId !== undefined || e.approver !== 'person' || OWN_DIALOG.has(e.tool)) return
@@ -66,8 +69,9 @@ export async function tickPrompts($: any) {
   if (!due.length) return
   for (const p of due) await countAsk($, rulesFor({ tool_name: p.tool, tool_input: p.input })).catch(() => undefined)
   // with the dialog hook the hub has told the phone already, the moment the dialog came up
-  if (rt.isHooked) return
+  const told = rt.isHooked ? due.filter(p => COMPUTER_ONLY.has(p.tool)) : due
+  if (!told.length) return
   const folder = (await read($, bar)).folder
-  const what = due.map(p => describeCall({ tool: p.tool, ...p.input })).join('; ')
+  const what = told.map(p => describeCall({ tool: p.tool, ...p.input })).join('; ')
   await notifyRemote($, `Claude needs you · /${folder}`, oneLine(`Asks to run ${what}`, 200)).catch(() => undefined)
 }

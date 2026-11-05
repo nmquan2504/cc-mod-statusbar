@@ -200,11 +200,9 @@ export function keepTaskNotes(text: string) {
     task.summary = /<summary>([^<]+)<\/summary>/.exec(body)?.[1]?.trim() ?? task.summary
   }
 }
-// The background command the bar warns about: the newest that failed or logged an error, unseen.
 // The background commands that failed or logged an error line and are not seen yet, oldest first.
 export const failedTasks = () => rt.bgTasks.filter(t => !t.isSeen && (t.status === 'failed' || Boolean(t.errorLine)))
 
-export const failedTask = () => failedTasks().at(-1)
 
 // Every 30 seconds: each server is asked for / over HTTP, 3 seconds at most; a status of 0 is no
 // answer at all. A server that is not HTTP (a database, a socket) answers 0 too.

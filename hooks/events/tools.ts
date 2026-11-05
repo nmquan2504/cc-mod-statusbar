@@ -5,7 +5,7 @@ import { keepEdit, lineCount } from '../features/edits'
 import { hostsOf, keepEgress } from '../features/egress'
 import { keepMcpCall } from '../features/mcp'
 import { releaseHeld } from '../features/remote'
-import { IN_TEXT, SERVICE, cache } from '../features/vault'
+import { IN_TEXT, KEYCHAIN_READ, SERVICE, cache, scrubDeep } from '../features/vault'
 import { describeCall } from '../features/work'
 import { dangerOf } from '../lib/danger'
 import { oneLine } from '../lib/format'
@@ -102,8 +102,9 @@ export function registerTools(on: On) {
       return r
     } finally {
       if (isMain) rt.nowTool = ''
-      // a dialog the phone was shown, answered at the computer: the phone drops it
-      if (!e.agentId && rt.isHooked) void releaseHeld($, e.tool, e as Record<string, unknown>).catch(() => undefined)
+      // a dialog the phone was shown, answered at the computer: the phone drops it (an agent's too:
+      // the hook posts every dialog, and one left held hides the next behind it)
+      if (rt.isHooked) void releaseHeld($, e.tool, e as Record<string, unknown>).catch(() => undefined)
     }
   })
 
@@ -160,12 +161,13 @@ export function registerTools(on: On) {
     return next(e)
   })
 
-  // keep Claude away from the vault in the shell
-  on('tool.call', { tool: 'Bash' }, ($, e, next) => {
+  // keep Claude away from the vault in the shell: a command that names it, holds one of its values,
+  // or reads a keychain item is refused; what a command prints has the vault's values masked
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const c = e.command
-    const hit = c.includes(SERVICE) || new RegExp(IN_TEXT.source).test(c) || [...cache.values()].some(v => c.includes(v))
-    if (!hit) return next(e)
+    const hit = c.includes(SERVICE) || KEYCHAIN_READ.test(c) || new RegExp(IN_TEXT.source).test(c) || [...cache.values()].some(v => c.includes(v))
+    if (!hit) return scrubDeep(await next(e))
     void logAudit($, `blocked a Bash command that reached the vault: ${oneLine(c, 50)}`, true)
-    return { deny: 'statusbar vault: secrets are used only through secret_fetch.' }
+    return { deny: 'statusbar vault: secrets are used only through secret_fetch, and a keychain item is not read from the shell.' }
   }).catch(($, e, next) => (next.called ? next(e) : { deny: 'statusbar vault: its guard failed.' }))
 }

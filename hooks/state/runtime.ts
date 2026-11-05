@@ -44,7 +44,7 @@ export const rt = {
   // The mode as the permission checks give it now (probeMode), the bar's first source.
   probedMode: undefined as string | undefined,
   // The phone's half of Claude Code's own dialogs (remote/dialog-hook.mjs) runs in this session:
-  // its SessionStart hook marked it. Its questions are then left to the engine's dialog.
+  // its SessionStart hook marked it. The hub then puts the dialogs on the phone, not the mod.
   isHooked: false,
   // The turn now running was the auto-continue's own "continue"
   isContinueTurn: false,

@@ -2,7 +2,7 @@
 // remote on (Settings, Self remote; then ⇄ on the bar). It serves the phone's page through one
 // Cloudflare quick tunnel and keeps each session's latest snapshot.
 //
-//   the control socket   <dir>/hub.sock, <dir> = $TMPDIR/qsb-remote-<uid> (mode 700): the mods
+//   the control socket   <dir>/hub.sock, <dir> = /tmp/qsb-remote-<uid> (this user's, mode 700): the mods
 //                        POST /session (a heartbeat with the snapshot), GET /inbox, GET /status,
 //                        POST /notify, POST /allow, POST /deny, POST /stop, POST /held (a dialog
 //                        of Claude Code's own, held for the phone: dialog-hook.mjs), POST /released
@@ -12,7 +12,8 @@
 // link's #fragment is a 256-bit key K that never leaves the phone. A phone proves it holds K with an
 // HMAC, the hub answers with its half of an ECDH and an HMAC of its own, and both derive the phone's
 // AES-GCM key from the ECDH secret salted with K; the phone then waits, with a 4-character code, until
-// the person picks that code in a terminal (the mod offers it among two others), which posts /allow. Cloudflare sees sizes and times, never content. Started detached by
+// the person picks that code in a terminal (the mod offers it among two others), which posts /allow. Cloudflare sees sizes and times, never content; the page's own code comes
+// through the tunnel too, so a Cloudflare that changed it could reach a paired phone. Started detached by
 // the first mod (`node server.mjs <dir> <idleMinutes>`); it stops itself when no session has
 // called in for two minutes, or no phone has for idleMinutes (0: never). Each session's snapshot
 // carries the idle time in force, so a change in Settings reaches a running hub. Node 18 or newer;
@@ -26,7 +27,9 @@ import { connect } from 'node:net'
 import { homedir } from 'node:os'
 import { basename, dirname, extname, isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { heldAsk, heldCall, heldDecision } from './held.mjs'
+import { heldAsk, heldCall, heldDecision, heldRules, isHeldCall } from './held.mjs'
+import { SENSITIVE, maskSecrets } from './mask.mjs'
+import { isOwnDir } from './owndir.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const DIR = process.argv[2]
@@ -54,8 +57,17 @@ const CODE_CHARS = '23456789ABCDEFGHJKMNPQRSTUVWXYZ'
 const PUSH_HOSTS = [/^fcm\.googleapis\.com$/, /^updates\.push\.services\.mozilla\.com$/, /(^|\.)push\.apple\.com$/, /\.notify\.windows\.com$/]
 if (!DIR) process.exit(2)
 
-mkdirSync(DIR, { recursive: true, mode: 0o700 })
-chmodSync(DIR, 0o700)
+// The folder must be this user's own, mode 700, no link: another user who made it first could
+// otherwise answer on hub.sock, the PermissionRequest hook's dialogs among what it would hear.
+try {
+  mkdirSync(DIR, { mode: 0o700 })
+} catch (e) {
+  if (e?.code !== 'EEXIST') throw e
+}
+if (!isOwnDir(DIR)) {
+  console.error(`${DIR} is not this user's own folder with mode 700; the hub does not start`)
+  process.exit(2)
+}
 const SOCK = join(DIR, 'hub.sock')
 // the mod's version this hub was started from, as the mod's modVersionShort writes it ("0.2.1 ·
 // d0a0466"), and when that commit was made (ms; 0 outside a clone), so a session on newer code may
@@ -114,7 +126,14 @@ let version = 0 // moves on every change a phone should see
 const sessions = new Map() // session id -> { snapshot, seenAt, inbox: string[] }
 const subscriptions = new Map(kept?.subscriptions ?? []) // endpoint -> { sub, device }
 const waiters = new Set() // long-poll responses waiting for the next version
-let pairFails = 0
+// the wrong links of the last PAIR_FAIL_MS: past MAX_PAIR_FAILS, pairing waits until older ones age
+// out, so a stranger with the address cannot lock it for good
+let pairFailAt = []
+const PAIR_FAIL_MS = 10 * 60_000
+function isPairLocked() {
+  pairFailAt = pairFailAt.filter(t => Date.now() - t < PAIR_FAIL_MS)
+  return pairFailAt.length >= MAX_PAIR_FAILS
+}
 let notice = { title: 'Claude', body: 'Nothing yet.', at: 0, session: '' }
 let lastPhoneAt = Date.now()
 let lastSessionAt = Date.now()
@@ -182,9 +201,14 @@ function dropHeld(s) {
 
 // what the phone sees: every live session, newest first, without the inboxes; the first dialog
 // held for the phone is the session's question
+// a held permission as the phone reads it: its command masked as every text the phone gets is
+function shownAsk(h) {
+  const a = heldAsk(h)
+  return h.tool === 'AskUserQuestion' ? a : { ...a, questions: a.questions.map(q => ({ ...q, description: maskSecrets(q.description ?? '') })) }
+}
 function stateOf() {
   const list = [...sessions.entries()]
-    .map(([id, s]) => ({ id, ...s.snapshot, queued: [...(s.snapshot.queued ?? []), ...s.inbox], ask: s.held?.length ? heldAsk(s.held[0]) : null }))
+    .map(([id, s]) => ({ id, ...s.snapshot, queued: [...(s.snapshot.queued ?? []), ...s.inbox], ask: s.held?.length ? shownAsk(s.held[0]) : null }))
     .sort((a, b) => Number(b.busy) - Number(a.busy) || (b.lastAt ?? 0) - (a.lastAt ?? 0))
   return { version, sessions: list, notice }
 }
@@ -254,9 +278,8 @@ const TEXT_TYPES = { '.csv': 'text/csv', '.tsv': 'text/tab-separated-values', '.
 const RAW_MAX = 20 * 1024 * 1024
 
 // ---- browsing a session's folders: its own, those added, and the files it holds in context ----
-// The same paths the mod's file menu shows locked (hooks/lib/catalog.ts): the project's secrets and
-// the credentials a home folder keeps, never shown on a phone, in the Folder tab or as a diff.
-const SENSITIVE = /(^|\/)(\.env(\..*)?|\.envrc|secrets|exports|\.ssh|\.aws|\.gnupg|\.docker|\.kube|\.config\/gcloud|\.npmrc|\.netrc|\.pypirc|\.git-credentials|id_(rsa|dsa|ecdsa|ed25519)[^/]*|[^/]*\.(pem|key|p12|pfx|jks|keystore|kdbx|ppk|tfvars|tfstate))(\/|$)/i
+// SENSITIVE (mask.mjs, the rule the mod's file menu locks by): the project's secrets and the
+// credentials a home folder keeps, never shown on a phone, in the Folder tab or as a diff.
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.baseline'])
 const TEXT_MAX = 512 * 1024
 const real = p => { try { return realpathSync(p) } catch { return '' } }
@@ -336,7 +359,7 @@ async function searchOf(session, query) {
       const m = /^(?:\.\/)?([^:]+):(\d+):(.*)$/.exec(line)
       if (!m || SENSITIVE.test(m[1])) continue
       if (hits.length >= SEARCH_HITS) { isCut = true; break }
-      hits.push({ path: join(root, m[1]), rel: m[1], line: Number(m[2]), text: m[3].trim().slice(0, 200) })
+      hits.push({ path: join(root, m[1]), rel: m[1], line: Number(m[2]), text: maskSecrets(m[3].trim()).slice(0, 200) })
     }
   }
   return { status: 200, body: { names, hits, isCut } }
@@ -575,6 +598,9 @@ async function answerOp(dev, id, op, a, res) {
       for (const [q, v] of Object.entries(a.answers ?? {})) if (typeof v === 'string') answers[String(q).slice(0, 2000)] = v.slice(0, 4000)
       const h = s?.held?.find(x => `held:${x.hid}` === askId)
       if (!h) return [409, { error: 'That question is already answered.' }]
+      // "don't ask again": this call now, the rules once the terminal allows them (the mod asks)
+      const rules = heldRules(h, answers, a.isDismissed === true)
+      if (rules.length && s) s.rules = [...new Set([...(s.rules ?? []), ...rules])].slice(-10)
       h.finish(heldDecision(h, answers, a.isDismissed === true))
       return [200, { ok: true }]
     }
@@ -584,6 +610,8 @@ async function answerOp(dev, id, op, a, res) {
       const s = sessions.get(session)
       const value = typeof a.value === 'string' ? a.value.trim().slice(0, 4096) : ''
       if (!s || !value) return [400, { error: value ? 'That session is gone.' : 'empty' }]
+      // one line: a line break would reach the keychain's command line as a command of its own
+      if (/[\u0000-\u001f\u007f]/.test(value)) return [400, { error: 'A secret is one line of text: no line breaks.' }]
       const pick = k => (typeof a[k] === 'string' ? a[k].trim().slice(0, 200) : '')
       s.secrets = [...(s.secrets ?? []), { value, name: pick('name'), host: pick('host'), header: pick('header') }].slice(-5)
       return [200, { ok: true }]
@@ -721,12 +749,12 @@ const pub = createServer(async (req, res) => {
     // pairing: the phone shows it holds K (an HMAC, K itself never sent), the hub answers with its
     // half of the ECDH and an HMAC of its own; the phone then waits for Allow in a terminal
     if (route === 'POST /hello') {
-      if (pairFails >= MAX_PAIR_FAILS) return send(res, 423, { error: 'Pairing is locked after too many wrong links. Stop and start the remote again.' })
+      if (isPairLocked()) return send(res, 423, { error: 'Pairing is paused after too many wrong links. Try again in 10 minutes.' })
       const body = await readJson(req)
       const phonePub = String(body?.pub ?? '')
       const isK = phonePub && (await subtle.verify('HMAC', AUTH, unb64(body?.mac ?? ''), te.encode(`hello|${phonePub}`)).catch(() => false))
       if (!isK) {
-        pairFails++
+        pairFailAt.push(Date.now())
         return send(res, 403, { error: 'This link is not the one the terminal shows now. Scan the QR code again.' })
       }
       let theirs
@@ -813,7 +841,9 @@ function statusOf() {
     devices: [...devices.values()].filter(d => d.isApproved).map(d => ({ name: d.name, seenAt: d.seenAt })),
     pending: [...devices.entries()].filter(([, d]) => !d.isApproved && !d.isDenied && !isExpired(d)).map(([id, d]) => ({ id, code: d.code, name: d.name, at: d.at, expiresAt: d.at + PAIR_MS })),
     phones: Date.now() - lastPhoneAt < 40_000 ? [...devices.values()].filter(d => d.isApproved && Date.now() - d.seenAt < 40_000).length : 0,
-    isLocked: pairFails >= MAX_PAIR_FAILS,
+    isLocked: isPairLocked(),
+    // the dialogs held for phones: a restart would let them go
+    held: [...sessions.values()].reduce((n, s) => n + (s.held?.length ?? 0), 0),
     // a restart (POST /restart) keeps the address and the paired phones
     canHandOver: true,
     tts: { state: ttsState(), isLoaded: tts.isReady },
@@ -848,12 +878,14 @@ const ctl = createServer(async (req, res) => {
     const stop = s?.stop === true
     const earlier = s?.earlier === true
     const unqueue = s?.unqueue ?? []
+    const rules = s?.rules ?? []
     if (s) {
       delete s.secrets
       delete s.pages
       delete s.stop
       delete s.earlier
       delete s.unqueue
+      delete s.rules
     }
     // the texts stay on the phone as sent until the session's next snapshot says where they are
     if (texts.length) {
@@ -861,7 +893,7 @@ const ctl = createServer(async (req, res) => {
       s.text = ''
       bump()
     }
-    return send(res, 200, { texts, secrets, pages, stop, unqueue, earlier })
+    return send(res, 200, { texts, secrets, pages, stop, unqueue, earlier, rules })
   }
   // /zerotts-install, the install done: the voice loaded now, so the first piece does not wait
   if (route === 'POST /tts-warm') {
@@ -886,12 +918,12 @@ const ctl = createServer(async (req, res) => {
   }
   // The session saw a held dialog answered at the computer (the call ran, or was refused) or its
   // turn end: the engine leaves the hook running, so the hub lets it go and the phone drops it.
-  // With a tool, the held calls of that tool (and that call, when a text names it); else every one.
+  // With a tool and the call's input, that call (isHeldCall); with nothing, every one.
   if (route === 'POST /released') {
     const s = sessions.get(id)
-    const body = (await readJson(req)) ?? {}
+    const body = (await readJson(req, MAX_SNAPSHOT)) ?? {}
     for (const h of [...(s?.held ?? [])]) {
-      const isIt = typeof body.tool !== 'string' || (h.tool === body.tool && (typeof body.text !== 'string' || heldCall(h.input) === body.text))
+      const isIt = typeof body.tool !== 'string' || isHeldCall(h, body.tool, body.input)
       if (isIt) h.finish(null)
     }
     return send(res, 200, { ok: true })
@@ -915,7 +947,7 @@ const ctl = createServer(async (req, res) => {
     res.on('close', () => h.finish(null))
     s.held = [...(s.held ?? []), h]
     const q = heldAsk(h).questions[0]
-    notice = { title: `Claude needs you · /${String(s.snapshot.folder ?? '')}`.slice(0, 80), body: String(h.tool === 'AskUserQuestion' ? q?.question ?? '' : `Asks to use ${h.tool}: ${heldCall(h.input)}`).slice(0, 300), at: Date.now(), session: id }
+    notice = { title: `Claude needs you · /${String(s.snapshot.folder ?? '')}`.slice(0, 80), body: maskSecrets(String(h.tool === 'AskUserQuestion' ? q?.question ?? '' : `Asks to use ${h.tool}: ${heldCall(h.input)}`)).slice(0, 300), at: Date.now(), session: id }
     bump()
     void pushAll()
     return

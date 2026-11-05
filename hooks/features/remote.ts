@@ -3,7 +3,8 @@ import { oneLine, shortModel } from '../lib/format'
 import { suggestionChips } from '../lib/suggest'
 import { buildPage, isPage, pageAction } from './pages'
 import type { Page, PageName } from './pages'
-import { waitingPrompts } from './prompts'
+import { allowRule } from './permissions'
+import { COMPUTER_ONLY, waitingPrompts } from './prompts'
 import { TOP_GROUP, USE_KEY, groupOf } from './commands'
 import { modVersionShort } from './update'
 import { forgetSecret, listSecrets, saveTyped, scrub } from './vault'
@@ -39,12 +40,16 @@ export type RemoteStatus = {
   pending: { id: string; code: string; name: string; at: number; expiresAt?: number }[]
   phones: number
   isLocked: boolean
+  // the dialogs the hub holds for phones; absent from a hub before 0.19.1
+  held?: number
   subscriptions: number
   // a restart keeps the link and the paired phones (POST /restart); absent from a hub before it
   canHandOver?: boolean
 }
 export const remote = {
   dir: '',
+  // a tick of tickRemote under way: the next waits for it, so one queued text goes in once
+  isTicking: false,
   // the hub's last answer; null while none answers
   status: null as RemoteStatus | null,
   isStarting: false,
@@ -133,16 +138,25 @@ async function whereAre($: any, names: string[]) {
 }
 const sockOf = () => `${remote.dir}/hub.sock`
 
-async function hubDir($: any) {
+// The hub's folder, /tmp/qsb-remote-<uid>, once it is this user's own: a real folder (no link),
+// owned by this user, mode 700. Another user who made it first could answer on hub.sock, and what
+// that socket sends back goes in as prompts; so until the folder passes, there is no hub. `isMade`:
+// made now when missing (the hub's start).
+const OWN_DIR = '[ -n "$2" ] && mkdir -m 700 "$1" 2>/dev/null; [ -d "$1" ] && [ ! -L "$1" ] && [ -O "$1" ] && [ "$(stat -f %Lp "$1" 2>/dev/null || stat -c %a "$1")" = 700 ]'
+async function hubDir($: any, isMade = false) {
   if (remote.dir) return remote.dir
   const r = await $.process.run(['id', '-u']).catch(() => undefined)
   const uid = String(r?.stdout ?? '').trim()
-  if (/^\d+$/.test(uid)) remote.dir = `/tmp/qsb-remote-${uid}`
+  if (!/^\d+$/.test(uid)) return ''
+  const dir = `/tmp/qsb-remote-${uid}`
+  const own = await $.process.run(['/bin/sh', '-c', OWN_DIR, 'sh', dir, isMade ? 'make' : '']).catch(() => undefined)
+  if (own?.exitCode === 0) remote.dir = dir
   return remote.dir
 }
 
 // Whether remote/dialog-hook.mjs runs in this session: its SessionStart hook left a mark named by the
-// session's id. A session started before the hook was installed has none and asks in the band.
+// session's id. A session started before the hook was installed has none: the phone only shows its
+// permission prompts, as cards answered at the computer.
 export async function isHooked($: any) {
   if (rt.isHooked) return true
   const dir = await hubDir($)
@@ -154,17 +168,15 @@ export async function isHooked($: any) {
 
 // A dialog the hub holds for the phone was answered at the computer: the call ran or was refused,
 // or the turn ended. Claude Code leaves the hook running then, so the hub is told to let it go and
-// the phone drops the question. The call is named by its tool and the text the dialog shows (the
-// command, the file, the URL); with no tool, every dialog held for this session goes. The spinner is
-// no sign: it can turn to tool-use before the dialog comes up.
+// the phone drops the question. The call is named by its tool and its input, which the hub matches
+// to the input the dialog was raised for (held.mjs isHeldCall); with no tool, every dialog held for
+// this session goes. The spinner is no sign: it can turn to tool-use before the dialog comes up.
 export async function releaseHeld($: any, tool?: string, call?: Record<string, unknown>) {
   if (!rt.isHooked || !remote.isJoined) return
   const id: string = await $.session.id().catch(() => '')
   if (!id) return
-  const str = (v: unknown) => (typeof v === 'string' ? v : '')
-  const named = call ? str(call.command) || str(call.file_path) || str(call.notebook_path) || str(call.url) || str(call.pattern) : ''
-  const text = named.length > 1500 ? `${named.slice(0, 1500)}… ${named.length - 1500} more characters` : named
-  await hub($, 'POST', `/released?id=${encodeURIComponent(id)}`, tool ? { tool, ...(text ? { text } : {}) } : {})
+  const { tool: _t, agentId: _a, tool_use_id: _u, ...input } = call ?? {}
+  await hub($, 'POST', `/released?id=${encodeURIComponent(id)}`, tool ? { tool, input } : {})
 }
 
 export async function hub($: any, method: string, path: string, body?: unknown) {
@@ -194,8 +206,8 @@ export async function readRemote($: any) {
 // Starts the hub, detached: node runs it in the background and the shell returns at once.
 export async function startRemote($: any) {
   if (remote.isStarting || remote.installingAt || (await readRemote($))) return
-  const dir = await hubDir($)
-  if (!dir) return $.ui.toast('statusbar: remote: could not read the user id')
+  const dir = await hubDir($, true)
+  if (!dir) return $.ui.toast("statusbar: remote: /tmp/qsb-remote-<uid> is missing or not this user's own folder with mode 700; the hub does not start")
   // no tunnel without cloudflared: the menu offers to install it instead of starting a hub
   const found = await whereAre($, ['cloudflared', 'brew'])
   if (!found.cloudflared) {
@@ -210,7 +222,7 @@ export async function startRemote($: any) {
   remote.isHidden = false
   $.ui.invalidate('ui.render')
   const server = `${$.plugin.root}/remote/server.mjs`
-  const script = 'mkdir -p -m 700 "$1" && command -v node >/dev/null || { echo "node is not on PATH" >&2; exit 3; }; nohup node "$0" "$1" "$2" >>"$1/hub.out" 2>&1 </dev/null &'
+  const script = 'command -v node >/dev/null || { echo "node is not on PATH" >&2; exit 3; }; nohup node "$0" "$1" "$2" >>"$1/hub.out" 2>&1 </dev/null &'
   const r = await $.process.run(['/bin/sh', '-c', script, server, dir, String(cfg.remoteIdleMinutes)]).catch(() => undefined)
   if (r?.exitCode !== 0) {
     remote.isStarting = false
@@ -767,8 +779,9 @@ async function snapshotOf($: any) {
     vaultNote: remote.vaultNote,
     lastAt: remote.lastAt,
     // the permission prompts waiting for the person, shown on the phone; answered at the computer.
-    // With the dialog hook the hub shows them itself, as questions the phone answers.
-    permissions: rt.isHooked ? [] : waitingPrompts(Date.now()).map(p => ({ ...p, text: hide(p.text) })),
+    // With the dialog hook the hub shows them itself, as questions the phone answers, except the
+    // plan dialogs, which the hook leaves to the computer.
+    permissions: waitingPrompts(Date.now()).filter(p => !rt.isHooked || COMPUTER_ONLY.has(p.tool)).map(p => ({ ...p, text: hide(p.text) })),
     // the pages the phone opened in the last ten minutes
     pages: Object.values(remote.pages).filter(p => Date.now() - p!.at < 600_000),
     // the mod's version this session loaded, for the foot of the phone's drawer
@@ -779,6 +792,16 @@ async function snapshotOf($: any) {
 // Every two seconds with the setting on: join the hub when one runs, send this session's
 // snapshot, take what the phone sent, and tell the terminal of a phone asking to pair.
 export async function tickRemote($: any) {
+  if (remote.isTicking) return
+  remote.isTicking = true
+  try {
+    await tickRemoteOnce($)
+  } finally {
+    remote.isTicking = false
+  }
+}
+
+async function tickRemoteOnce($: any) {
   if (!cfg.selfRemote) return
   const id = await $.session.id().catch(() => '')
   if (!id) return
@@ -817,7 +840,7 @@ export async function tickRemote($: any) {
   // session's code, once a load. A hub that hands over keeps the link and the phones, so it restarts
   // with phones watching; an older one, only when no phone watches or asks to pair (else r in the
   // menu does it when the person chooses)
-  const canRestartNow = status.canHandOver ? !status.pending.length : !status.phones && !status.pending.length
+  const canRestartNow = !status.held && (status.canHandOver ? !status.pending.length : !status.phones && !status.pending.length)
   if (hubIsOlder() && canRestartNow && !remote.isAutoRestarted && !remote.isStarting) {
     remote.isAutoRestarted = true
     $.ui.toast(status.canHandOver
@@ -834,6 +857,15 @@ export async function tickRemote($: any) {
   if (JSON.stringify(status) !== was) $.ui.invalidate('ui.render')
   const inbox = await hub($, 'GET', `/inbox?id=${encodeURIComponent(id)}`)
   if (Array.isArray(inbox?.texts)) remote.queue = [...remote.queue, ...inbox.texts.filter((t: unknown) => typeof t === 'string')]
+  // "don't ask again" from the phone: the call ran; the rules it asks for wait for Allow here
+  const rules = (Array.isArray(inbox?.rules) ? inbox.rules : []).filter((r: unknown): r is string => typeof r === 'string' && /^[\w-]+(\([^()\n]{1,300}\))?$/.test(r))
+  if (rules.length)
+    void (async () => {
+      const ALLOW = 'Allow'
+      const said = await $.ui.ask(`The phone answered "don't ask again", which adds the allow rule ${rules.join(', ')} to .claude/settings.local.json. Claude would then do this without asking. Allow it?`, { header: 'Phone', options: [ALLOW, 'Deny'] }).catch(() => undefined)
+      if (said === ALLOW) for (const rule of rules) await allowRule($, rule)
+      else $.ui.toast(`statusbar: remote: ${rules.join(', ')} was not added`)
+    })().catch(() => undefined)
   // a queued text the phone took back: one of that text goes, unless it went in already
   for (const t of Array.isArray(inbox?.unqueue) ? inbox.unqueue : []) {
     const at = remote.queue.findIndex(q => q.trim() === String(t).trim())

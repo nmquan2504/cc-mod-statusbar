@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { heldAsk, heldCall, heldDecision, suggestionText } from '../remote/held.mjs'
+import { heldAsk, heldCall, heldDecision, heldRules, isHeldCall, suggestionText } from '../remote/held.mjs'
 import type { Held } from '../remote/held.mjs'
 
 // Claude Code's own dialogs, held for the phone (remote/held.mjs): the question the phone is
@@ -21,14 +21,31 @@ test('a permission dialog reads on the phone as Yes and No, with the call as the
   expect(heldCall({ command: 'x'.repeat(1600) })).toBe(`${'x'.repeat(1500)}… 100 more characters`)
 })
 
-test('"don\'t ask again" is offered only when the dialog has rules to add, and adds them', () => {
+test('"don\'t ask again" is offered only when the dialog suggests allow rules; the phone allows the call, the rules wait for the terminal', () => {
   expect(suggestionText(RULES)).toBe('Bash(mkdir:*)')
-  expect(suggestionText([{ type: 'addDirectories', directories: ['/work/lib'], destination: 'session' }])).toBe('the folder /work/lib')
+  // a folder or a mode stays the dialog's own, at the computer
+  expect(suggestionText([{ type: 'addDirectories', directories: ['/work/lib'], destination: 'session' }, { type: 'setMode', mode: 'bypassPermissions' }])).toBe('')
   const h = held({ suggestions: RULES })
   const labels = heldAsk(h).questions[0]!.options!.map(o => o.label)
   expect(labels).toEqual(['Yes', "Yes, and don't ask again: Bash(mkdir:*)", 'No'])
+  expect(heldAsk(held({ suggestions: [{ type: 'setMode', mode: 'bypassPermissions' }] })).questions[0]!.options!.map(o => o.label)).toEqual(['Yes', 'No'])
   const q = heldAsk(h).questions[0]!.question
-  expect(heldDecision(h, { [q]: "Yes, and don't ask again: Bash(mkdir:*)" }, false)).toEqual({ behavior: 'allow', updatedPermissions: RULES })
+  const always = { [q]: "Yes, and don't ask again: Bash(mkdir:*)" }
+  // never updatedPermissions: the phone cannot add a rule by itself
+  expect(heldDecision(h, always, false)).toEqual({ behavior: 'allow' })
+  expect(heldRules(h, always, false)).toEqual(['Bash(mkdir:*)'])
+  expect(heldRules(h, { [q]: 'Yes' }, false)).toEqual([])
+  expect(heldRules(h, always, true)).toEqual([])
+})
+
+test('a call that ended is matched to its own held dialog by its input, not by its tool alone', () => {
+  const a = held({ hid: 'a', tool: 'WebSearch', input: { query: 'bun test' } })
+  const b = held({ hid: 'b', tool: 'WebSearch', input: { query: 'vitest' } })
+  expect(isHeldCall(a, 'WebSearch', { query: 'bun test', extra: 1 })).toBe(true)
+  expect(isHeldCall(b, 'WebSearch', { query: 'bun test' })).toBe(false)
+  expect(isHeldCall(a, 'WebFetch', { query: 'bun test' })).toBe(false)
+  const grep = held({ tool: 'Grep', input: { pattern: 'TODO', path: '/work/a' } })
+  expect(isHeldCall(grep, 'Grep', { pattern: 'TODO', path: '/work/b' })).toBe(false)
 })
 
 test('the phone\'s answer is the decision: Yes allows, No denies with what to do instead', () => {

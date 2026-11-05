@@ -245,11 +245,11 @@ export async function pageAction($: any, name: PageName, key: string, value: unk
       })
       await logAudit($, `${what}, from the phone`).catch(() => undefined)
     }
-    // an allow rule added or a deny rule taken away loosens the guard: whoever holds the phone
-    // waits for Allow in the terminal, as pairing does; the page says so meanwhile
-    if ((key === 'add' && list === 'allow') || (key !== 'add' && list === 'deny')) {
+    // an allow rule added, or a deny or ask rule taken away, loosens the guard: whoever holds the
+    // phone waits for Allow in the terminal, as pairing does; the page says so meanwhile
+    if ((key === 'add' && list === 'allow') || (key !== 'add' && list !== 'allow')) {
       then((async () => {
-        if (await allowedAtComputer($, `The phone asks to ${key === 'add' ? 'add the allow rule' : 'remove the deny rule'} ${rule} in .claude/settings.local.json, which lets Claude do more without asking. Allow it?`)) return apply()
+        if (await allowedAtComputer($, `The phone asks to ${key === 'add' ? 'add the allow rule' : `remove the ${list} rule`} ${rule} in .claude/settings.local.json, which lets Claude do more without asking. Allow it?`)) return apply()
         await logAudit($, `refused: the phone ${what.replace(/^added/, 'would have added').replace(/^removed/, 'would have removed')}`).catch(() => undefined)
         $.ui.toast(`statusbar: remote: the phone's ${list} rule change was not made`)
       })())
