@@ -41,7 +41,10 @@ export async function drawUsageMenu($: any, els: any, isTerminal: boolean, _entr
   }
   return (
     <Box flexDirection="column">
-      <Text color="claude" bold>◆ Rate limits</Text>
+      <Text>
+        <Text color="claude" bold>◆ Rate limits</Text>
+        <Text dimColor>{rt.usageFetchedAt && Date.now() - rt.usageFetchedAt < 60_000 ? `  from Anthropic at ${hhmm(rt.usageFetchedAt)}` : '  from the last response'}</Text>
+      </Text>
       {u.rateLimits.length === 0 && <Text dimColor>  none reported: off a subscription, or no API response yet</Text>}
       {u.rateLimits.map(r => {
         const at = r.resetsAt ? Date.parse(r.resetsAt) : NaN

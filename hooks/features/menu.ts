@@ -6,7 +6,7 @@ import { readImages } from './images'
 import { readMcp } from './mcp'
 import { readRemote } from './remote'
 import { refreshBar } from './status'
-import { readBreakdown } from './usage'
+import { fetchUsage, readBreakdown } from './usage'
 import { readVault } from './vault'
 import { readServers, readWork } from './work'
 import { SKIP_DIRS } from '../lib/catalog'
@@ -79,6 +79,8 @@ export async function openMenu($: any, kind: MenuKind) {
   }
   // the same button again closes it, as a dropdown does
   await update($, menu, now => (now === kind ? null : kind))
+  // the usage opened: asked of Anthropic at once, the bar and the menu redrawn when it answers
+  if (kind === 'usage' && (await read($, menu)) === 'usage') void fetchUsage($).then(ok => (ok ? refreshBar($) : undefined)).catch(() => undefined)
   // a menu taller than the band scrolls; the window starts at the bar, by the prompt
   if ((await read($, menu)) !== null) await $.ui.scroll({ to: { key: 'add' }, block: 'end' }).catch(() => undefined)
 }
