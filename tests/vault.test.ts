@@ -126,6 +126,9 @@ test('Bash cannot reach the vault', async ($, on) => {
   expect((await t.tool.call({ tool: 'Bash', command: 'secret-tool lookup service x account MY_KEY' })).deny).toContain('vault')
   expect((await t.tool.call({ tool: 'Bash', command: 'curl -H "k: s3cr3t-value-123" x' })).deny).toContain('vault')
   expect((await t.tool.call({ tool: 'Bash', command: 'ls' })).deny).toBeUndefined()
+  // the words alone, searched for or written about, are no keychain read
+  expect((await t.tool.call({ tool: 'Bash', command: 'grep -n find-generic-password hooks/features/vault.ts' })).deny).toBeUndefined()
+  expect((await t.tool.call({ tool: 'Bash', command: 'secret-tool --version | grep search' })).deny).toBeUndefined()
   // what a command prints has the vault's values masked
   expect((await t.tool.call({ tool: 'Bash', command: 'env' })).result.stdout).toBe('MY_KEY=[secret:MY_KEY]\n')
 })

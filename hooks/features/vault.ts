@@ -207,7 +207,7 @@ export async function listSecrets($: any) {
 
 // A shell command that reads a keychain or Secret Service item, whichever item it names: the vault's
 // items need no keychain prompt for /usr/bin/security, which added them.
-export const KEYCHAIN_READ = /\b(?:find-generic-password|find-internet-password|dump-keychain)\b|\bsecret-tool\b[\s\S]*\b(?:lookup|search)\b/
+export const KEYCHAIN_READ = /\bsecurity\s+(?:-\S+\s+)*(?:find-generic-password|find-internet-password|dump-keychain)\b|\bsecret-tool\s+(?:lookup|search)\b/
 
 // A tool's result with every value this session's vault holds put back as [secret:NAME]: strings in
 // plain objects and arrays, the rest as it was.

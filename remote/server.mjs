@@ -918,12 +918,14 @@ const ctl = createServer(async (req, res) => {
   }
   // The session saw a held dialog answered at the computer (the call ran, or was refused) or its
   // turn end: the engine leaves the hook running, so the hub lets it go and the phone drops it.
-  // With a tool and the call's input, that call (isHeldCall); with nothing, every one.
+  // With a tool and the call's input, that call (isHeldCall); with `all` (the turn ended), every
+  // one. A body that does not read lets nothing go.
   if (route === 'POST /released') {
     const s = sessions.get(id)
-    const body = (await readJson(req, MAX_SNAPSHOT)) ?? {}
+    const body = await readJson(req, MAX_SNAPSHOT)
+    if (!body || (typeof body.tool !== 'string' && body.all !== true)) return send(res, 400, { error: 'name a tool and its input, or all' })
     for (const h of [...(s?.held ?? [])]) {
-      const isIt = typeof body.tool !== 'string' || isHeldCall(h, body.tool, body.input)
+      const isIt = body.all === true || isHeldCall(h, body.tool, body.input)
       if (isIt) h.finish(null)
     }
     return send(res, 200, { ok: true })
