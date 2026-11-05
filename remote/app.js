@@ -577,14 +577,15 @@ function renderChat() {
     }
   }
   // under Claude's last answer: Claude Code's guess at your next prompt, else what Haiku
-  // proposes, three at most; a tap puts it in the reply box (chipToBox)
+  // proposes, three at most; a tap sends it, a swipe right puts it in the reply box (chip gestures)
   const chips = snap.busy ? [] : snap.suggestions || []
   if (chips.length) {
     const row = root.appendChild(el('div', 'suggests'))
     for (const s of chips) {
       const chip = row.appendChild(el('button', 'suggest'))
       chip.append(icon('spark'), el('span', '', s))
-      chip.onclick = () => chipToBox(s)
+      chipText.set(chip, s)
+      chip.onclick = () => sendChip(chip)
     }
   }
   // sent as the prompt, not in the transcript yet: drawn as the bubble it will be
@@ -1210,6 +1211,58 @@ async function copyText(value) {
   $('chat').addEventListener('pointercancel', end)
   // a long press is the copy: no menu, no selection
   $('chat').addEventListener('contextmenu', e => { if (e.target.closest('.b.claude, .b.me')) e.preventDefault() })
+}
+
+// ---- gestures on a suggestion chip ------------------------------------------------------------
+// A tap sends the chip at once, as Send would with only it in the box (a page's command opens its
+// page); the draft in the box stays. A swipe right puts it in the reply box instead (chipToBox):
+// the chip follows the finger, and past SWIPE_PX on letting go it goes in. A move more up or down
+// than across is a scroll.
+const chipText = new WeakMap() // a chip -> the prompt it suggests
+let chipSwipedAt = 0
+function sendChip(chip) {
+  // the click a swipe ends with is not a tap
+  if (Date.now() - chipSwipedAt < 400 || chip.disabled) return
+  chip.disabled = true
+  navigator.vibrate?.(10)
+  void sendText(chipText.get(chip)).finally(() => { chip.disabled = false })
+}
+{
+  let chip = null, x0 = 0, y0 = 0, dx = 0, isAcross = false
+  $('chat').addEventListener('pointerdown', e => {
+    chip = e.target.closest('.suggest')
+    if (!chip || !chipText.has(chip)) return (chip = null)
+    x0 = e.clientX
+    y0 = e.clientY
+    dx = 0
+    isAcross = false
+  })
+  $('chat').addEventListener('pointermove', e => {
+    if (!chip) return
+    const mx = e.clientX - x0, my = e.clientY - y0
+    if (!isAcross && Math.abs(my) > 10 && Math.abs(my) > Math.abs(mx)) return (chip = null)
+    if (mx > 10) isAcross = true
+    if (!isAcross) return
+    dx = Math.max(0, mx)
+    chip.style.transition = 'none'
+    chip.style.transform = `translateX(${Math.min(dx, SWIPE_PX + 24)}px)`
+    chip.classList.toggle('quoting', dx > SWIPE_PX)
+  })
+  const end = () => {
+    if (!chip) return
+    const c = chip
+    chip = null
+    c.style.transition = 'transform .15s ease'
+    c.style.transform = ''
+    c.classList.remove('quoting')
+    if (!isAcross) return
+    chipSwipedAt = Date.now()
+    if (dx <= SWIPE_PX) return
+    chipToBox(chipText.get(c))
+    navigator.vibrate?.(10)
+  }
+  $('chat').addEventListener('pointerup', end)
+  $('chat').addEventListener('pointercancel', end)
 }
 
 // The quote over the reply box: who wrote it and its first two lines, ✕ to drop it. It goes before
@@ -2145,7 +2198,7 @@ function jumpPrompt(by) {
 $('prev-prompt').onclick = () => jumpPrompt(-1)
 $('next-prompt').onclick = () => jumpPrompt(1)
 window.addEventListener('scroll', syncPromptNav, { passive: true })
-// A chip tapped: it goes on a line of its own at the end of the reply box, after any draft, for
+// A chip swiped right: it goes on a line of its own at the end of the reply box, after any draft, for
 // Send to take; the box is not focused, so the keyboard stays down.
 function chipToBox(s) {
   const kept = text.value.replace(/\s+$/, '')

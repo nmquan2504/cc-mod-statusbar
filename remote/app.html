@@ -67,6 +67,9 @@
   .suggest { display: inline-flex; align-items: center; gap: 6px; max-width: 88%; margin: 0; padding: 6px 12px; border: 1px solid var(--claude); border-radius: 16px; background: none; color: var(--claude); font-size: 14px; text-align: left; }
   .suggest svg.ic { width: 14px; height: 14px; flex: none; }
   .suggest span { overflow-wrap: anywhere; }
+  .suggest { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: pan-y; }
+  .suggest.quoting { box-shadow: 0 0 0 2px var(--claude); }
+  .suggest:disabled { opacity: .5; }
   .more-tools { margin: 0 0 6px 6px; font: 11.5px var(--mono); color: var(--dim); opacity: .6; }
   .tools { margin: 0 0 10px 6px; font: calc(11.5px * var(--fs))/1.45 var(--mono); color: var(--dim); }
   .tools strong { font-weight: 600; }
