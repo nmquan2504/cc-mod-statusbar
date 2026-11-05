@@ -9,6 +9,8 @@ export const ME = 'cc-mod-statusbar'
 // What the mod keeps between events and draws, outside $.state: plain values its hooks set
 // and read; one object, so every module reads and writes the same ones.
 export const rt = {
+  // when the usage endpoint last answered (features/usage.ts fetchUsage), for the usage menu
+  usageFetchedAt: 0,
   // what Haiku proposes sending next after Claude's last answer (features/chips.ts), cleared when a
   // turn starts; and the round it answers, moved on by a turn, a chip sent or ✕
   answerChips: [] as string[],

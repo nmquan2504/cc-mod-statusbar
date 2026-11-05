@@ -11,6 +11,52 @@ const usage = atom({ plugin: 'cc-mod-statusbar', key: 'usage' } as const, null)
 // What the context window holds, as /context breaks it down, for the usage menu.
 const ctxBreakdown = atom({ plugin: 'cc-mod-statusbar', key: 'ctxBreakdown' } as const, null)
 
+type Limit = { kind: string; percentUsed: number; resetsAt?: string }
+
+// The account's usage as /usage reads it: asked of Anthropic with the session's own credential (the
+// engine sets it; the mod never sees it). It is no model request, so it costs nothing and starts no
+// window. The 5-hour and weekly windows, each a utilization (0 to 100) and when it resets.
+export const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
+const WINDOWS = ['five_hour', 'seven_day'] as const
+
+// What the endpoint last answered, laid over the session's own figures (the last response's headers)
+// while those stay as they were when it was asked: a newer response that moved them wins.
+let fresh: { base: string; limits: Limit[] } | null = null
+const keyOf = (limits: readonly Limit[]) => JSON.stringify(limits.map(r => [r.kind, Math.round(r.percentUsed)]))
+export function liveLimits(limits: readonly Limit[]): Limit[] {
+  if (fresh && keyOf(limits) === fresh.base) {
+    const over = fresh.limits
+    return [...over, ...limits.filter(r => !over.some(o => o.kind === r.kind))]
+  }
+  fresh = null
+  return [...limits]
+}
+
+// Asks the endpoint now; true when it answered with a window. False off a subscription (an API key,
+// a cloud provider: no windows to read), offline, or when the answer has no window.
+export async function fetchUsage($: any): Promise<boolean> {
+  const auth = await $.session.authorize().catch(() => null)
+  if (auth?.kind !== 'bearer') return false
+  const r = await $.http.fetch(USAGE_URL, { auth: auth.handle, headers: { 'anthropic-beta': 'oauth-2025-04-20' } }).catch(() => undefined)
+  if (!r?.ok) return false
+  let body: any
+  try {
+    body = JSON.parse(r.text)
+  } catch {
+    return false
+  }
+  const limits: Limit[] = []
+  for (const kind of WINDOWS) {
+    const w = body?.[kind]
+    if (typeof w?.utilization === 'number') limits.push({ kind, percentUsed: w.utilization, ...(typeof w.resets_at === 'string' ? { resetsAt: w.resets_at } : {}) })
+  }
+  if (!limits.length) return false
+  const session = await $.session.usage().catch(() => undefined)
+  fresh = { base: keyOf(session?.rateLimits ?? []), limits }
+  rt.usageFetchedAt = Date.now()
+  return true
+}
+
 // What $.session.usage() or session.measure carried, kept for the usage menu.
 // Usage alerts: a toast once when a window first passes 80% and again at 90%; past 90% the
 // bar's figure blinks. A window that resets drops back, so the next climb warns again.
@@ -32,7 +78,8 @@ export function checkAlerts($: any, limits: { kind: string; percentUsed: number;
 
 export async function keepUsage($: any, u: any, startedAt?: number) {
   if (!u) return
-  checkAlerts($, u.rateLimits ?? [])
+  const limits = liveLimits(u.rateLimits ?? [])
+  checkAlerts($, limits)
   const fill = u.context?.percent
   if (typeof fill === 'number') {
     const was = alerted.context ?? 0
@@ -40,7 +87,7 @@ export async function keepUsage($: any, u: any, startedAt?: number) {
     if (alerted.context > was) $.ui.toast(`statusbar: context at ${Math.round(fill)}%; /compact frees room (the ctx chip opens it)`)
   }
   const info: UsageInfo = {
-    rateLimits: (u.rateLimits ?? []).map((r: any) => ({ kind: r.kind, percentUsed: r.percentUsed, resetsAt: r.resetsAt })),
+    rateLimits: limits.map(r => ({ kind: r.kind, percentUsed: r.percentUsed, resetsAt: r.resetsAt })),
     tokens: u.context?.tokens ?? null,
     window: u.context?.window ?? 0,
     ctxPercent: u.context?.percent ?? null,

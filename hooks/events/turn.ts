@@ -6,7 +6,7 @@ import { readGuard } from '../features/guard'
 import { clearPrompts } from '../features/prompts'
 import { notifyRemote, readRemoteMessages, remote } from '../features/remote'
 import { refreshBar } from '../features/status'
-import { keepUsage } from '../features/usage'
+import { keepUsage, liveLimits } from '../features/usage'
 
 import { clockOf, oneLine } from '../lib/format'
 import { CONTINUE_TEXT, MAX_TRIES, clockNow, vnClock } from '../lib/schedule'
@@ -32,7 +32,8 @@ export function registerTurn(on: On) {
   // The engine pushes the figures the footer shows whenever a window moves a whole point:
   // the bar takes them from here, the 5-second read is the fallback.
   on('session.measure', async ($, e, next) => {
-    const used = (kind: string) => e.rateLimits.find(r => r.kind === kind)?.percentUsed ?? null
+    const limits = liveLimits(e.rateLimits)
+    const used = (kind: string) => limits.find(r => r.kind === kind)?.percentUsed ?? null
     if (e.changed.includes('rateLimits')) await update($, bar, b => ({ ...b, five: used('five_hour'), week: used('seven_day') }))
     const kept = await read($, usage)
     await keepUsage($, e, kept?.startedAt)

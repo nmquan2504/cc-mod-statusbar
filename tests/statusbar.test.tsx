@@ -2252,3 +2252,42 @@ test('desktop: model, effort and mode stay off the bar until Settings turns them
   expect((await band.find({ key: 'model' }))?.text).toContain('Sonnet 5.5')
   expect((await band.find({ key: 'mode' }))?.text).toContain('manual')
 })
+
+test('the usage menu asks Anthropic for the usage at once; it stands until a newer response moves the figures', async ($, on) => {
+  engine(on)
+  on('session.measure', (_: unknown, e: any) => ({ changed: e.changed }))
+  const asked: any[] = []
+  on('session.authorize', () => ({ value: { handle: 'h1', kind: 'bearer' } }))
+  on('http.fetch', (_: unknown, e: any) => {
+    asked.push(e)
+    const text = JSON.stringify({ five_hour: { utilization: 61, resets_at: '2026-11-05T04:00:00Z' }, seven_day: { utilization: 44, resets_at: '2026-11-10T02:00:00Z' } })
+    return { value: { status: 200, ok: true, headers: {}, text } }
+  })
+  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, bodyColumns: 160 } } as never)
+  await band.press({ key: 'usage' })
+  // the session's credential through its handle, to Anthropic's usage endpoint, never a model request
+  expect(asked).toHaveLength(1)
+  expect(asked[0].url).toBe('https://api.anthropic.com/api/oauth/usage')
+  expect(asked[0].init.auth).toBe('h1')
+  expect(asked[0].init.headers['anthropic-beta']).toBe('oauth-2025-04-20')
+  const opened = await textOf(band)
+  expect(opened).toContain('61%')
+  expect(opened).toContain('44%')
+  expect(opened).toContain('from Anthropic at')
+  // a response that moved the figures is newer than the reading: the bar follows it
+  await ($ as any).session.measure({ context: { window: 1 }, rateLimits: [{ kind: 'five_hour', percentUsed: 63 }, { kind: 'seven_day', percentUsed: 45 }], changed: ['rateLimits'] })
+  const after = await textOf(band)
+  expect(after).toContain('63%')
+  expect(after).not.toContain('61%')
+})
+
+test('off a subscription the usage menu asks nothing', async ($, on) => {
+  engine(on)
+  let asked = 0
+  on('session.authorize', () => ({ value: { handle: 'k1', kind: 'api-key' } }))
+  on('http.fetch', () => (asked++, { value: { status: 200, ok: true, headers: {}, text: '{}' } }))
+  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await band.press({ key: 'usage' })
+  expect(asked).toBe(0)
+  expect(await textOf(band)).toContain('from the last response')
+})
