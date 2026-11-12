@@ -716,7 +716,7 @@ async function answerOp(dev, id, op, a, res) {
       const listed = (sessions.get(session)?.snapshot.running?.servers ?? []).some(sv => sv.port === port)
       if (!Number.isInteger(port) || !listed) return [403, { error: "Only a port this session's processes listen on can be shared." }]
       try {
-        const t = startPortTunnel(session, port)
+        const t = await startPortTunnel(session, port)
         return [200, { port, url: t.url, isReady: t.isReady, until: t.until }]
       } catch (err) {
         return [503, { error: String(err.message || err) }]
@@ -1142,9 +1142,28 @@ function stopPortTunnel(port) {
   log(`port ${port}: no longer shared`)
   bump()
 }
-function startPortTunnel(session, port) {
+// whether something accepts a connection at host:port, within a second
+const answers = (host, port) => new Promise(resolve => {
+  const s = connect({ host, port, timeout: 1000 })
+  const done = ok => { s.destroy(); resolve(ok) }
+  s.once('connect', () => done(true))
+  s.once('error', () => done(false))
+  s.once('timeout', () => done(false))
+})
+// the address a port answers on: 127.0.0.1, else ::1, where a dev server started on "localhost"
+// listens alone on macOS (Vite, Node 17 and later); '' when neither does
+async function originOf(port) {
+  if (await answers('127.0.0.1', port)) return `http://127.0.0.1:${port}`
+  if (await answers('::1', port)) return `http://[::1]:${port}`
+  return ''
+}
+async function startPortTunnel(session, port) {
   const was = portTunnels.get(port)
   if (was) return was
+  // asked of the port before the tunnel starts, so a port that answers nowhere says so on the phone
+  const origin = process.env.QSB_REMOTE_LOCAL ? `http://127.0.0.1:${port}` : await originOf(port)
+  if (!origin) throw new Error(`Nothing answers on port ${port} now.`)
+  if (portTunnels.get(port)) return portTunnels.get(port)
   const t = { session, url: '', isReady: false, until: Date.now() + PORT_TUNNEL_MS, error: '', proc: null, timer: null }
   portTunnels.set(port, t)
   t.timer = setTimeout(() => stopPortTunnel(port), PORT_TUNNEL_MS)
@@ -1161,7 +1180,9 @@ function startPortTunnel(session, port) {
     clearTimeout(t.timer)
     throw new Error('cloudflared is not installed: brew install cloudflared')
   }
-  t.proc = spawn(bin, ['tunnel', '--no-autoupdate', '--url', `http://127.0.0.1:${port}`], { stdio: ['ignore', 'pipe', 'pipe'] })
+  // the request reaches the port named localhost, as in the computer's own browser: a dev server
+  // that checks the name (Vite's allowedHosts) refuses the tunnel's *.trycloudflare.com
+  t.proc = spawn(bin, ['tunnel', '--no-autoupdate', '--url', origin, '--http-host-header', `localhost:${port}`], { stdio: ['ignore', 'pipe', 'pipe'] })
   let seen = ''
   const read = chunk => {
     if (t.url) return
@@ -1193,7 +1214,7 @@ function startPortTunnel(session, port) {
     log(`port ${port}: ${t.error}`)
     bump()
   })
-  log(`port ${port}: sharing it for session ${session}`)
+  log(`port ${port}: sharing ${origin} for session ${session}`)
   bump()
   return t
 }
