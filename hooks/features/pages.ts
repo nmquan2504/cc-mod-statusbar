@@ -6,6 +6,7 @@ import { checkMcp, readMcp } from './mcp'
 import { editLocalSettings } from './permissions'
 import { refreshBar } from './status'
 import { readBreakdown } from './usage'
+import { projectDir } from '../lib/project'
 
 // The atoms this file reads or writes (each file declares its own: the engine reads an atom only
 // where a const of the same file made it; the same plugin and key are the same value).
@@ -84,7 +85,7 @@ async function configPage($: any): Promise<Omit<Page, 'name' | 'at'>> {
 // .claude/settings.local.json can be removed here, and a rule added goes there.
 const LISTS = ['allow', 'ask', 'deny'] as const
 async function localRules($: any) {
-  const root: string = await $.session.cwd().catch(() => '')
+  const root: string = await projectDir($).catch(() => '')
   const path = `${root}/.claude/settings.local.json`
   const text: string = (await $.fs.exists(path).catch(() => false)) ? await $.fs.read(path).catch(() => '{}') : '{}'
   try {

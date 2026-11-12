@@ -8,6 +8,7 @@ import { ENTRY_INDENT } from './entry'
 import { clockOf, hhmm, mention, oneLine } from '../../lib/format'
 import { rt } from '../../state/runtime'
 import type { Entry } from './entry'
+import { projectDir } from '../../lib/project'
 
 // The atoms this file reads or writes (each file declares its own: the engine reads an atom only
 // where a const of the same file made it; the same plugin and key are the same value).
@@ -26,7 +27,7 @@ export async function drawTasksMenu($: any, els: any, _isTerminal: boolean, _ent
   const { Box, Button, Text } = els
   const list = await read($, tasks)
   const files = await read($, edited)
-  const root: string = await $.session.cwd().catch(() => '')
+  const root: string = await projectDir($).catch(() => '')
   const rel = (p: string) => (root && p.startsWith(`${root}/`) ? p.slice(root.length + 1) : p)
   const listening = await read($, servers)
   const all = await read($, agents)

@@ -258,8 +258,9 @@ function showOffline(ms) {
   line.replaceChildren()
   if (!isGone) line.appendChild(el('span', 'spin')).append(icon('spark'))
   line.append(document.createTextNode(isGone ? tx('The link seems to have ended. If the remote was started again, scan its new QR code in the terminal.') : ` ${tx('Reconnecting…')}`))
-  // in the app: its scanner, for the new code
-  if (isGone && window.QSB_NATIVE?.rescan) {
+  // in the app: its scanner, for the new code, from the first seconds: a remote started again has
+  // a new link at once, and waiting for LINK_GONE_MS before scanning it only holds you up
+  if (window.QSB_NATIVE?.rescan) {
     const scan = line.appendChild(el('button', 'pbtn', tx('Scan the new code')))
     scan.onclick = () => QSB_NATIVE.rescan()
   }
@@ -270,7 +271,7 @@ function showDown(ms) {
   if (!$('app').hidden) return showOffline(ms)
   const isGone = ms >= LINK_GONE_MS
   gate(isGone ? tx('The link seems to have ended. If the remote was started again, scan its new QR code in the terminal.') : tx('Reconnecting…'))
-  if (isGone && window.QSB_NATIVE?.rescan) {
+  if (window.QSB_NATIVE?.rescan) {
     $('gate-rescan').hidden = false
     $('gate-scan').onclick = () => QSB_NATIVE.rescan()
   }
@@ -298,6 +299,7 @@ async function follow() {
       const from = state.notice.session
       if (lastNotice) {
         toast(localNotice(state.notice), from ? () => openSession(from) : undefined)
+        chimeNotice(state.notice)
         readNotice(state.notice)
       }
       lastNotice = state.notice.at
@@ -454,17 +456,23 @@ function markdown(text) {
 // the path the hub knows a tool call's file by: as edited this turn, or as git lists it changed
 const diffPathOf = path => snap.edited.find(f => f.path === path)?.path ?? snap.changes.find(f => path === f.path || path.endsWith(`/${f.path}`))?.path
 
+// a home folder in a command, a path or a tool's output as ~ (/Users/<name> on a Mac, /home/<name>
+// on Linux): the phone's lines are narrow, and the account name says nothing there
+function tildify(text) {
+  return String(text ?? '').replace(/(^|[\s'"`=:(,;|&<>])\/(?:Users|home)\/[^/\s'"`]+(?=\/|$|[\s'"`),;|&<>])/g, '$1~')
+}
+
 function toolLines(t) {
   const lines = []
   if (t.out === undefined) lines.push(['', tx('Running…')])
-  else if (t.isError) for (const l of t.out.split('\n')) lines.push(['del', l])
+  else if (t.isError) for (const l of tildify(t.out).split('\n')) lines.push(['del', l])
   else if (t.old !== undefined) {
     for (const l of t.old ? t.old.split('\n') : []) lines.push(['del', `- ${l}`])
     for (const l of t.new ? t.new.split('\n') : []) lines.push(['add', `+ ${l}`])
   } else if (t.new !== undefined) {
     lines.push(['', tx('Wrote {n} lines', { n: t.new.split('\n').length })])
     for (const l of t.new.split('\n')) lines.push(['add', l])
-  } else for (const l of t.out.replace(/\n+$/, '').split('\n')) lines.push(['', l])
+  } else for (const l of tildify(t.out).replace(/\n+$/, '').split('\n')) lines.push(['', l])
   return lines
 }
 
@@ -499,7 +507,7 @@ function toolRow(t, into) {
   const row = into.appendChild(el('div', `trow${isOpen ? ' open' : ''}${t.out === undefined ? ' running' : ''}`))
   row.append(el('span', `bullet ${t.out === undefined ? 'run' : t.isError ? 'bad' : 'ok'}`))
   const name = row.appendChild(el('span', 'name'))
-  name.append(el('strong', '', t.name), document.createTextNode(t.arg ? `(${t.arg})` : ''))
+  name.append(el('strong', '', t.name), document.createTextNode(t.arg ? `(${tildify(t.arg)})` : ''))
   row.appendChild(el('span', 'chev')).append(icon(isOpen ? 'chevronDown' : 'chevronRight'))
   row.onclick = () => {
     if (isOpen) opened.delete(t.id)
@@ -621,7 +629,7 @@ function renderChat() {
   for (const p of snap.permissions || []) {
     const b = root.appendChild(el('div', 'b claude ask perm'))
     b.append(el('div', 'qt', tx('Claude asks to use {tool}', { tool: p.tool })))
-    b.append(el('pre', 'call', p.text))
+    b.append(el('pre', 'call', tildify(p.text)))
     if (p.reason) b.append(el('div', 'meta', p.reason))
     b.append(el('div', 'go', tx('Answer it at the computer')))
   }
@@ -1048,6 +1056,41 @@ function speak(text) {
   enqueue(parts)
 }
 
+// A notice come in while the page is open: a short chime and a buzz beside its toast, whether or
+// not it is read aloud, as the phone's own notification is not shown over the open page (the app
+// posts none while in front). Off with notifications off: the browser's switch, or the app's.
+// The page's one AudioContext, resumed on the first tap: a browser lets a page sound only after one.
+let chimeCtx = null
+const chimeContext = () => {
+  if (!chimeCtx && (window.AudioContext || window.webkitAudioContext)) chimeCtx = new (window.AudioContext || window.webkitAudioContext)()
+  return chimeCtx
+}
+document.addEventListener('pointerdown', () => { void chimeContext()?.resume().catch(() => undefined) }, { capture: true })
+const noticesOn = () => (window.QSB_NATIVE ? QSB_NATIVE.settings.notify !== false : !prefs.notifyOff)
+function chimeNotice(n) {
+  if (!noticesOn()) return
+  const isDone = /^Done\b/.test(n.title)
+  navigator.vibrate?.(isDone ? 60 : [60, 80, 60])
+  const ctx = chimeContext()
+  if (!ctx || ctx.state !== 'running') return
+  // two soft tones up for an answer, three for a question or a prompt that waits on you
+  const notes = isDone ? [660, 880] : [880, 660, 880]
+  const start = ctx.currentTime + 0.02
+  notes.forEach((hz, i) => {
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    const at = start + i * 0.13
+    osc.type = 'sine'
+    osc.frequency.value = hz
+    gain.gain.setValueAtTime(0, at)
+    gain.gain.linearRampToValueAtTime(0.18, at + 0.015)
+    gain.gain.exponentialRampToValueAtTime(0.001, at + 0.12)
+    osc.connect(gain).connect(ctx.destination)
+    osc.start(at)
+    osc.stop(at + 0.13)
+  })
+}
+
 // A notice come in while the page is open, read aloud when Settings says so: after what is being
 // read, not over it. A page in the background may not be let speak; the push shows as ever.
 function readNotice(n) {
@@ -1317,7 +1360,7 @@ const inContext = path => {
 // a path as the person knows it: from the folder it lies in
 function shortPath(path) {
   for (const root of snap.roots || []) if (path.startsWith(`${root}/`)) return path.slice(root.length + 1)
-  return path.replace(/^\/Users\/[^/]+/, '~')
+  return tildify(path)
 }
 function renderFiles() {
   const counts = {

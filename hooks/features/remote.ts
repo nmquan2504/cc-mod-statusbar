@@ -11,6 +11,7 @@ import { forgetSecret, listSecrets, saveTyped, scrub } from './vault'
 import { maskSecrets } from '../lib/mask'
 import { cfg } from '../state/config'
 import { ME, rt } from '../state/runtime'
+import { projectDir } from '../lib/project'
 
 // The atoms this file reads (each file declares its own: the engine reads an atom only where a
 // const of the same file made it; the same plugin and key are the same value).
@@ -650,7 +651,7 @@ export function noteAddDir(command: string, args: string) {
 
 // The folders the session works in: its own, then those added; each absolute, each once.
 export async function rootsOf($: any) {
-  const cwd: string = await $.session.cwd().catch(() => '')
+  const cwd: string = await projectDir($).catch(() => '')
   const home: string = (await $.env.get('HOME').catch(() => '')) ?? ''
   const abs = (d: string) => (d.startsWith('/') ? d : d.startsWith('~/') && home ? `${home}${d.slice(1)}` : `${cwd}/${d}`).replace(/\/+$/, '')
   const perms = (await $.settings.read({ key: 'permissions' }).catch(() => undefined)) as { additionalDirectories?: unknown } | undefined
@@ -762,7 +763,7 @@ async function snapshotOf($: any) {
     model: shortModel(b.model),
     effort: b.effort ?? null,
     mode: rt.drawnMode ?? b.mode,
-    cwd: await $.session.cwd().catch(() => ''),
+    cwd: await projectDir($).catch(() => ''),
     // the home folder, which the phone writes as ~ in the paths it shows
     home: (await $.env.get('HOME').catch(() => '')) ?? '',
     busy: rt.isBusy,
@@ -783,7 +784,7 @@ async function snapshotOf($: any) {
     queued: remote.queue.map(hide),
     sending: remote.sending.map(s => hide(s.text)),
     // what the phone may browse: the session's folder and the folders added; what is in context
-    roots: [await $.session.cwd().catch(() => ''), ...remote.context.dirs].filter(Boolean),
+    roots: [await projectDir($).catch(() => ''), ...remote.context.dirs].filter(Boolean),
     context: remote.context,
     commands: remote.commands,
     // the chips under Claude's last answer (features/chips.ts), sent at a press
