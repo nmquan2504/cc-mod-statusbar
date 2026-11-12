@@ -19,8 +19,23 @@ function gitParts(command: string): string[][] {
   return parts
 }
 
-export function gitRisk(command: string, branch: string | null, hasUpstream: boolean): GitVerdict {
+// Text a shell runs as commands of its own, read as commands too: sh -c '…', bash -c "…", eval "…",
+// a string piped into a shell, $( … ) and backticks
+const SHELL_STRINGS = [
+  /(?:\b(?:sh|bash|zsh|dash)\s+-c|\beval)\s+(['"])([\s\S]*?)\1/g,
+  /(['"])([\s\S]*?)\1[^|;&\n]*\|\s*(?:sudo\s+)?(?:ba|z|da)?sh\b/g,
+  /\$\(([^()]*)\)/g,
+  /`([^`]*)`/g,
+]
+
+export function gitRisk(command: string, branch: string | null, hasUpstream: boolean, depth = 0): GitVerdict {
   if (!/\bgit\b/.test(command)) return null
+  if (depth < 4)
+    for (const re of SHELL_STRINGS)
+      for (const m of command.matchAll(re)) {
+        const inner = gitRisk(m[m.length - 1]!, branch, hasUpstream, depth + 1)
+        if (inner) return inner
+      }
   for (const [sub, ...args] of gitParts(command)) {
     if (sub === 'push') {
       const isForce = args.some(a => /^(-f|--force|--force-with-lease(=.*)?|--force-if-includes|--mirror)$/.test(a) || /^-[a-zA-Z]*f[a-zA-Z]*$/.test(a))

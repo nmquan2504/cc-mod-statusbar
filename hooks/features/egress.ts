@@ -8,15 +8,23 @@ const egress = atom({ plugin: 'cc-mod-statusbar', key: 'egress' } as const, [])
 
 // The hosts one tool call reaches: a URL's host, user@host in ssh, scp and git, a remote MCP
 // server by its name. The IDE bridge and this mod's own tools stay local (secret_fetch aside).
-export const URL_RE = /\bhttps?:\/\/([a-z0-9.-]+)(?::\d+)?/gi
+// A URL's whole authority, up to the path: `user:pass@host:port` and `[::1]` included, so the host
+// is read where the request goes. `https://github.com@evil.example/` reaches evil.example: the part
+// before the last @ is a user name, not the host.
+export const URL_RE = /\bhttps?:\/\/([^\s/?#'"`<>()]+)/gi
+export function hostOfAuthority(authority: string): string {
+  const afterUser = authority.slice(authority.lastIndexOf('@') + 1)
+  const host = afterUser.startsWith('[') ? afterUser.slice(1, afterUser.indexOf(']')) : afterUser.replace(/:\d*$/, '')
+  return host.replace(/\.$/, '').toLowerCase()
+}
 
 export const SSH_RE = /\b[\w.-]+@([a-z0-9-]+(?:\.[a-z0-9-]+)+)[:\s/]/gi
 
 export function hostsOf(e: any): string[] {
-  const of = (text: string) => [
-    ...[...text.matchAll(URL_RE)].map(m => m[1]!.toLowerCase()),
+  const of = (text: string) => [...new Set([
+    ...[...text.matchAll(URL_RE)].map(m => hostOfAuthority(m[1]!)).filter(Boolean),
     ...[...text.matchAll(SSH_RE)].map(m => m[1]!.toLowerCase()),
-  ]
+  ])]
   if (e.tool === 'WebFetch' || e.tool === 'mcp__cc-mod-statusbar__secret_fetch') return of(String(e.url ?? ''))
   if (e.tool === 'WebSearch') return ['web search']
   if (e.tool === 'Bash') return of(String(e.command ?? ''))

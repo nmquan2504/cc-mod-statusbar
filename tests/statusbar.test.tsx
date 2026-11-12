@@ -4,6 +4,7 @@ import { SENSITIVE } from '../hooks/lib/catalog'
 import { suggestPrompt, suggestionChips, suggestionsFrom } from '../hooks/lib/suggest'
 import { keyRows, rowsOf } from '../hooks/lib/rows'
 import { gitRisk, newPackage } from '../hooks/lib/gitguard'
+import { hostsOf } from '../hooks/features/egress'
 import { redactText } from '../hooks/lib/pii'
 import { SHOW_MS, WAIT_MS, clearPrompts, duePrompts, noteCheck, noteSpinner, prompts, waitingPrompts } from '../hooks/features/prompts'
 
@@ -2498,4 +2499,20 @@ test('the shield menu: a guardrail switched off leaves the score; the scope chip
   expect(await band.find({ key: 'mcprule:mcp__notion__create_page' })).toBeDefined()
   await band.press({ key: 'mcprule:mcp__notion__create_page' })
   expect(JSON.parse(written['/work/shop/.claude/settings.local.json']!).permissions.allow).toEqual(['mcp__notion__create_page'])
+})
+
+test('a URL is read at the host it reaches: past user@, a port and IPv6 brackets', () => {
+  const hosts = (command: string) => hostsOf({ tool: 'Bash', command })
+  expect(hosts('curl https://github.com@evil.example/x')).toEqual(['evil.example'])
+  expect(hosts('curl https://user:pass@api.github.com:8443/x')).toEqual(['api.github.com'])
+  expect(hosts('curl http://[::1]:3000/')).toEqual(['::1'])
+  expect(hosts('curl https://api.github.com.evil.example/x')).toEqual(['api.github.com.evil.example'])
+  expect(hostsOf({ tool: 'WebFetch', url: 'https://GitHub.com./a' })).toEqual(['github.com'])
+})
+
+test('protect git reads the commands a shell string runs', () => {
+  for (const c of ['sh -c "git push origin main"', "bash -c 'git push -f'", 'eval "git push origin HEAD:main"', 'echo $(git push origin main)', 'echo "git push origin main" | sh'])
+    expect(gitRisk(c, 'feat/x', true)?.kind).toBe('deny')
+  // printed, not run
+  expect(gitRisk('echo "git push origin main"', 'feat/x', true)).toBeNull()
 })
