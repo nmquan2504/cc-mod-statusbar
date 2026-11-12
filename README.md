@@ -128,7 +128,7 @@ A phone can follow the sessions of several Macs at once. On the other Mac, turn 
 
 In the Android app, Scan QR opens Google's code scanner, the same one the app's first pairing uses, and needs no camera permission. App builds from before 0.21.3 have no scanner on this card, so the button is missing there. In a browser, Scan QR shows the camera on the page and reads the code with the browser's `BarcodeDetector`. Chrome on Android has it; Safari on iPhone does not, so there the button is missing and you paste the link. The card takes both the `https://…#k=…` link and the app's `clauderemote://pair?…` link.
 
-From then on the drawer lists each Mac's sessions under the Mac's name (its Computer Name), and a Mac that stops answering reads "not answering". The session's header names its Mac, and every call for a session goes to that session's own hub with that hub's own key. Remote servers lists every Mac with its session count, and Remove lets one go.
+From then on the drawer lists each Mac's sessions under the Mac's name (its Computer Name), and a Mac that stops answering reads "not answering". The session's header names its Mac, and every call for a session goes to that session's own hub with that hub's own key. Remote servers lists every Mac with its session count, and Remove lets one go. Paired devices lists each server's phones under that server's name, since each hub keeps its own list, and Unpair there lets a phone go from that server alone.
 
 Each hub has a machine id made from the Mac's host name and user. A Mac paired again by a new link (its remote started again) replaces its older pairing, so the list keeps one row a Mac.
 
