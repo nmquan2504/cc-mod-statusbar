@@ -72,7 +72,8 @@ async function wavFor(device: Device, text: string, lang: 'vi' | 'en'): Promise<
 // ZeroTTS's WAV for `text`, from the cache or the Mac, played to its end; false when the Mac has none
 // (not installed, an older hub) or it does not answer in 20 s
 async function sayZero(device: Device, text: string, lang: 'vi' | 'en'): Promise<boolean> {
-  const file = await wavFor(device, text, lang)
+  // a cache that fails (a full disk, a file it cannot move) leaves the phone's voice to read it
+  const file = await wavFor(device, text, lang).catch(() => null)
   if (!file) return false
   const player = createAudioPlayer(file.uri)
   await new Promise<void>(resolve => {

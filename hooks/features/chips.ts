@@ -18,11 +18,17 @@ export function suggestNext($: any, request: string, answer: string) {
   const round = ++rt.suggestRound
   const isStale = () => round !== rt.suggestRound || rt.isBusy || Boolean(remote.suggestion)
   $.clock.after(SUGGEST_WAIT_MS, async () => {
-    if (isStale() || !cfg.haikuChips) return
-    const r = await $.model.complete({ model: ASSIST_MODEL, prompt: suggestPrompt(scrub(request), scrub(answer)), maxTokens: 200, timeoutMs: 15_000 }).catch(() => undefined)
+    if (isStale() || !(cfg.haikuChips || cfg.forceSuggest)) return
+    const ask = () => $.model.complete({ model: ASSIST_MODEL, prompt: suggestPrompt(scrub(request), scrub(answer), cfg.forceSuggest), maxTokens: 200, timeoutMs: 15_000 }).catch(() => undefined)
+    // forceSuggest asks once more when Haiku fails or times out
+    let r = await ask()
+    if (cfg.forceSuggest && !r?.isAnswered && !isStale()) r = await ask()
     if (isStale() || !r?.isAnswered) return
     rt.answerChips = suggestionsFrom(r.text)
     $.ui.invalidate('ui.render')
+    // forceSuggest: Claude Code said nothing, so the first chip goes in the prompt box as its dim
+    // suggestion (Tab takes it); the box holding text or a turn running shows none
+    if (cfg.forceSuggest && rt.answerChips[0]) await $.prompt.suggest({ text: rt.answerChips[0] }).catch(() => undefined)
   })
 }
 

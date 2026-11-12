@@ -39,6 +39,15 @@ export const cfg = {
   polishEnglish: false,
   // with no suggestion of Claude Code's own after an answer, Haiku proposes the chips
   haikuChips: true,
+  // on: Claude Code's prompt suggestion is not backed off, and when it says nothing after an answer,
+  // Haiku's first chip goes in the prompt box as the dim suggestion and to the phone
+  forceSuggest: false,
+  // an open menu taller than the band keeps its title and ✕ at the top and the bar at the bottom,
+  // and scrolls between them
+  pinMenuHead: true,
+  // on: a menu opens in a pane of its own (beside the transcript in fullscreen, else above the
+  // prompt), the bar left whole in the band
+  menuInPane: false,
   // rm -rf, git push --force and the like always ask the person, whatever the mode
   dangerConfirm: true,
   // a turn stopped by the 5-hour or weekly limit gets "continue" once the window resets (usage menu)
@@ -104,6 +113,37 @@ export async function saveSettings($: any) {
   }
   await $.store.set(SETTINGS_KEY, now)
   $.ui.invalidate('ui.render')
+  await syncSuggestEnv($)
+}
+
+// forceSuggest's half in Claude Code itself: CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=1 in the env of
+// ~/.claude/settings.json keeps the engine's next-prompt suggestion from backing off after 20 that
+// went unused, and from going quiet while a rate-limit window warns. Read as a session starts, so
+// it takes hold in the next one. Only a value this mod wrote is taken out again when the switch goes off.
+export const SUGGEST_ENV = 'CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION'
+const SUGGEST_ENV_MINE = 'suggest-env-set'
+export async function syncSuggestEnv($: any) {
+  try {
+    const home: string = (await $.env.get('HOME').catch(() => '')) ?? ''
+    if (!home) return
+    const path = `${home}/.claude/settings.json`
+    const text: string = (await $.fs.exists(path).catch(() => false)) ? await $.fs.read(path) : '{}'
+    const json = JSON.parse(text || '{}')
+    const has = json?.env?.[SUGGEST_ENV] !== undefined
+    const isMine = Boolean(await $.store.get(SUGGEST_ENV_MINE).catch(() => false))
+    if (cfg.forceSuggest && !has) {
+      json.env = { ...(json.env ?? {}), [SUGGEST_ENV]: '1' }
+      await $.fs.write(path, `${JSON.stringify(json, null, 2)}\n`)
+      await $.store.set(SUGGEST_ENV_MINE, true)
+    } else if (!cfg.forceSuggest && has && isMine) {
+      delete json.env[SUGGEST_ENV]
+      if (!Object.keys(json.env).length) delete json.env
+      await $.fs.write(path, `${JSON.stringify(json, null, 2)}\n`)
+      await $.store.set(SUGGEST_ENV_MINE, false)
+    }
+  } catch {
+    // settings.json that is not JSON: left as it is
+  }
 }
 // Puts the settings before the last change back, and drops that copy; false with none kept.
 export async function restorePreviousSettings($: any) {
@@ -115,6 +155,7 @@ export async function restorePreviousSettings($: any) {
   await $.store.set(SETTINGS_KEY, { ...cfg })
   await $.store.set(HISTORY_KEY, kept.slice(0, -1))
   $.ui.invalidate('ui.render')
+  await syncSuggestEnv($)
   return true
 }
 
@@ -165,6 +206,9 @@ export const SETTINGS: ((
   { key: 'summarySeconds', kind: 'number', label: 'Summary after', note: 'seconds a turn runs', step: 10, min: 0, max: 600, unit: ' s' },
   { key: 'polishEnglish', kind: 'switch', label: 'Polish in English', note: '+ then Polish also translates the prompt to English' },
   { key: 'haikuChips', kind: 'switch', label: 'Haiku chips', note: "when Claude Code suggests nothing after an answer, Haiku proposes what to send (one call a turn); off: Claude Code's own suggestion alone" },
+  { key: 'forceSuggest', kind: 'switch', label: 'Always suggest', note: "Claude Code's next-prompt suggestion never backs off; when it suggests nothing, Haiku's goes in the prompt box (Tab) and to the phone" },
+  { key: 'pinMenuHead', kind: 'switch', label: 'Pin the menu head', note: 'a tall menu keeps its title and ✕ on top and the bar below, and scrolls between them' },
+  { key: 'menuInPane', kind: 'switch', label: 'Menus in a pane', note: 'a menu opens in a pane: beside the transcript in fullscreen, else above the prompt; the bar stays whole' },
   { key: 'hiSchedule', kind: 'switch', label: 'Auto-start 5h window', note: 'one Haiku call says hi every 5 hours from the start hour below, Vietnam time, so each window opens on the hour; status in the usage menu' },
   { key: 'hiStartHour', kind: 'number', label: 'Schedule starts at', note: 'each day, Vietnam time (UTC+7)', step: 1, min: 0, max: 23, unit: 'h' },
   { key: 'hiStartMinute', kind: 'number', label: 'Schedule starts at, minute', note: 'past that hour, in steps of 15', step: 15, min: 0, max: 45, unit: 'm' },

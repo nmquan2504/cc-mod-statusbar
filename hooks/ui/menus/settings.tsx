@@ -1,7 +1,7 @@
 import { outputStyles } from '../../features/assist'
 import { modVersionText, updateNow } from '../../features/update'
 
-import { BAR_ITEMS, BAR_PRESETS, DEFAULTS, HISTORY_KEY, SETTINGS, SETTINGS_KEY, applyBarPreset, barOrder, barPresetNow, cfg, importSettings, moveBarItem, restorePreviousSettings, saveSettings, settingsText, stepped } from '../../state/config'
+import { BAR_ITEMS, BAR_PRESETS, DEFAULTS, HISTORY_KEY, SETTINGS, SETTINGS_KEY, applyBarPreset, barOrder, barPresetNow, cfg, importSettings, moveBarItem, restorePreviousSettings, saveSettings, settingsText, stepped, syncSuggestEnv } from '../../state/config'
 import { hhmm, spanText } from '../../lib/format'
 import { rt } from '../../state/runtime'
 import type { CfgKey, SettingsSnapshot } from '../../state/config'
@@ -116,6 +116,7 @@ export async function drawSettingsMenu($: any, els: any, _isTerminal: boolean, _
         await $.store.delete(SETTINGS_KEY).catch(() => undefined)
         Object.assign(cfg, DEFAULTS)
         $.ui.invalidate('ui.render')
+        await syncSuggestEnv($)
       }}>
         <Text color="claude">→ Back to the defaults</Text>
       </Button>

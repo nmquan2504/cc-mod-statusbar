@@ -2,6 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import { ASK_KEY, rulesFor } from '../hooks/features/permissions'
 import { SENSITIVE } from '../hooks/lib/catalog'
 import { suggestPrompt, suggestionChips, suggestionsFrom } from '../hooks/lib/suggest'
+import { keyRows, rowsOf } from '../hooks/lib/rows'
 import { SHOW_MS, WAIT_MS, clearPrompts, duePrompts, noteCheck, noteSpinner, prompts, waitingPrompts } from '../hooks/features/prompts'
 
 // The hooks registered here sit beneath the plugin and stand for the engine: the model,
@@ -2288,4 +2289,74 @@ test('off a subscription the usage menu asks nothing', async ($, on) => {
   await band.press({ key: 'usage' })
   expect(asked).toBe(0)
   expect(await textOf(band)).toContain('from the last response')
+})
+
+test('forceSuggest: Haiku must answer, and its first chip goes in the prompt box when Claude Code suggests nothing', async ($, on) => {
+  engine(on)
+  settingsStore(on)
+  const clock = mock.clock(on)
+  const suggested: any[] = []
+  const asked: any[] = []
+  on('prompt.suggest', (_: unknown, e: any) => (suggested.push(e), { isShown: true }))
+  on('model.complete', (_: unknown, e: any) => (asked.push(e), { value: { isAnswered: true, text: 'Merge pr\nShip it', usage: USAGE } }))
+  on('turn.start', () => ({ turnId: 't1' }))
+  on('turn.complete', () => ({ text: 'ok' }))
+  on('env.get', () => ({ value: '' }))
+  const t = $ as any
+  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await band.press({ key: 'add' })
+  await band.press({ key: 'settings' })
+  await band.press({ key: 'set:forceSuggest' })
+  await band.press({ key: 'close-menu' })
+  try {
+    await t.turn.start({ text: 'merge it', turnId: 't1', kind: 'engine' })
+    await t.turn.complete({ text: 'ok', reason: 'answer', answer: 'Merged into main.' })
+    await clock.advance(3000)
+    expect(asked[0].prompt).not.toContain('Reply NONE')
+    expect(asked[0].prompt).toContain('at least one line')
+    // the box gets the first, and the chips stay Haiku's (the mod's own suggestion replaces none)
+    expect(suggested.map(e => e.text)).toEqual(['Merge pr'])
+    expect((await band.find({ key: 'chip:0' }))?.text).toBe('‹ Merge pr ›')
+    expect((await band.find({ key: 'chip:1' }))?.text).toBe('‹ Ship it ›')
+  } finally {
+    await band.press({ key: 'add' })
+    await band.press({ key: 'settings' })
+    await band.press({ key: 'set:forceSuggest' })
+  }
+})
+
+test("forceSuggest puts the suggestion env in ~/.claude/settings.json, and takes out only the value it put there", async ($, on) => {
+  engine(on)
+  const store = settingsStore(on)
+  const path = '/Users/q/.claude/settings.json'
+  const written: Record<string, string> = { [path]: '{\n  "model": "opus"\n}\n' }
+  on('env.get', (_: unknown, e: any) => ({ value: e.name === 'HOME' ? '/Users/q' : '' }))
+  on('fs.exists', (_: unknown, e: any) => ({ value: e.path in written }))
+  on('fs.read', (_: unknown, e: any) => ({ value: written[e.path] ?? '' }))
+  on('fs.write', (_: unknown, e: any) => ((written[e.path] = e.text), { value: undefined }))
+  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await band.press({ key: 'add' })
+  await band.press({ key: 'settings' })
+  await band.press({ key: 'set:forceSuggest' })
+  expect(JSON.parse(written[path]!)).toEqual({ model: 'opus', env: { CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION: '1' } })
+  await band.press({ key: 'set:forceSuggest' })
+  expect(JSON.parse(written[path]!)).toEqual({ model: 'opus' })
+  // a value the person set themselves stays when the switch goes off
+  await band.press({ key: 'set:forceSuggest' })
+  written[path] = JSON.stringify({ env: { CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION: '0' } })
+  store.delete('suggest-env-set')
+  await band.press({ key: 'set:forceSuggest' })
+  expect(JSON.parse(written[path]!)).toEqual({ env: { CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION: '0' } })
+})
+
+test("a tall menu keeps its head and the bar: it scrolls in a window between them, the ring's Button brought into view", () => {
+  const text = (s: string) => ({ type: 'Text', props: {}, children: [s] })
+  const button = (key: string, s: string) => ({ type: 'Button', props: { key }, children: [text(s)] })
+  const tree = { type: 'Box', props: { flexDirection: 'column' }, children: [text('one'), text('two\nthree'), { type: 'Box', props: { flexDirection: 'column', marginTop: 1 }, children: [button('a', 'A'), button('b', 'B')] }, text('x'.repeat(25))] }
+  // 1 + 2 + (1 margin + 2) + 25 cells in 10 wrap to 3
+  expect(rowsOf(tree, 10)).toBe(9)
+  expect(keyRows(tree, 10).get('a')).toBe(4)
+  expect(keyRows(tree, 10).get('b')).toBe(5)
+  // a row: as tall as its tallest child
+  expect(rowsOf({ type: 'Box', props: {}, children: [text('a\nb'), text('c')] }, 40)).toBe(2)
 })

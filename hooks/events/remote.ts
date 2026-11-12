@@ -5,6 +5,8 @@ import type { On } from 'claude-code'
 export function registerRemote(on: On) {
   // Claude Code's guess at the next prompt (the dim line): the chip row on the band and the phone shows it
   on('prompt.suggest', async ($, e, next) => {
+    // the mod's own (forceSuggest puts Haiku's first chip there) leaves the chips as they are
+    if (e.origin?.kind === 'plugin') return next(e)
     remote.suggestion = String(e.text ?? '').trim()
     $.ui.invalidate('ui.render') // the chip row shows it, in place of Haiku's
     return next(e)

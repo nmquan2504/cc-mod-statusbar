@@ -50,6 +50,15 @@ export const rt = {
   isContinueTurn: false,
   continueTries: 0,
   // The subagents the "hi" schedule spawned: their notification of the end never reaches Claude
+  // An open menu taller than its window under the pinned head: the first of its rows shown, its rows
+  // as reckoned (lib/rows.ts) and the window's rows when it was drawn, for ui.scroll to move it
+  menuOffset: 0,
+  menuRows: 0,
+  menuWindow: 0,
+  // the row each Button of that menu starts on, for the focus ring to bring into the window
+  menuKeyRows: new Map<string, number>(),
+  // a menu drawn in its own pane (menuInPane), not in the band
+  isMenuPaneOpen: false,
   // The rule a first press armed; a second press within ARM_MS writes it.
   armedRule: '',
   armedAt: 0,

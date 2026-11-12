@@ -8,8 +8,9 @@ import { readRemote } from './remote'
 import { refreshBar } from './status'
 import { fetchUsage, readBreakdown } from './usage'
 import { readVault } from './vault'
+import { rt } from '../state/runtime'
 import { readServers, readWork } from './work'
-import { SKIP_DIRS } from '../lib/catalog'
+import { SKIP_DIRS, TITLES } from '../lib/catalog'
 import { cfg } from '../state/config'
 
 // The atoms this file reads or writes (each file declares its own: the engine reads an atom only
@@ -22,8 +23,16 @@ const collapsed = atom({ plugin: 'cc-mod-statusbar', key: 'collapsed' } as const
 // What is typed in the commands menu's search field.
 const filter = atom({ plugin: 'cc-mod-statusbar', key: 'filter' } as const, '')
 
+// The pane a menu opens in with menuInPane on: one for every menu, retitled as another opens
+export const MENU_PANE = 'qsb-menu'
+
 export async function closeMenu($: any) {
+  rt.menuOffset = 0
   await update($, menu, () => null)
+  if (rt.isMenuPaneOpen) {
+    rt.isMenuPaneOpen = false
+    await $.ui.close({ id: MENU_PANE }).catch(() => undefined)
+  }
 }
 
 export async function listDir($: any, path: string) {
@@ -77,12 +86,23 @@ export async function openMenu($: any, kind: MenuKind) {
     await readGuard($)
     await readVault($)
   }
-  // the same button again closes it, as a dropdown does
+  // the same button again closes it, as a dropdown does; another opens at its top
+  rt.menuOffset = 0
   await update($, menu, now => (now === kind ? null : kind))
   // the usage opened: asked of Anthropic at once, the bar and the menu redrawn when it answers
   if (kind === 'usage' && (await read($, menu)) === 'usage') void fetchUsage($).then(ok => (ok ? refreshBar($) : undefined)).catch(() => undefined)
-  // a menu taller than the band scrolls; the window starts at the bar, by the prompt
-  if ((await read($, menu)) !== null) await $.ui.scroll({ to: { key: 'add' }, block: 'end' }).catch(() => undefined)
+  const now = await read($, menu)
+  // in a pane of its own: opened (or retitled) with the menu, closed with it; Escape there closes both
+  if (cfg.menuInPane && now !== null) {
+    const r = await $.ui.open({ id: MENU_PANE, title: TITLES[now], focus: true, closeOnEscape: true, rows: 18 }).catch(() => undefined)
+    rt.isMenuPaneOpen = Boolean(r?.isPlaced)
+    if (rt.isMenuPaneOpen) return
+  } else if (now === null && rt.isMenuPaneOpen) {
+    rt.isMenuPaneOpen = false
+    await $.ui.close({ id: MENU_PANE }).catch(() => undefined)
+  }
+  // the band shows its end, by the prompt: the menu scrolls inside its own window above the bar
+  if (now !== null) await $.ui.scroll({ to: { key: 'add' }, block: 'end' }).catch(() => undefined)
 }
 
 // Insert text at the cursor, then go back to the prompt.
