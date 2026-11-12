@@ -96,9 +96,10 @@ export async function openMenu($: any, kind: MenuKind) {
   // the usage opened: asked of Anthropic at once, the bar and the menu redrawn when it answers
   if (kind === 'usage' && (await read($, menu)) === 'usage') void fetchUsage($).then(ok => (ok ? refreshBar($) : undefined)).catch(() => undefined)
   const now = await read($, menu)
-  // in a pane of its own: opened (or retitled) with the menu, closed with it; Escape there closes both
+  // in a pane of its own: opened (or retitled) with the menu, closed with it; Escape there closes both.
+  // Seated above the prompt (no dock), 8 rows: a taller pane squeezed the band to its bar's row alone
   if (cfg.menuInPane && now !== null) {
-    const r = await $.ui.open({ id: MENU_PANE, title: TITLES[now], focus: true, closeOnEscape: true, rows: 18 }).catch(() => undefined)
+    const r = await $.ui.open({ id: MENU_PANE, title: TITLES[now], focus: true, closeOnEscape: true, rows: 8 }).catch(() => undefined)
     rt.isMenuPaneOpen = Boolean(r?.isPlaced)
     if (rt.isMenuPaneOpen) return
   } else if (now === null && rt.isMenuPaneOpen) {
