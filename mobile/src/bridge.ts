@@ -10,7 +10,7 @@
 //
 // Messages from the page: { t: 'call', id, op, a } | { t: 'forget' } | { t: 'back', isHandled } |
 //   { t: 'set', key, value } | { t: 'speak', id, text, lang, voice, rate } | { t: 'hush' } |
-//   { t: 'insets', top, bottom } | { t: 'update' } | { t: 'listen', id } | { t: 'rescan' } |
+//   { t: 'insets', top, bottom } | { t: 'update' } | { t: 'listen', id } | { t: 'rescan' } | { t: 'scan', id } |
 //   { t: 'alive', isShown } (as it changes, and asked by __qsb.alive()) | { t: 'file', id, how, a }
 // Answers into it: __qsb.done(id, result) | __qsb.fail(id, kind, message) | __qsb.back() |
 //   __qsb.settings(settings, note) | __qsb.voices(list) | __qsb.said(id, isOk) | __qsb.toast(title, body) |
@@ -50,7 +50,8 @@ export const bridge = (settings: AppSettings, version: string) => `(() => {
   }
   Object.defineProperty(window, 'E2E', { configurable: false, get: () => E2E, set: () => undefined })
 
-  // the page knows it runs in the app: what the app does itself, its Settings set here
+  // the page knows it runs in the app: what the app does itself, its Settings set here; scan(): a QR
+  // code's text read by the phone's scanner ('' when shut without one), for another server's link
   // a file of the session saved in the phone's Downloads or opened in one of its apps (how: 'save' |
   // 'open'), fetched by the app itself: { name } as saved (Android may add (1)), or { error }
   // (onPart(done, size): how far the app has fetched it, after each piece)
@@ -63,7 +64,7 @@ export const bridge = (settings: AppSettings, version: string) => `(() => {
     if (typeof onPart === 'function') fileParts.set(id, onPart)
     post({ t: 'file', id, how, a })
   })
-  const native = { platform: 'android', version: ${JSON.stringify(version)}, settings: ${JSON.stringify(settings)}, set: (key, value) => post({ t: 'set', key, value }), checkUpdate: () => post({ t: 'update' }), rescan: () => post({ t: 'rescan' }), file }
+  const native = { platform: 'android', version: ${JSON.stringify(version)}, settings: ${JSON.stringify(settings)}, set: (key, value) => post({ t: 'set', key, value }), checkUpdate: () => post({ t: 'update' }), rescan: () => post({ t: 'rescan' }), scan: () => ask({ t: 'scan' }), file }
   Object.defineProperty(window, 'QSB_NATIVE', { configurable: false, get: () => native, set: () => undefined })
 
   // read aloud with the phone's own voices: the page's utterances, said by the app in turn

@@ -1,5 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
-import { contextOf, midTurnsIn, pairChoices, phoneCommand, phoneMayRun, sessionTitleIn, transcriptOf } from '../hooks/features/remote'
+import { cmdsKept, contextOf, midTurnsIn, pairChoices, phoneCommand, phoneMayRun, sessionTitleIn, transcriptOf } from '../hooks/features/remote'
 import { qrMatrix, qrRows, qrSvg } from '../hooks/lib/qr'
 
 // Self remote: the ⇄ chip and its menu. The hooks registered here stand for the engine; the hub
@@ -284,6 +284,19 @@ test('a prompt shows as typed whatever the engine put around it, and a notice ho
     { k: 'user', text: '<future_tag>older prompt</future_tag>\nnot kept' },
     { k: 'user', text: 'resumed' },
   ])
+})
+
+test('a phone command shows where it ran; after /clear or /compact the old log goes and the command sits where the new transcript ends', () => {
+  const turn = (n: number) => [{ role: 'user', text: `q${n}`, toolUses: [] }, { role: 'assistant', text: `a${n}`, toolUses: [] }]
+  const cmd = (anchor: number, command: string) => ({ anchor, command, text: 'ran', isError: false })
+  // /model at message 2, between the two turns
+  expect(transcriptOf([...turn(0), ...turn(1)], '/w', [cmd(2, '/model opus')]).map(i => i.k)).toEqual(['user', 'text', 'cmd', 'user', 'text'])
+  // the transcript went from 40 messages to 2: the log anchored at 30 and 40 is let go
+  const log = [cmd(30, '/model opus'), cmd(40, '/compact')]
+  expect(cmdsKept(log, 40, 2)).toEqual([])
+  expect(cmdsKept(log, 40, 44)).toEqual(log)
+  // /compact anchored where the compacted transcript ended (2): it stays before the turn after it
+  expect(transcriptOf([...turn(0), ...turn(1)], '/w', [cmd(2, '/compact')]).map(i => (i.k === 'cmd' ? i.command : i.k))).toEqual(['user', 'text', '/compact', 'user', 'text'])
 })
 
 test('the transcript keeps the last `max` turns and says how many there are', () => {
