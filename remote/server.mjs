@@ -274,8 +274,12 @@ const DOC_TYPES = {
 }
 // a text file's type, for the app that opens it; any other text is text/plain
 const TEXT_TYPES = { '.csv': 'text/csv', '.tsv': 'text/tab-separated-values', '.html': 'text/html', '.htm': 'text/html', '.md': 'text/markdown', '.json': 'application/json', '.xml': 'text/xml', '.ics': 'text/calendar', '.vcf': 'text/vcard' }
-// past RAW_MAX a file's size alone: a call carries the whole of it, sealed, in base64
+// past RAW_MAX a file's size alone: a call carries the whole of it, sealed, in base64. A phone
+// that asks by the piece (a = { raw, at }: RAW_PIECE bytes from `at`, each call sealed on its own)
+// gets files up to RAW_PIECES_MAX, written as they come, never held whole in a call
 const RAW_MAX = 20 * 1024 * 1024
+const RAW_PIECE = 2 * 1024 * 1024
+const RAW_PIECES_MAX = 500 * 1024 * 1024
 
 // ---- browsing a session's folders: its own, those added, and the files it holds in context ----
 // SENSITIVE (mask.mjs, the rule the mod's file menu locks by): the project's secrets and the
@@ -375,9 +379,10 @@ function fileOf(session, path) {
   try { st = statSync(place.target) } catch { return { status: 404, body: { error: 'No such file.' } } }
   if (!st.isFile()) return { status: 400, body: { error: 'Not a file.' } }
   const ext = extname(place.target).toLowerCase(), name = basename(place.target)
-  // every file's bytes may be fetched (raw) to show, save or open on the phone, up to RAW_MAX
-  const isTooBig = st.size > RAW_MAX
-  const as = (kind, type, more = {}) => ({ status: 200, body: { kind, size: st.size, name, type, isTooBig, ...more }, raw: isTooBig ? undefined : { file: place.target, type } })
+  // every file's bytes may be fetched (raw) to show, save or open on the phone: whole up to RAW_MAX,
+  // by the piece (`piece` says how big) up to RAW_PIECES_MAX
+  const isTooBig = st.size > RAW_PIECES_MAX
+  const as = (kind, type, more = {}) => ({ status: 200, body: { kind, size: st.size, name, type, isTooBig, piece: RAW_PIECE, ...more }, raw: isTooBig ? undefined : { file: place.target, type, size: st.size } })
   if (IMAGE_TYPES[ext]) return as('image', IMAGE_TYPES[ext])
   if (AUDIO_TYPES[ext]) return as('audio', AUDIO_TYPES[ext])
   if (VIDEO_TYPES[ext]) return as('video', VIDEO_TYPES[ext])
@@ -651,8 +656,19 @@ async function answerOp(dev, id, op, a, res) {
     case 'file': {
       const r = fileOf(session, String(a.path ?? ''))
       if (!a.raw || r.status !== 200) return [r.status, r.body]
-      if (!r.raw) return [413, { error: 'Too big to send to the phone: over 20 MB.' }]
-      return [200, { type: r.raw.type, name: r.body.name, b64: readFileSync(r.raw.file).toString('base64') }]
+      if (!r.raw) return [413, { error: 'Too big to send to the phone: over 500 MB.' }]
+      if (a.at === undefined) {
+        if (r.raw.size > RAW_MAX) return [413, { error: 'Too big to send to the phone: over 20 MB.' }]
+        return [200, { type: r.raw.type, name: r.body.name, b64: readFileSync(r.raw.file).toString('base64') }]
+      }
+      // one piece: RAW_PIECE bytes from `at` (fewer at the end), with the size, so the phone knows
+      // when it has them all and that the file did not change under it
+      const at = Number(a.at)
+      if (!Number.isSafeInteger(at) || at < 0 || at > r.raw.size) return [400, { error: 'No such part of the file.' }]
+      const piece = Buffer.alloc(Math.min(RAW_PIECE, r.raw.size - at))
+      const fd = openSync(r.raw.file, 'r')
+      try { readSync(fd, piece, 0, piece.length, at) } finally { closeSync(fd) }
+      return [200, { type: r.raw.type, name: r.body.name, size: r.raw.size, at, b64: piece.toString('base64') }]
     }
     case 'ttsinfo':
       // asked with warm by a phone that reads with ZeroTTS: the model loads now, not at the first piece

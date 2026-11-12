@@ -47,6 +47,7 @@ const linesShown = (from, to) => (from === to ? tx('line {n}', { n: from }) : tx
 // The icons, drawn as SVG strokes in the text's color: a 24-unit box, one path each.
 const ICONS = {
   menu: 'M4 6h16M4 12h16M4 18h16',
+  more: 'M12 5.5h.01M12 12h.01M12 18.5h.01',
   folder: 'M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2.5h7.5A2.5 2.5 0 0 1 21 10v7.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z',
   back: 'M15 18l-6-6 6-6',
   arrowUp: 'M12 19V5M6 11l6-6 6 6',
@@ -1553,37 +1554,65 @@ function loadHighlighter() {
   })
   return hljsLoading
 }
-// Save, and in the app Open: the app fetches the file itself and writes it into the phone's
-// Downloads, or hands it to the app Android picks by its type; a browser downloads it from a blob
-function fileActions(path, data) {
-  const row = el('div', 'fileacts')
-  if (data.isTooBig) {
-    row.append(el('span', 'meta', tx('Over 20 MB: too big to send to the phone.')))
-    return row
+// The file's bytes as a blob URL: by the piece from a hub that offers it (`data.piece`: each piece
+// one sealed call, a piece that fails asked twice more, `onPart(done, size)` after each), else whole
+// from an older hub. '' when it could not be had, or the file changed size on the way.
+async function rawUrl(path, data, onPart = () => undefined) {
+  if (!data.piece) return imageUrl('file', { path, raw: true })
+  const parts = []
+  for (let at = 0; at < data.size;) {
+    let r = null
+    for (let tries = 0; tries < 3 && !(r?.s === 200 && typeof r.b?.b64 === 'string'); tries++) r = await api('file', { path, raw: true, at })
+    if (r.s !== 200 || typeof r.b?.b64 !== 'string' || r.b.size !== data.size) return ''
+    const bytes = E2E.b64.dec(r.b.b64)
+    if (!bytes.length) return ''
+    parts.push(bytes)
+    at += bytes.length
+    onPart(at, data.size)
   }
-  const act = (label, busy, run) => {
-    const b = row.appendChild(el('button', 'pbtn', label))
-    b.onclick = async () => {
-      b.disabled = true
-      b.textContent = busy
-      try { await run() } finally {
-        b.disabled = false
-        b.textContent = label
+  return URL.createObjectURL(new Blob(parts, { type: data.type || 'application/octet-stream' }))
+}
+const percent = (done, all) => (all ? `${Math.floor((done / all) * 100)}%` : '')
+
+// The viewer's ⋮, at the right of its head: the actions on what it shows, in a small menu under it
+function setViewerMenu(items) {
+  const more = $('viewer-more')
+  document.querySelector('.popmenu')?.remove()
+  more.hidden = !items.length
+  more.onclick = e => {
+    e.stopPropagation()
+    if (document.querySelector('.popmenu')) return document.querySelector('.popmenu').remove()
+    const menu = document.body.appendChild(el('div', 'popmenu'))
+    for (const it of items) {
+      const b = menu.appendChild(el('button', '', it.label))
+      b.onclick = () => {
+        menu.remove()
+        void it.run()
       }
     }
   }
+}
+document.addEventListener('click', e => {
+  const menu = document.querySelector('.popmenu')
+  if (menu && !menu.contains(e.target)) menu.remove()
+})
+
+// What the ⋮ offers for a file: in the app Open in an app and Save to the phone (the app fetches it
+// itself, by the piece, and writes it to its cache or the phone's Downloads); in a browser Download,
+// from a blob. `say` puts a line in the file's head: how far it has come, or what went wrong.
+function fileMenu(path, data, say) {
+  if (data.isTooBig) return []
   const native = window.QSB_NATIVE
-  if (native?.file) {
-    const hand = async how => {
-      const r = await native.file(how, { session: snap ? snap.id : '', path })
-      if (r.error) toast({ title: tx(how === 'open' ? 'Could not open the file.' : 'Could not save the file.'), body: txSent(r.error) })
-      else if (how === 'save') toast({ title: tx('Saved in Downloads'), body: r.name })
-    }
-    act(tx('Open in an app'), tx('Opening…'), () => hand('open'))
-    act(tx('Save to the phone'), tx('Saving…'), () => hand('save'))
-  } else if (!native) {
-    act(tx('Download'), tx('Loading…'), async () => {
-      const url = await imageUrl('file', { path, raw: true })
+  if (native?.file) return [
+    { label: tx('Open in an app'), run: () => handToApp('open', path, say) },
+    { label: tx('Save to the phone'), run: () => handToApp('save', path, say) },
+  ]
+  if (native) return []
+  return [{
+    label: tx('Download'), run: async () => {
+      say(tx('Loading…'))
+      const url = await rawUrl(path, data, (done, all) => say(`${tx('Loading…')} ${percent(done, all)}`))
+      say('')
       if (!url) return toast({ title: tx('Could not save the file.'), body: '' })
       const a = el('a')
       a.href = url
@@ -1592,45 +1621,166 @@ function fileActions(path, data) {
       a.click()
       a.remove()
       setTimeout(() => URL.revokeObjectURL(url), 60_000)
-    })
-  }
-  return row
+    },
+  }]
 }
-// `atLine`: the line a search found, marked and scrolled to
-async function showFile(path, atLine) {
+async function handToApp(how, path, say) {
+  const busy = how === 'open' ? tx('Opening…') : tx('Saving…')
+  say(busy)
+  const r = await QSB_NATIVE.file(how, { session: snap ? snap.id : '', path }, (done, all) => say(`${busy} ${percent(done, all)}`))
+  say('')
+  if (r.error) toast({ title: tx(how === 'open' ? 'Could not open the file.' : 'Could not save the file.'), body: txSent(r.error) })
+  else if (how === 'save') toast({ title: tx('Saved in Downloads'), body: r.name })
+  return !r.error
+}
+
+// What the app opens in one of the phone's own apps at a tap, before showing it here: a picture, a
+// sound, a video, a PDF and an office document (the page shows none of the last two)
+const OPENS_IN_APP = /^(image|audio|video)\/|^application\/(pdf|msword|rtf|epub\+zip|vnd\.(openxmlformats|ms-excel|ms-powerpoint|oasis\.opendocument|apple\.(pages|numbers)))/
+const opensInApp = data => Boolean(window.QSB_NATIVE?.file) && !data.isTooBig && (data.kind !== 'text') && OPENS_IN_APP.test(data.type || '')
+
+// A picture that pinches to zoom, drags while zoomed, zooms in and back on a double tap, and turns a
+// quarter at a time; Reset puts it back as it came
+function zoomImage(url) {
+  const box = el('div', 'zoom')
+  const img = box.appendChild(el('img'))
+  img.src = url
+  img.draggable = false
+  let s = 1, r = 0, x = 0, y = 0
+  // a picture turned on its side shrinks to fit the box the other way, never grows past its size
+  const fit = () => {
+    if (r % 180 === 0 || !img.offsetWidth) return 1
+    return Math.min(1, box.clientWidth / img.offsetHeight, box.clientHeight / img.offsetWidth)
+  }
+  const draw = () => { img.style.transform = `translate(${x}px, ${y}px) rotate(${r}deg) scale(${s * fit()})` }
+  const pts = new Map()
+  let from = null
+  let lastTap = 0
+  const begin = () => {
+    const [a, b] = [...pts.values()]
+    from = { s, x, y, a, dist: b ? Math.hypot(b.x - a.x, b.y - a.y) : 0 }
+  }
+  box.addEventListener('pointerdown', e => {
+    box.setPointerCapture(e.pointerId)
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    img.style.transition = 'none'
+    begin()
+    if (pts.size === 1) {
+      const now = Date.now()
+      if (now - lastTap < 300) {
+        s = s > 1 ? 1 : 2.5
+        if (s === 1) x = y = 0
+        img.style.transition = ''
+        draw()
+        lastTap = 0
+      } else lastTap = now
+    }
+  })
+  box.addEventListener('pointermove', e => {
+    if (!pts.has(e.pointerId) || !from) return
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    const [a, b] = [...pts.values()]
+    if (b && from.dist) s = Math.min(8, Math.max(1, from.s * (Math.hypot(b.x - a.x, b.y - a.y) / from.dist)))
+    else if (s > 1) {
+      x = from.x + (a.x - from.a.x)
+      y = from.y + (a.y - from.a.y)
+    }
+    if (s === 1) x = y = 0
+    draw()
+  })
+  const end = e => {
+    pts.delete(e.pointerId)
+    img.style.transition = ''
+    if (pts.size) begin()
+    else from = null
+  }
+  box.addEventListener('pointerup', end)
+  box.addEventListener('pointercancel', end)
+  img.onload = draw
+  const tools = el('div', 'fileacts center')
+  const turn = tools.appendChild(el('button', 'pbtn', `↻ ${tx('Rotate')}`))
+  turn.onclick = () => {
+    r = (r + 90) % 360
+    x = y = 0
+    draw()
+  }
+  const reset = tools.appendChild(el('button', 'pbtn', tx('Reset')))
+  reset.onclick = () => {
+    s = 1
+    r = x = y = 0
+    draw()
+  }
+  return [box, tools]
+}
+
+// `atLine`: the line a search found, marked and scrolled to. In the app a picture, a sound, a video,
+// a PDF or an office document opens in one of the phone's apps at once; `isHere` shows it here instead
+async function showFile(path, atLine, isHere = false) {
   const body = openViewer(shortPath(path))
   body.append(el('div', 'meta pad', tx('Loading…')))
   const r = await api('file', { path })
   const data = r.b || {}
   body.replaceChildren()
   if (r.s !== 200) return body.append(el('div', 'none', txSent(data.error) || tx('Could not open the file.')))
-  const tooBig = () => el('div', 'none', tx('Too big to show here: over 20 MB.'))
-  if (data.kind === 'image') {
-    body.append(el('div', 'meta pad', `${tx('Image')} · ${size(data.size)}`), fileActions(path, data))
-    if (data.isTooBig) return body.append(tooBig())
-    const img = body.appendChild(el('img'))
-    img.src = await imageUrl('file', { path, raw: true })
+  const tooBig = () => el('div', 'none', tx('Too big to show here: over 500 MB.'))
+  // the file's head: its kind and size, then what an action says while it runs
+  const head = (kind) => {
+    const meta = body.appendChild(el('div', 'meta pad', `${kind} · ${size(data.size)}`))
+    const status = meta.appendChild(el('span', 'fstatus', ''))
+    const say = text => { status.textContent = text ? ` · ${text}` : '' }
+    setViewerMenu(fileMenu(path, data, say))
+    return say
+  }
+  const kindName = { image: tx('Image'), audio: tx('Audio'), video: tx('Video') }[data.kind]
+  if (opensInApp(data) && !isHere) {
+    head(kindName || tx('A file'))
+    const card = body.appendChild(el('div', 'none'))
+    const say = text => { card.textContent = text }
+    void handToApp('open', path, say).then(isOk => {
+      say(isOk ? tx('Opened in an app.') : '')
+      if (!kindName) return
+      const here = el('div', 'fileacts center')
+      const b = here.appendChild(el('button', 'pbtn', tx('View here')))
+      b.onclick = () => showFile(path, atLine, true)
+      card.after(here)
+    })
     return
   }
-  // a sound file or a video: a player, the file fetched sealed as an image is
+  if (data.kind === 'image') {
+    const say = head(kindName)
+    if (data.isTooBig) return body.append(tooBig())
+    const url = await rawUrl(path, data, (done, all) => say(`${tx('Loading…')} ${percent(done, all)}`))
+    say('')
+    if (!url) return body.append(el('div', 'none', tx('Could not open the file.')))
+    body.append(...zoomImage(url))
+    return
+  }
+  // a sound file or a video: a player, the file fetched sealed by the piece
   if (data.kind === 'audio' || data.kind === 'video') {
-    body.append(el('div', 'meta pad', `${tx(data.kind === 'audio' ? 'Audio' : 'Video')} · ${size(data.size)}`), fileActions(path, data))
+    const say = head(kindName)
     if (data.isTooBig) return body.append(tooBig())
     const player = body.appendChild(el(data.kind, 'player'))
     player.controls = true
     player.preload = 'auto'
     if (data.kind === 'video') player.playsInline = true
-    const url = await imageUrl('file', { path, raw: true })
+    const url = await rawUrl(path, data, (done, all) => say(`${tx('Loading…')} ${percent(done, all)}`))
+    say('')
     if (!url) return player.replaceWith(el('div', 'none', tx('Could not open the file.')))
     player.src = url
     return
   }
   if (data.kind === 'binary') {
-    body.append(el('div', 'none', tx('A binary file, {size}.', { size: size(data.size) })))
-    return body.append(fileActions(path, data))
+    const say = text => { line.textContent = text ? `${tx('A binary file, {size}.', { size: size(data.size) })} ${text}` : tx('A binary file, {size}.', { size: size(data.size) }) }
+    const line = body.appendChild(el('div', 'none', ''))
+    say('')
+    setViewerMenu(fileMenu(path, data, say))
+    if (data.isTooBig) body.append(tooBig())
+    return
   }
   const lines = data.text.replace(/\n$/, '').split('\n')
-  body.append(el('div', 'meta pad', `${tx('{n} lines', { n: lines.length })} · ${size(data.size)}${data.isCut ? ` · ${tx('the first 512 KB')}` : ''}`), fileActions(path, data))
+  const textMeta = body.appendChild(el('div', 'meta pad', `${tx('{n} lines', { n: lines.length })} · ${size(data.size)}${data.isCut ? ` · ${tx('the first 512 KB')}` : ''}`))
+  const textStatus = textMeta.appendChild(el('span', 'fstatus', ''))
+  setViewerMenu(fileMenu(path, data, text => { textStatus.textContent = text ? ` · ${text}` : '' }))
   const code = body.appendChild(el('div', 'codeview'))
   const gutter = code.appendChild(el('pre', 'gutter', lines.map((_, i) => i + 1).join('\n')))
   // a tap on a line number marks that line and opens a box under the file to ask Claude about it;
@@ -1828,6 +1978,7 @@ function tickLineAsk() {
 
 function openViewer(title) {
   $('viewer-title').textContent = title
+  setViewerMenu([])
   $('viewer').dataset.page = ''
   const body = $('viewer-body')
   body.replaceChildren()
@@ -2099,7 +2250,10 @@ $('close-files').onclick = () => {
   $('files').hidden = true
   isPicking = false
 }
-$('close-viewer').onclick = () => { $('viewer').hidden = true }
+$('close-viewer').onclick = () => {
+  $('viewer').hidden = true
+  setViewerMenu([])
+}
 $('close-ask').onclick = () => {
   askHiddenId = snap?.ask?.id || ''
   $('ask').hidden = true

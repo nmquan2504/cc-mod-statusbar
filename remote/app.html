@@ -315,6 +315,16 @@
   .diff { font: calc(12px * var(--fs))/1.45 var(--mono); white-space: pre; overflow-x: auto; padding-top: 12px; }
   .diff div { min-height: 1.45em; }
   .viewer img { max-width: 100%; margin-top: 12px; }
+  /* the viewer's ⋮ and the small menu under it */
+  #viewer-more svg.ic { stroke-width: 3.4; }
+  .popmenu { position: fixed; z-index: 30; top: calc(env(safe-area-inset-top) + var(--top) - 4px); right: 8px; min-width: 210px; display: flex; flex-direction: column; padding: 4px 0; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 28px rgba(0, 0, 0, .28); }
+  .popmenu button { text-align: left; font: 15px -apple-system, sans-serif; color: var(--text); background: none; border: 0; padding: 12px 16px; }
+  .popmenu button:active { background: var(--line); }
+  .fstatus { color: var(--claude); }
+  .fileacts.center { justify-content: center; padding-top: 8px; }
+  /* a picture to pinch, drag and turn: the box keeps the gestures from scrolling the page */
+  .zoom { height: calc(100dvh - var(--top) - env(safe-area-inset-top) - 140px); min-height: 240px; display: flex; align-items: center; justify-content: center; overflow: hidden; touch-action: none; margin-top: 8px; }
+  .viewer .zoom img { max-width: 100%; max-height: 100%; margin: 0; transition: transform .15s ease; user-select: none; -webkit-user-select: none; }
   .none { color: var(--dim); text-align: center; padding: 40px 0; }
   .seg button { padding: 8px 2px; font-size: 13px; }
   .roots { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
@@ -548,6 +558,7 @@
   <div class="page-head">
     <button id="close-viewer" class="icon" aria-label="Back" data-icon="back"></button>
     <strong id="viewer-title"></strong>
+    <button id="viewer-more" class="icon" aria-label="More" data-icon="more" hidden></button>
   </div>
   <div id="viewer-body"></div>
 </div>
