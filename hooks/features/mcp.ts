@@ -32,6 +32,8 @@ export async function readMcp($: any) {
     name: mcpName(key),
     tools: tools.length,
     needsAuth: tools.every(t => AUTH_TOOLS.has(t)),
+    // for the shield menu's MCP access, where each tool gets its rule
+    toolNames: [...tools].sort(),
   }))
   await update($, mcpServers, () => rows.sort((p, q) => Number(p.needsAuth) - Number(q.needsAuth) || p.name.localeCompare(q.name)))
 }

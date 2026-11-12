@@ -3,12 +3,14 @@ import { arena, arenaEvents } from '../features/arena'
 import { logAudit } from '../features/audit'
 import { keepEdit, lineCount } from '../features/edits'
 import { hostsOf, keepEgress } from '../features/egress'
+import { isOn } from '../features/guardrails'
 import { keepMcpCall } from '../features/mcp'
 import { releaseHeld } from '../features/remote'
 import { IN_TEXT, KEYCHAIN_READ, SERVICE, cache, scrubDeep } from '../features/vault'
 import { describeCall } from '../features/work'
 import { dangerOf } from '../lib/danger'
 import { oneLine } from '../lib/format'
+import { redactDeep } from '../lib/pii'
 import { cfg } from '../state/config'
 import { rt } from '../state/runtime'
 
@@ -73,6 +75,9 @@ export function registerTools(on: On) {
     if (isMain) {
       rt.nowTool = describeCall(e)
       rt.turnTools = [...rt.turnTools, rt.nowTool].slice(-60)
+      // in order, for the prove-done guardrail (events/guards.ts)
+      const c = e as { command?: unknown; file_path?: unknown }
+      rt.turnCalls = [...rt.turnCalls, { tool: e.tool, command: typeof c.command === 'string' ? c.command : undefined, path: typeof c.file_path === 'string' ? c.file_path : undefined }].slice(-200)
     }
     if (rt.isBusy && e.tool !== 'TaskList') {
       arenaEvents.lastToolAt = Date.now()
@@ -99,7 +104,8 @@ export function registerTools(on: On) {
         const via = e.tool === 'mcp__cc-mod-statusbar__secret_fetch' ? 'secret_fetch' : e.tool.startsWith('mcp__') ? 'MCP' : e.tool
         await keepEgress($, hosts, e.agentId ? `${via} (agent)` : via, Boolean(r?.deny)).catch(() => undefined)
       }
-      return r
+      // the redact guardrail: what any tool gives Claude, its strings masked (the mod's own tools aside)
+      return isOn('redact') && !e.tool.startsWith('mcp__cc-mod-statusbar__') ? redactDeep(r) : r
     } finally {
       if (isMain) rt.nowTool = ''
       // a dialog the phone was shown, answered at the computer: the phone drops it (an agent's too:
@@ -164,6 +170,7 @@ export function registerTools(on: On) {
   // keep Claude away from the vault in the shell: a command that names it, holds one of its values,
   // or reads a keychain item is refused; what a command prints has the vault's values masked
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    if (!cfg.guardVault) return next(e)
     const c = e.command
     const hit = c.includes(SERVICE) || KEYCHAIN_READ.test(c) || new RegExp(IN_TEXT.source).test(c) || [...cache.values()].some(v => c.includes(v))
     if (!hit) return scrubDeep(await next(e))

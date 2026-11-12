@@ -3,6 +3,8 @@ import { ASK_KEY, rulesFor } from '../hooks/features/permissions'
 import { SENSITIVE } from '../hooks/lib/catalog'
 import { suggestPrompt, suggestionChips, suggestionsFrom } from '../hooks/lib/suggest'
 import { keyRows, rowsOf } from '../hooks/lib/rows'
+import { gitRisk, newPackage } from '../hooks/lib/gitguard'
+import { redactText } from '../hooks/lib/pii'
 import { SHOW_MS, WAIT_MS, clearPrompts, duePrompts, noteCheck, noteSpinner, prompts, waitingPrompts } from '../hooks/features/prompts'
 
 // The hooks registered here sit beneath the plugin and stand for the engine: the model,
@@ -160,7 +162,7 @@ test('the shield reads the guardrails from the settings', async ($, on) => {
   expect(drawn).toContain('on PreToolUse')
   // every check passes: the chip shows the shield alone; the menu still says 3/3
   expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ ')
-  expect(drawn).toContain('3/3 checks pass')
+  expect(drawn).toContain('8/8 on and passing')
 })
 
 test('with no deny rules the shield turns red and says so', async ($, on) => {
@@ -170,10 +172,10 @@ test('with no deny rules the shield turns red and says so', async ($, on) => {
   const drawn = await textOf(band)
   expect(drawn).toContain('none: Claude may read any file')
   // the sandbox is off here: a warning, left out of the score
-  expect(drawn).toContain('off: advised, not counted in the score')
-  expect((await band.find({ key: 'guard' }))?.text).toContain('1/3')
+  expect(drawn).toContain('off: advised')
+  expect((await band.find({ key: 'guard' }))?.text).toContain('6/8')
   // the menu says the same score the chip shows
-  expect(drawn).toContain('1/3 checks pass')
+  expect(drawn).toContain('6/8 on and passing')
 })
 
 test('[/] groups commands with this mod first; a pick fills the prompt', async ($, on) => {
@@ -532,7 +534,7 @@ test('the prompts asked most become allow rules after two presses', async ($, on
   await band.press({ key: 'allow:Bash(npm:*)' })
   expect(Object.keys(written).length).toBe(0) // the first press only arms it
   await band.press({ key: 'allow:Bash(npm:*)' })
-  const file = written['/work/shop/.claude/settings.local.json'] ?? ''
+  const file = written['/work/shop/.claude/settings.json'] ?? ''
   expect(JSON.parse(file).permissions.allow).toContain('Bash(npm:*)')
 })
 
@@ -1002,8 +1004,8 @@ test('arena: a monster that reaches Claude counts as a hit, ✗ beside the kills
   // matter of chance; when one lands, ✗ joins the kills and Claude shows red in the same frame
   let sawHit = false
   for (let tick = 0; tick < 3000 && !sawHit; tick++) {
-    await t.tool.call({ tool: 'Edit', file_path: '/x', old_string: 'a', new_string: 'b' })
-    await t.tool.call({ tool: 'Edit', file_path: '/x', old_string: 'a', new_string: 'b' })
+    await t.tool.call({ tool: 'Edit', file_path: '/work/shop/x', old_string: 'a', new_string: 'b' })
+    await t.tool.call({ tool: 'Edit', file_path: '/work/shop/x', old_string: 'a', new_string: 'b' })
     await clock.advance(120)
     if ((await arenaText(band)).includes('✗')) {
       sawHit = true
@@ -1237,7 +1239,7 @@ test('a dangerous command asks the person even when the mode would allow it; a r
   expect(ran).toEqual([])
   // the shield chip counts it after its score, its menu lists it in red
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, bodyColumns: 160 } } as never)
-  expect((await band.find({ key: 'guard' }))?.text).toMatch(/^ ◈ (\d\/3 )?⚠1 $/)
+  expect((await band.find({ key: 'guard' }))?.text).toMatch(/^ ◈ (\d+\/\d+ )?⚠1 $/)
   // ⚠1 in yellow text on the shield's own background
   expect(await textOf(band)).toMatch(/\{"type":"Text","props":\{"backgroundColor":"(success|error)","color":"warning","bold":true\},"children":\["⚠1 "\]\}/)
   expect(await band.find({ key: 'danger' })).toBeUndefined()
@@ -1248,9 +1250,9 @@ test('a dangerous command asks the person even when the mode would allow it; a r
 test('a dangerous command the person allows runs', async ($, on) => {
   engine(on)
   const { asked, ran } = dangerEngine(on, { answer: 'Run it', verdict: 'allow' })
-  await ($ as any).tool.call({ tool: 'Bash', command: 'git push --force origin main' })
+  await ($ as any).tool.call({ tool: 'Bash', command: 'rm -rf build' })
   expect(asked.length).toBe(1)
-  expect(ran).toEqual(['git push --force origin main'])
+  expect(ran).toEqual(['rm -rf build'])
 })
 
 test('where the engine asks the person itself (manual, no allow rule) only its dialog asks', async ($, on) => {
@@ -1266,7 +1268,13 @@ test('where the engine asks the person itself (manual, no allow rule) only its d
 
 test('which commands count as dangerous', async ($, on) => {
   engine(on)
+  settingsStore(on)
   const { asked } = dangerEngine(on, { answer: 'Do not run', verdict: 'allow' })
+  // the protect-git guardrail off: a force push reaches the dangerous-command check
+  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await band.press({ key: 'guard' })
+  await band.press({ key: 'gr:git' })
+  await band.press({ key: 'close-menu' })
   const dangerous = [
     'rm -rf build', 'sudo rm -fr /srv/x', 'rm -r -f x', 'rm -Rf x', 'rm --recursive --force x', 'cd app && rm -rf node_modules',
     'git push --force', 'git push -f origin main', 'git push origin +main', 'git reset --hard HEAD~1', 'git clean -fd',
@@ -1336,7 +1344,7 @@ test('a check that fails gets its fix in the shield menu; a fix that writes the 
   expect(menu).toContain('◆ To fix')
   for (const key of ['fix:deny', 'fix:hook', 'fix:hooks', 'fix:sandbox']) expect(await band.find({ key })).toBeDefined()
   expect(await band.find({ key: 'fix:mode' })).toBeUndefined() // manual is not bypass
-  const path = '/work/shop/.claude/settings.local.json'
+  const path = '/work/shop/.claude/settings.json'
   await band.press({ key: 'fix:deny' })
   expect(written[path]).toBeUndefined() // the first press only arms it
   await band.press({ key: 'fix:deny' })
@@ -1381,11 +1389,11 @@ test('the shield follows the settings with its menu shut, every 5 seconds', asyn
   await t.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true }) // starts the 1-second clock
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   const score = async () => (await band.find({ key: 'guard' }))?.text ?? ''
-  expect(await score()).toContain('1/3') // no deny rules, no hooks
+  expect(await score()).toContain('6/8') // no deny rules, no hooks
   // a deny rule lands in a settings file: the 5-second read finds it
   live.settings = { permissions: { deny: ['Read(./.env)'] } }
   for (let i = 0; i < 5; i++) await clock.advance(1000)
-  expect(await score()).toContain('2/3')
+  expect(await score()).toContain('7/8')
   // then a hook
   live.settings = { permissions: { deny: ['Read(./.env)'] }, hooks: { PreToolUse: [] } }
   for (let i = 0; i < 5; i++) await clock.advance(1000)
@@ -1588,7 +1596,7 @@ test('the shield chip shows its score only while a check fails', async ($, on) =
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   await band.press({ key: 'guard' })
   await band.press({ key: 'guard' })
-  expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ 2/3 ')
+  expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ 7/8 ')
 })
 
 test('in Claude Code for VS Code the bar draws nothing: the engine draws its own', async ($, on) => {
@@ -1641,7 +1649,7 @@ test('a blank line parts the groups in Settings, /, usage, MCP and the shield me
   expect(usage).toContain('"key":"automation","flexDirection":"column","marginTop":1')
   const guard = await menuOf('guard')
   // each group's heading follows a blank line: a "\\n" child right before it
-  for (const heading of ['◆ To fix', '◆ Permissions', '◇ Enforcement', '◇ This session', '◇ Network']) {
+  for (const heading of ['◆ To fix', '◆ Guardrails', '◆ MCP access', '◆ Permissions', '◇ This session', '◇ Network']) {
     const at = guard.indexOf(heading)
     expect(at).toBeGreaterThan(-1)
     expect(guard.slice(Math.max(0, at - 90), at)).toContain('"\\n"')
@@ -2359,4 +2367,135 @@ test("a tall menu keeps its head and the bar: it scrolls in a window between the
   expect(keyRows(tree, 10).get('b')).toBe(5)
   // a row: as tall as its tallest child
   expect(rowsOf({ type: 'Box', props: {}, children: [text('a\nb'), text('c')] }, 40)).toBe(2)
+})
+
+// ---- the guardrails -------------------------------------------------------------------------------
+
+test('protect git: a push to main or master and a force push are refused; reset --hard of a pushed branch asks', () => {
+  expect(gitRisk('git push origin main', 'feat/x', true)?.kind).toBe('deny')
+  expect(gitRisk('git push origin HEAD:master', 'feat/x', true)?.kind).toBe('deny')
+  expect(gitRisk('git push', 'main', true)?.kind).toBe('deny') // the current branch is main
+  expect(gitRisk('cd app && git -C . push -u origin feat/x', 'feat/x', true)).toBeNull()
+  expect(gitRisk('git push --force origin feat/x', 'feat/x', true)?.kind).toBe('deny')
+  expect(gitRisk('git push origin +feat/x', 'feat/x', true)?.kind).toBe('deny')
+  expect(gitRisk('git push --force-with-lease', 'feat/x', true)?.kind).toBe('deny')
+  expect(gitRisk('git reset --hard HEAD~1', 'feat/x', true)?.kind).toBe('ask')
+  expect(gitRisk('git reset --hard HEAD~1', 'feat/x', false)).toBeNull() // nothing pushed
+  expect(gitRisk("git commit -m 'git push origin main later'", 'feat/x', true)).toBeNull()
+})
+
+test('new packages: an install that names one asks; installing what the manifest lists does not', () => {
+  expect(newPackage('npm install left-pad')).toBe('left-pad')
+  expect(newPackage('npm i -D vitest')).toBe('vitest')
+  expect(newPackage('pnpm add zod')).toBe('zod')
+  expect(newPackage('pip install requests')).toBe('requests')
+  expect(newPackage('uv add httpx')).toBe('httpx')
+  expect(newPackage('cargo add serde')).toBe('serde')
+  for (const harmless of ['npm install', 'npm ci', 'pip install -r requirements.txt', 'pip install -e .', 'npm run build']) expect(newPackage(harmless)).toBeNull()
+})
+
+test('redact: emails, phone numbers, citizen IDs, card numbers and keys go; ports, times and hashes stay', () => {
+  const text = 'Mail an.nguyen@example.com or call 0912 345 678 / +84 912345678 or +1 415 555 0101. CCCD 001203004567. Card 4111 1111 1111 1111. Key sk-ant-' + 'a'.repeat(30)
+  const out = redactText(text)
+  expect(out).toContain('[email hidden]')
+  expect(out.match(/\[phone hidden\]/g)?.length).toBe(3)
+  expect(out).toContain('[id hidden]')
+  expect(out).toContain('[card hidden]')
+  expect(out).not.toContain('a'.repeat(30))
+  const code = 'listen on 127.0.0.1:8080 at 1731400000123, commit 4f2a9c81d0e3b7a6, version 1.2.3, card-like 1234567890123'
+  expect(redactText(code)).toBe(code)
+})
+
+test('protect git refuses a push to main before the dangerous-command question', async ($, on) => {
+  engine(on)
+  const { asked, ran } = dangerEngine(on, { answer: 'Run it', verdict: 'allow' })
+  const r: any = await ($ as any).tool.call({ tool: 'Bash', command: 'git push origin main' })
+  expect(r.deny).toContain('protect-git')
+  expect(asked).toEqual([])
+  expect(ran).toEqual([])
+})
+
+test('stay in the project: a write outside it asks; a folder allowed for the session asks no more', async ($, on) => {
+  engine(on)
+  const asked: string[] = []
+  let answer = 'Refuse'
+  on('tool.check', () => ({ decision: 'allow' }))
+  on('tool.call', { tool: 'AskUserQuestion' }, (_: unknown, e: any) => {
+    asked.push(e.questions[0].question)
+    const q = e.questions[0]
+    return { result: { questions: e.questions, answers: { [q.question]: answer === 'folder' ? q.options.find((o: any) => /for this session/.test(o.label)).label : answer } } }
+  })
+  const wrote: string[] = []
+  on('tool.call', { tool: 'Write' }, (_: unknown, e: any) => (wrote.push(e.file_path), { result: {} }))
+  const t = $ as any
+  await t.tool.call({ tool: 'Write', file_path: '/work/shop/src/a.ts', content: 'x' })
+  await t.tool.call({ tool: 'Write', file_path: '/tmp/scratch.txt', content: 'x' })
+  expect(asked).toEqual([])
+  const r: any = await t.tool.call({ tool: 'Write', file_path: '/work/other/b.ts', content: 'x' })
+  expect(asked[0]).toContain('outside the project: /work/other/b.ts')
+  expect(r.deny).toContain('stay-in-the-project')
+  answer = 'folder'
+  await t.tool.call({ tool: 'Write', file_path: '/work/other/b.ts', content: 'x' })
+  await t.tool.call({ tool: 'Write', file_path: '/work/other/c.ts', content: 'x' })
+  expect(asked.length).toBe(2)
+  expect(wrote).toEqual(['/work/shop/src/a.ts', '/tmp/scratch.txt', '/work/other/b.ts', '/work/other/c.ts'])
+})
+
+test('prove done: an edit with nothing run to check it asks Claude once; a test run after it asks nothing', async ($, on) => {
+  const toasts: string[] = []
+  engine(on, { toasts })
+  settingsStore(on)
+  const submitted: string[] = []
+  on('prompt.submit', (_: unknown, e: any) => (submitted.push(e.text), { text: e.text }))
+  on('tool.call', { tool: 'Edit' }, () => ({ result: {} }))
+  on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: '', stderr: '', exitCode: 0 } }))
+  on('turn.start', () => ({ turnId: 't1' }))
+  on('turn.complete', () => ({ text: 'ok' }))
+  const t = $ as any
+  await t.turn.start({ text: 'fix it', turnId: 't1', kind: 'engine' })
+  await t.tool.call({ tool: 'Edit', file_path: '/work/shop/src/a.ts', old_string: 'a', new_string: 'b' })
+  await t.turn.complete({ text: 'ok', reason: 'answer', answer: 'Fixed.' })
+  expect(submitted.length).toBe(1)
+  expect(submitted[0]).toContain('Before you call this done')
+  // the asked turn still checks nothing: a toast, no second ask
+  await t.turn.start({ text: submitted[0], turnId: 't2', kind: 'engine' })
+  await t.tool.call({ tool: 'Edit', file_path: '/work/shop/src/a.ts', old_string: 'b', new_string: 'c' })
+  await t.turn.complete({ text: 'ok', reason: 'answer', answer: 'Done.' })
+  expect(submitted.length).toBe(1)
+  expect(toasts.join()).toContain('prove done')
+  // a person's prompt, an edit, then the tests: nothing asked
+  await t.turn.start({ text: 'and the docs', turnId: 't3', kind: 'engine' })
+  await t.tool.call({ tool: 'Edit', file_path: '/work/shop/src/b.ts', old_string: 'a', new_string: 'b' })
+  await t.tool.call({ tool: 'Bash', command: 'npm test' })
+  await t.turn.complete({ text: 'ok', reason: 'answer', answer: 'Done.' })
+  // and an edit of a README alone needs no proof
+  await t.turn.start({ text: 'docs', turnId: 't4', kind: 'engine' })
+  await t.tool.call({ tool: 'Edit', file_path: '/work/shop/README.md', old_string: 'a', new_string: 'b' })
+  await t.turn.complete({ text: 'ok', reason: 'answer', answer: 'Done.' })
+  expect(submitted.length).toBe(1)
+})
+
+test('the shield menu: a guardrail switched off leaves the score; the scope chip picks the file; MCP access steps a rule', async ($, on) => {
+  const written: Record<string, string> = {}
+  engine(on, { settings: { permissions: { deny: [], allow: [] }, hooks: {} } })
+  settingsStore(on)
+  on('fs.exists', (_: unknown, e: any) => ({ value: e.path in written }))
+  on('fs.read', (_: unknown, e: any) => ({ value: written[e.path] ?? '' }))
+  on('fs.write', (_: unknown, e: any) => ((written[e.path] = e.text), { value: undefined }))
+  on('tool.list', () => ({ value: [{ name: 'mcp__notion__search', description: '', mcp: true }, { name: 'mcp__notion__create_page', description: '', mcp: true }] }))
+  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await band.press({ key: 'guard' })
+  // no deny rules, no hooks: two of the eight switched on fail
+  expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ 6/8 ')
+  await band.press({ key: 'gr:deny' })
+  await band.press({ key: 'gr:hooks' })
+  expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ ')
+  // MCP access: a server's rule steps ask → allow → deny, in the project's shared settings by default
+  await band.press({ key: 'mcprule:mcp__notion' })
+  expect(JSON.parse(written['/work/shop/.claude/settings.json']!).permissions.allow).toEqual(['mcp__notion'])
+  await band.press({ key: 'scope:local' })
+  await band.press({ key: 'mcpopen:mcp__notion' })
+  expect(await band.find({ key: 'mcprule:mcp__notion__create_page' })).toBeDefined()
+  await band.press({ key: 'mcprule:mcp__notion__create_page' })
+  expect(JSON.parse(written['/work/shop/.claude/settings.local.json']!).permissions.allow).toEqual(['mcp__notion__create_page'])
 })

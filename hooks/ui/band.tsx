@@ -13,6 +13,7 @@ import { barOrder, cfg } from '../state/config'
 import type { CfgKey } from '../state/config'
 import { rt } from '../state/runtime'
 import { drawMenu } from './menus/index'
+import { guardScore as scoreGuards } from '../features/guardrails'
 import { keyRows, rowsOf } from '../lib/rows'
 import { desktopBar } from './desktopBar'
 import { chipsNow, dismissChips, sendChip } from '../features/chips'
@@ -65,10 +66,11 @@ export async function drawBand($: any, e: any, next: any) {
   const m = modeStyle(rt.drawnMode)
   const ms = modelStyle(b.model)
   const g = await read($, guard)
-  // the sandbox is advised but optional: the shield menu warns about it, the score leaves it out
-  const checks = [g.deny.length > 0, g.hooks.length > 0, rt.drawnMode !== 'bypass']
-  const ok = checks.filter(Boolean).length
-  const isAlert = rt.drawnMode === 'bypass' || g.deny.length === 0
+  // the guardrails switched on that pass, of those switched on (features/guardrails.ts)
+  const score = scoreGuards(g, rt.drawnMode)
+  const checks = { length: score.of }
+  const ok = score.ok
+  const isAlert = score.isAlert
 
   // A square button: the label on a full cell of `bg` (no glyph caps, so it fills the row
   // at any line height); the one whose menu is open is drawn inverted.

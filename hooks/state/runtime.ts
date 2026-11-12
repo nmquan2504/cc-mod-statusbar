@@ -59,6 +59,20 @@ export const rt = {
   menuKeyRows: new Map<string, number>(),
   // a menu drawn in its own pane (menuInPane), not in the band
   isMenuPaneOpen: false,
+  // The guardrails' memory (events/guards.ts): the main loop's calls this turn, in order, for prove
+  // done; whether this run of turns was asked to prove it once; what the person allowed for the
+  // session (a folder outside the project, a host off the allowlist); the budget's toast and stop
+  turnCalls: [] as { tool: string; command?: string; path?: string }[],
+  isProveAsked: false,
+  outsideAllowed: new Set<string>(),
+  hostsAllowed: new Set<string>(),
+  budgetWarned: false,
+  budgetStopped: false,
+  isBudgetTimer: false,
+  // the shield menu's MCP access: the servers opened to list their tools
+  mcpOpen: new Set<string>(),
+  // the shield menu opened on its MCP access (from the mcp menu)
+  guardSection: '' as '' | 'mcp',
   // The rule a first press armed; a second press within ARM_MS writes it.
   armedRule: '',
   armedAt: 0,

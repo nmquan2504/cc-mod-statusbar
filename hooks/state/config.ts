@@ -50,6 +50,28 @@ export const cfg = {
   menuInPane: false,
   // rm -rf, git push --force and the like always ask the person, whatever the mode
   dangerConfirm: true,
+  // The guardrails the shield menu lists, each on or off: one off is left out of the ◈ score and,
+  // for those the mod enforces, not enforced (features/guardrails.ts). dangerConfirm above is one.
+  guardDeny: true,
+  guardHooks: true,
+  guardMode: true,
+  guardSandbox: false,
+  guardVault: true,
+  guardRedact: false,
+  guardProveDone: true,
+  guardGit: true,
+  guardOutside: true,
+  guardEgress: false,
+  guardBudget: false,
+  guardDeps: false,
+  // the per-turn budget: a toast at it, the turn stopped at twice it
+  budgetUsd: 5,
+  budgetMinutes: 30,
+  // the hosts Claude may reach with the egress allowlist on: a name covers its subdomains
+  egressHosts: 'github.com,githubusercontent.com,npmjs.org,npmjs.com,pypi.org,pythonhosted.org,anthropic.com,claude.com,localhost,127.0.0.1',
+  // where the shield menu writes a rule or a hook: project (.claude/settings.json, shared through
+  // git), local (.claude/settings.local.json, yours alone) or user (~/.claude/settings.json)
+  ruleScope: 'project',
   // a turn stopped by the 5-hour or weekly limit gets "continue" once the window resets (usage menu)
   autoContinue: true,
   // "hi" every 5 hours from hiStartHour, Vietnam time, so a usage window starts on the hour
@@ -212,6 +234,8 @@ export const SETTINGS: ((
   { key: 'hiSchedule', kind: 'switch', label: 'Auto-start 5h window', note: 'one Haiku call says hi every 5 hours from the start hour below, Vietnam time, so each window opens on the hour; status in the usage menu' },
   { key: 'hiStartHour', kind: 'number', label: 'Schedule starts at', note: 'each day, Vietnam time (UTC+7)', step: 1, min: 0, max: 23, unit: 'h' },
   { key: 'hiStartMinute', kind: 'number', label: 'Schedule starts at, minute', note: 'past that hour, in steps of 15', step: 15, min: 0, max: 45, unit: 'm' },
+  { key: 'budgetUsd', kind: 'number', label: 'Turn budget', note: 'with the budget guardrail on: a toast at it, the turn stopped at twice it', step: 1, min: 1, max: 100, unit: ' $' },
+  { key: 'budgetMinutes', kind: 'number', label: 'Turn time budget', note: 'with the budget guardrail on: a toast at it, the turn stopped at twice it', step: 5, min: 5, max: 240, unit: ' min' },
   { key: 'dangerConfirm', kind: 'switch', label: 'Confirm dangerous commands', note: 'rm -rf, push --force, reset --hard, curl | sh ask you, even in auto mode' },
   { key: 'selfRemote', kind: 'switch', label: 'Self remote', note: 'the ⇄ chip on the bar', group: 'remote' },
   { key: 'remoteIdleMinutes', kind: 'number', label: 'Remote stops after', note: 'with no phone watching; off: it stops only when no session runs', step: 5, min: 0, max: 10080, unit: '', stops: REMOTE_IDLE_STOPS, span: true, group: 'remote' },

@@ -28,6 +28,7 @@ export const MENU_PANE = 'qsb-menu'
 
 export async function closeMenu($: any) {
   rt.menuOffset = 0
+  rt.guardSection = ''
   await update($, menu, () => null)
   if (rt.isMenuPaneOpen) {
     rt.isMenuPaneOpen = false
@@ -85,9 +86,12 @@ export async function openMenu($: any, kind: MenuKind) {
   if (kind === 'guard') {
     await readGuard($)
     await readVault($)
+    await readMcp($)
   }
   // the same button again closes it, as a dropdown does; another opens at its top
   rt.menuOffset = 0
+  // the shield opens on its MCP access only from the mcp menu's link
+  if (kind !== 'guard') rt.guardSection = ''
   await update($, menu, now => (now === kind ? null : kind))
   // the usage opened: asked of Anthropic at once, the bar and the menu redrawn when it answers
   if (kind === 'usage' && (await read($, menu)) === 'usage') void fetchUsage($).then(ok => (ok ? refreshBar($) : undefined)).catch(() => undefined)
