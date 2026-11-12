@@ -162,18 +162,31 @@ test('manual and auto, which the checks cannot tell apart, follow the hint line,
     await clock.advance(1000)
   }
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
-  await hint('? for shortcuts')
-  expect((await band.find({ key: 'mode' }))?.text).toContain('manual')
-  // auto, with a shell and an agent running: no "shift+tab to cycle" in the line
-  await hint('⏵⏵ auto mode on · 1 shell · ← 1 agent · ↓ to manage')
-  expect((await band.find({ key: 'mode' }))?.text).toContain('auto')
-  // back to the default with the shell still running: the line names no mode
-  await hint('1 shell · ← 1 agent · ↓ to manage')
-  expect((await band.find({ key: 'mode' }))?.text).toContain('manual')
-  // mid-turn a line without the name keeps the last reading
-  await hint('⏵⏵ auto mode on (shift+tab to cycle)')
+  const mode = async () => (await band.find({ key: 'mode' }))?.text ?? ''
+  // the hints Claude Code 2.1.322 drew as shift+tab walked the cycle (watched live): each switch names
+  // the mode it left, then draws the new one's hint unnamed
+  await hint('? for shortcuts · ← 1 agent')
+  expect(await mode()).toContain('manual')
+  await hint('manual mode on · ? for shortcuts · ← 1 agent')
+  await hint('(shift+tab to cycle) · ← 1 agent')
+  expect(await mode()).toContain('»') // accept edits
+  await hint('accept edits on (shift+tab to cycle) · ← 1 agent')
+  await hint('(shift+tab to cycle) · ← 1 agent')
+  expect(await mode()).toContain('plan')
+  await hint('plan mode on (shift+tab to cycle) · ← 1 agent')
+  await hint('(shift+tab to cycle) · ← 1 agent')
+  expect(await mode()).toContain('auto')
+  await hint('auto mode on (shift+tab to cycle) · ← 1 agent')
+  await hint('? for shortcuts · ← 1 agent')
+  expect(await mode()).toContain('manual')
+  // a turn, a draft, a shell: an unnamed hint keeps the reading
+  await hint('manual mode on · ? for shortcuts')
+  await hint('accept edits on (shift+tab to cycle)')
+  await hint('plan mode on (shift+tab to cycle)')
+  await hint('· 1 shell · ← 1 agent · ↓ to manage')
   await hint('esc to interrupt', { isWorking: true })
-  expect((await band.find({ key: 'mode' }))?.text).toContain('auto')
+  await hint('(shift+tab to cycle)', { isDraft: true })
+  expect(await mode()).toContain('auto')
 })
 
 test('the shield reads the guardrails from the settings', async ($, on) => {
@@ -2599,4 +2612,20 @@ test('the bar stays inside the frame on a narrow terminal: tight labels, then th
     // what always stays
     for (const key of ['add', 'commands', 'model', 'mode', 'guard']) expect(await band.find({ key })).toBeDefined()
   }
+})
+
+test('a menu in its pane opens at the size Settings give it', async ($, on) => {
+  engine(on)
+  settingsStore(on)
+  const opened: any[] = []
+  on('ui.open', (_: unknown, e: any) => (opened.push(e), { value: { isPlaced: true } }))
+  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await band.press({ key: 'add' })
+  await band.press({ key: 'settings' })
+  await band.press({ key: 'set:menuInPane' })
+  for (let i = 0; i < 4; i++) await band.press({ key: 'inc:paneRows' })
+  for (let i = 0; i < 15; i++) await band.press({ key: 'inc:paneColumns' })
+  await band.press({ key: 'close-menu' })
+  await band.press({ key: 'add' })
+  expect(opened.at(-1)).toMatchObject({ id: 'qsb-menu', rows: 12, columns: 60 })
 })

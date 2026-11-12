@@ -33,6 +33,9 @@ export function registerSession(on: On) {
     if ((await $.ui.panes().catch(() => [])).some((p: { id: string }) => p.id === 'qsb-menu'))
       await $.ui.close({ id: 'qsb-menu' }).catch(() => undefined)
     await loadSettings($)
+    // the mode the session starts in, until a shift+tab is seen (events/ui.ts reads the hint)
+    const perms = (await $.settings.read({ key: 'permissions' }).catch(() => undefined)) as { defaultMode?: string } | undefined
+    rt.defaultMode = ({ default: 'manual', acceptEdits: 'acceptEdits', plan: 'plan', auto: 'auto', bypassPermissions: 'bypass', dontAsk: 'dontAsk' } as Record<string, string>)[perms?.defaultMode ?? 'default'] ?? 'manual'
     await refreshBar($)
     await readGuard($)
     await vaultSessionStart($)

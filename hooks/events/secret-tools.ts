@@ -5,17 +5,19 @@ import { rt } from '../state/runtime'
 
 import type { On } from 'claude-code'
 
+// The tool names are cast: the engine writes the SDK typings with the tools of the session that wrote
+// them, and this mod's own tools are among them only when that session had the mod loaded.
 export function registerSecretTools(on: On) {
-  on('tool.call', { tool: 'mcp__cc-mod-statusbar__secret_list' }, async $ => ({ result: await listSecrets($) }))
+  on('tool.call', { tool: 'mcp__cc-mod-statusbar__secret_list' as never }, async $ => ({ result: await listSecrets($) }))
     .catch(() => ({ deny: 'statusbar vault: could not list secrets.' }))
 
-  on('tool.call', { tool: 'mcp__cc-mod-statusbar__secret_request' }, async ($, e: any) => {
+  on('tool.call', { tool: 'mcp__cc-mod-statusbar__secret_request' as never }, async ($, e: any) => {
     const r = await acquire($, { name: e.name, purpose: String(e.purpose ?? '') })
     if ('error' in r) return { deny: `statusbar vault: ${r.error}. Do not ask for the secret in chat.` }
     return { result: `${r.name} saved; it can be sent only to ${r.binding.host}. Use secret_fetch with name "${r.name}".` }
   }).catch(() => ({ deny: 'statusbar vault: the dialog failed. Ask the person to run /secret.' }))
 
-  on('tool.call', { tool: 'mcp__cc-mod-statusbar__secret_fetch' }, async ($, e: any) => {
+  on('tool.call', { tool: 'mcp__cc-mod-statusbar__secret_fetch' as never }, async ($, e: any) => {
     const name = normName(String(e.name ?? ''))
     let url: URL
     try {

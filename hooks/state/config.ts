@@ -48,6 +48,10 @@ export const cfg = {
   // on: a menu opens in a pane of its own (beside the transcript in fullscreen, else above the
   // prompt), the bar left whole in the band
   menuInPane: false,
+  // the menu pane's size: its rows above the prompt, its columns docked beside the transcript (0: the
+  // dock's own share)
+  paneRows: 8,
+  paneColumns: 0,
   // rm -rf, git push --force and the like always ask the person, whatever the mode
   dangerConfirm: true,
   // The guardrails the shield menu lists, each on or off: one off is left out of the ◈ score and,
@@ -231,6 +235,8 @@ export const SETTINGS: ((
   { key: 'forceSuggest', kind: 'switch', label: 'Always suggest', note: "Claude Code's next-prompt suggestion never backs off; when it suggests nothing, Haiku's goes in the prompt box (Tab) and to the phone" },
   { key: 'pinMenuHead', kind: 'switch', label: 'Pin the menu head', note: 'a tall menu keeps its title and ✕ on top and the bar below, and scrolls between them' },
   { key: 'menuInPane', kind: 'switch', label: 'Menus in a pane', note: 'a menu opens in a pane: beside the transcript in fullscreen, else above the prompt; the bar stays whole' },
+  { key: 'paneRows', kind: 'number', label: 'Menu pane height', note: 'rows, with the pane above the prompt; a taller one leaves the band less room', step: 1, min: 4, max: 40, unit: '' },
+  { key: 'paneColumns', kind: 'number', label: 'Menu pane width', note: 'columns, docked beside the transcript (24 to 45% of the terminal); 0: the dock decides', step: 4, min: 0, max: 160, unit: '' },
   { key: 'hiSchedule', kind: 'switch', label: 'Auto-start 5h window', note: 'one Haiku call says hi every 5 hours from the start hour below, Vietnam time, so each window opens on the hour; status in the usage menu' },
   { key: 'hiStartHour', kind: 'number', label: 'Schedule starts at', note: 'each day, Vietnam time (UTC+7)', step: 1, min: 0, max: 23, unit: 'h' },
   { key: 'hiStartMinute', kind: 'number', label: 'Schedule starts at, minute', note: 'past that hour, in steps of 15', step: 15, min: 0, max: 45, unit: 'm' },

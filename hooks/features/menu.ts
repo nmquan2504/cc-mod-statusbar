@@ -97,9 +97,10 @@ export async function openMenu($: any, kind: MenuKind) {
   if (kind === 'usage' && (await read($, menu)) === 'usage') void fetchUsage($).then(ok => (ok ? refreshBar($) : undefined)).catch(() => undefined)
   const now = await read($, menu)
   // in a pane of its own: opened (or retitled) with the menu, closed with it; Escape there closes both.
-  // Seated above the prompt (no dock), 8 rows: a taller pane squeezed the band to its bar's row alone
+  // Seated above the prompt (no dock), paneRows (8): a taller pane squeezed the band to its bar's row
+  // alone. Docked, paneColumns wide when set
   if (cfg.menuInPane && now !== null) {
-    const r = await $.ui.open({ id: MENU_PANE, title: TITLES[now], focus: true, closeOnEscape: true, rows: 8 }).catch(() => undefined)
+    const r = await $.ui.open({ id: MENU_PANE, title: TITLES[now], focus: true, closeOnEscape: true, rows: cfg.paneRows, ...(cfg.paneColumns >= 24 ? { columns: cfg.paneColumns } : {}) }).catch(() => undefined)
     rt.isMenuPaneOpen = Boolean(r?.isPlaced)
     if (rt.isMenuPaneOpen) return
   } else if (now === null && rt.isMenuPaneOpen) {

@@ -6,7 +6,8 @@ import { rt } from '../state/runtime'
 // both denied: don't ask; both asked: manual or auto, which the hint line tells apart.
 export async function probeMode($: any, root: string): Promise<string | undefined> {
   try {
-    const edit = await $.tool.check({ tool: 'Edit', input: { file_path: `${root}/.mode-probe`, old_string: 'a', new_string: 'b' } })
+    // a plain name: a dot file is a sensitive file, which every mode asks for
+    const edit = await $.tool.check({ tool: 'Edit', input: { file_path: `${root}/qsb-mode-probe.txt`, old_string: 'a', new_string: 'b' } })
     const bash = await $.tool.check({ tool: 'Bash', input: { command: 'mode-probe --dry' } })
     if (edit.decision === 'allow' && bash.decision === 'allow') return 'bypass'
     if (edit.decision === 'deny' && bash.decision === 'deny') return 'dontAsk'

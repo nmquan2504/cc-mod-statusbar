@@ -1,4 +1,4 @@
-import { MODES } from '../lib/catalog'
+import { CYCLE, MODES } from '../lib/catalog'
 import { rt } from '../state/runtime'
 import { drawBand, drawMenuPane } from '../ui/band'
 import { MENU_PANE, closeMenu } from '../features/menu'
@@ -32,15 +32,21 @@ export function registerUi(on: On) {
 
   // Between turns (a shift+tab), the hint line under the prompt is the first to show it.
   on('ui.render', { component: 'PromptHint' }, ($, e, next) => {
-    // The hint names every mode but the default one: "auto mode on", "accept edits on", "plan mode
-    // on", with "(shift+tab to cycle)" or, while shells or agents run, "· 1 shell · ← 1 agent" after
-    // it. The default mode shows no name: "? for shortcuts", or only the shells and agents. So a hint
-    // that names no mode, drawn at rest (no turn, no draft), is the default; one drawn mid-turn or
-    // over a draft may have left the name out, and the last reading stands.
+    // What the hint line holds, as Claude Code 2.1.322 draws it (watched live): manual reads "? for
+    // shortcuts", every other mode "(shift+tab to cycle)", the mode's name drawn apart. A shift+tab
+    // draws the hint once with the name of the mode it left ("accept edits on (shift+tab to cycle)"),
+    // then the new mode's unnamed hint. So a named hint means the mode after that one in the shift+tab
+    // cycle; "? for shortcuts" means manual; an unnamed hint keeps the last reading, or at the start
+    // the settings' defaultMode (rt.defaultMode). The permission checks no longer tell the modes apart:
+    // they answer before the mode does.
     rt.lastHint = e.props.hint
-    const named = MODES.find(m => m.re.test(e.props.hint))?.mode
-    const isAtRest = !e.props.isWorking && !e.props.isDraft
-    rt.hintMode = named ?? (/\? for shortcuts/.test(e.props.hint) || isAtRest ? 'manual' : rt.hintMode)
+    const left = MODES.find(m => m.re.test(e.props.hint))?.mode
+    const at = left ? CYCLE.indexOf(left) : -1
+    rt.hintMode = at >= 0
+      ? CYCLE[(at + 1) % CYCLE.length]
+      : /\? for shortcuts/.test(e.props.hint)
+        ? 'manual'
+        : rt.hintMode && rt.hintMode !== 'manual' ? rt.hintMode : (rt.defaultMode ?? 'auto')
     return next(e)
   })
 
