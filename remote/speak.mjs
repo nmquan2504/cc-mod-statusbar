@@ -84,17 +84,26 @@ export function segments(text) {
   return out
 }
 
-// The first piece cut short, so the voice starts sooner (the Mac makes a piece in about half its
-// length, and the next is made while one plays): a first piece of more than `most` words ends at
-// its first comma, semicolon or colon after 3 words, else after `most` words; a tail of fewer than
-// 3 words stays with it
-export function quickFirst(parts, most = 8) {
+// The first sentence cut into short pieces, so the voice starts sooner: the Mac makes a piece in
+// about half its length, one at a time, and the next is made while one plays. The first piece holds
+// at most `most` words (it ends at a comma, semicolon or colon after 3 words, else after `most`); the
+// second at most `next`, so it is ready before the first has been said; the rest as it was. A tail of
+// fewer than 3 words stays with the piece before it.
+function cutAt(words, most) {
+  if (words.length <= most) return 0
+  const cut = words.findIndex((w, i) => i >= 2 && i < most && /[,;:]$/.test(w)) + 1 || most
+  return words.length - cut < 3 ? 0 : cut
+}
+export function quickFirst(parts, most = 4, next = 8) {
   const [first, ...rest] = parts
-  const words = first ? first.text.split(' ') : []
-  if (words.length <= most) return parts
-  let cut = words.findIndex((w, i) => i >= 2 && i < most && /[,;:]$/.test(w)) + 1 || most
-  if (words.length - cut < 3) return parts
-  return [{ lang: first.lang, text: words.slice(0, cut).join(' ') }, { lang: first.lang, text: words.slice(cut).join(' ') }, ...rest]
+  if (!first) return parts
+  const words = first.text.split(' ')
+  const a = cutAt(words, most)
+  if (!a) return parts
+  const tail = words.slice(a)
+  const b = cutAt(tail, next)
+  const pieces = b ? [words.slice(0, a), tail.slice(0, b), tail.slice(b)] : [words.slice(0, a), tail]
+  return [...pieces.map(w => ({ lang: first.lang, text: w.join(' ') })), ...rest]
 }
 
 // Apple's novelty voices, listed beside the real ones on an iPhone or a Mac: never picked by itself,

@@ -4,7 +4,7 @@
 // its own (shown while the app is not in front; its content kept off the lock screen), and read
 // aloud: ZeroTTS from the Mac when the hub has it, else the phone's own voice.
 import { createAudioPlayer, setAudioModeAsync } from 'expo-audio'
-import { File, Paths } from 'expo-file-system'
+import { Directory, File, Paths } from 'expo-file-system'
 import * as Notifications from 'expo-notifications'
 import * as Speech from 'expo-speech'
 import { AppState } from 'react-native'
@@ -39,13 +39,42 @@ export async function setUpNotices() {
   await setAudioModeAsync({ shouldPlayInBackground: true, interruptionMode: 'duckOthers' }).catch(() => undefined)
 }
 
-// ZeroTTS's WAV for `text` from the Mac, played to its end; false when the Mac has none (not
-// installed, an older hub) or it does not answer in 20 s
-async function sayZero(device: Device, text: string, lang: 'vi' | 'en'): Promise<boolean> {
+// The WAVs said before, kept in the app's cache by voice, language and words: a notice says the same
+// few words again and again ("Claude has responded, shop"), so a second time plays at once, with no
+// call to the Mac. The newest NOTICE_WAVS kept.
+const WAVS = new Directory(Paths.cache, 'notice-wavs')
+const NOTICE_WAVS = 40
+// FNV-1a over the words, as a file name: two notices that collide would only share a sound
+const nameOf = (s: string) => {
+  let h = 0x811c9dc5
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193) >>> 0
+  return `${h.toString(16)}-${s.length}.wav`
+}
+async function wavFor(device: Device, text: string, lang: 'vi' | 'en'): Promise<File | null> {
+  try { WAVS.create({ intermediates: true, idempotent: true }) } catch {}
+  const file = new File(WAVS, nameOf(`maichi\n${lang}\n${text}`))
+  if (file.exists) return file
   const r = await Promise.race([call(device, 'tts', { text, voice: 'maichi', lang }), sleep(20_000).then(() => null)]).catch(() => null)
-  if (!r || r.s !== 200 || !r.b?.b64) return false
-  const file = new File(Paths.cache, `notice-${Date.now()}.wav`)
-  file.write(b64.dec(String(r.b.b64).replace(/\+/g, '-').replace(/\//g, '_')))
+  if (!r || r.s !== 200 || !r.b?.b64) return null
+  // written beside it, then moved in: a write cut short never leaves a broken sound under the name
+  const part = new File(WAVS, `${file.name}.part`)
+  part.create({ overwrite: true })
+  await part.write(b64.dec(String(r.b.b64)))
+  part.move(file)
+  try {
+    const kept = WAVS.list().filter((f): f is File => f instanceof File && f.name.endsWith('.wav'))
+    if (kept.length > NOTICE_WAVS)
+      for (const old of kept.sort((x, y) => (x.modificationTime ?? 0) - (y.modificationTime ?? 0)).slice(0, kept.length - NOTICE_WAVS)) old.delete()
+  } catch {}
+  return file
+}
+
+// ZeroTTS's WAV for `text`, from the cache or the Mac, played to its end; false when the Mac has none
+// (not installed, an older hub) or it does not answer in 20 s
+async function sayZero(device: Device, text: string, lang: 'vi' | 'en'): Promise<boolean> {
+  // a cache that fails (a full disk, a file it cannot move) leaves the phone's voice to read it
+  const file = await wavFor(device, text, lang).catch(() => null)
+  if (!file) return false
   const player = createAudioPlayer(file.uri)
   await new Promise<void>(resolve => {
     const done = setTimeout(resolve, 30_000)
@@ -53,7 +82,6 @@ async function sayZero(device: Device, text: string, lang: 'vi' | 'en'): Promise
     player.play()
   })
   player.remove()
-  try { file.delete() } catch {}
   return true
 }
 const sayPhone = (text: string, lang: 'vi' | 'en') => new Promise<void>(resolve => Speech.speak(text, { language: lang === 'vi' ? 'vi-VN' : 'en-US', onDone: resolve, onError: () => resolve(), onStopped: resolve }))

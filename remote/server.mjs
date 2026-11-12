@@ -19,8 +19,8 @@
 // carries the idle time in force, so a change in Settings reaches a running hub. Node 18 or newer;
 // no packages.
 import { execFile, execFileSync, spawn } from 'node:child_process'
-import { createPrivateKey, generateKeyPairSync, randomBytes, randomInt, sign } from 'node:crypto'
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { createHash, createPrivateKey, generateKeyPairSync, randomBytes, randomInt, sign } from 'node:crypto'
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { Resolver } from 'node:dns/promises'
 import { createServer } from 'node:http'
 import { connect } from 'node:net'
@@ -464,6 +464,43 @@ function speakTts(text, voice, lang = 'vi') {
   })
 }
 
+// Each piece made once: its WAV kept on disk by voice, language and text (the notices say the same few
+// words again and again), the newest TTS_CACHE_MAX kept, in a folder only this user reads. Two asks for
+// the same piece at once share one making.
+const TTS_CACHE = join(homedir(), '.cache', 'cc-mod-statusbar', 'tts-cache')
+const TTS_CACHE_MAX = 300
+const ttsMaking = new Map()
+function cachedTts(text, voice, lang) {
+  const key = createHash('sha256').update(`${voice}\n${lang}\n${text}`).digest('hex').slice(0, 40)
+  const file = join(TTS_CACHE, `${key}.wav`)
+  try {
+    const wav = readFileSync(file)
+    // a piece read again is the newest: the oldest go first when the folder is full
+    try { utimesSync(file, new Date(), new Date()) } catch {}
+    return Promise.resolve({ b64: wav.toString('base64') })
+  } catch {}
+  if (ttsMaking.has(key)) return ttsMaking.get(key)
+  const making = speakTts(text, voice, lang).then(r => {
+    ttsMaking.delete(key)
+    if (r.b64) keepTts(file, r.b64)
+    return r
+  })
+  ttsMaking.set(key, making)
+  return making
+}
+function keepTts(file, b64) {
+  try {
+    mkdirSync(TTS_CACHE, { recursive: true, mode: 0o700 })
+    writeFileSync(file, Buffer.from(b64, 'base64'), { mode: 0o600 })
+    const kept = readdirSync(TTS_CACHE).filter(f => f.endsWith('.wav'))
+    if (kept.length <= TTS_CACHE_MAX) return
+    const byAge = kept.map(f => { try { return [f, statSync(join(TTS_CACHE, f)).mtimeMs] } catch { return [f, 0] } }).sort((x, y) => x[1] - y[1])
+    for (const [f] of byAge.slice(0, kept.length - TTS_CACHE_MAX)) rmSync(join(TTS_CACHE, f), { force: true })
+  } catch (err) {
+    log(`tts cache: ${err.message}`)
+  }
+}
+
 function imageOf(session, n) {
   const row = (sessions.get(session)?.snapshot.images ?? []).find(i => String(i.n) === String(n))
   if (!row || !/\/images\/\d+\.(png|jpe?g|gif|webp)$/i.test(row.path) || !existsSync(row.path)) return undefined
@@ -682,7 +719,7 @@ async function answerOp(dev, id, op, a, res) {
     case 'tts': {
       const text = String(a.text ?? '').slice(0, 2000)
       if (!text.trim()) return [400, { error: 'No text.' }]
-      const r = await speakTts(text, String(a.voice ?? ''), a.lang === 'en' ? 'en' : 'vi')
+      const r = await cachedTts(text, String(a.voice ?? ''), a.lang === 'en' ? 'en' : 'vi')
       return r.b64 ? [200, { type: 'audio/wav', b64: r.b64 }] : [503, { error: r.error || 'The voice did not answer.' }]
     }
     case 'vapid':

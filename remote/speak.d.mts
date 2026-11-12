@@ -6,4 +6,4 @@ export function segments(text: string): Segment[]
 export type Voice = { name: string; lang: string; default?: boolean }
 export function voicesFor<V extends Voice>(voices: readonly V[], lang: 'vi' | 'en'): V[]
 export function pickVoice<V extends Voice>(voices: readonly V[], lang: 'vi' | 'en', name?: string): V | null
-export function quickFirst<P extends { lang: string; text: string }>(parts: readonly P[], most?: number): P[]
+export function quickFirst<P extends { lang: string; text: string }>(parts: readonly P[], most?: number, next?: number): P[]

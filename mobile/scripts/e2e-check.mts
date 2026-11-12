@@ -75,6 +75,18 @@ const past = await call(device, 'file', { session: 't1', path: join(root, 'big.m
 check('a piece past the end is refused', past.s === 400, past.b)
 const envPiece = await call(device, 'file', { session: 't1', path: join(root, '.env'), raw: true, at: 0 })
 check('a secret is locked by the piece too', envPiece.s === 403 && !envPiece.b.b64, envPiece.b)
+// ZeroTTS, when this Mac has it: the same words twice, the second from the hub's cache at once
+const ttsInfo = await call(device, 'ttsinfo', {})
+if (ttsInfo.b?.state === 'ready') {
+  const words = `Kiểm tra bộ nhớ đệm ${Date.now()}`
+  let at = Date.now()
+  const made = await call(device, 'tts', { text: words, voice: 'maichi', lang: 'vi' })
+  const makeMs = Date.now() - at
+  at = Date.now()
+  const again = await call(device, 'tts', { text: words, voice: 'maichi', lang: 'vi' })
+  const againMs = Date.now() - at
+  check('a piece said again comes from the cache, the same WAV, faster', made.s === 200 && again.s === 200 && again.b.b64 === made.b.b64 && againMs < makeMs, { makeMs, againMs })
+} else console.log(`skip ZeroTTS is ${ttsInfo.b?.state}`)
 const devs = await call(device, 'devices')
 check('the hub lists this phone as itself', devs.b.devices.some((d: any) => d.isThis), devs.b)
 // the app's service: watch waits for the next notice, and answers it with its folder

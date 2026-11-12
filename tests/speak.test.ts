@@ -70,11 +70,16 @@ test('the voices offered: Premium and Enhanced first, then the home region, the 
 
 test('the first piece cut short, at its first comma, else after 8 words; a short tail stays', () => {
   const vi = (text: string) => ({ lang: 'vi', text })
+  // the first piece 4 words at most (or to a comma after 3), the second 8 at most, the rest as it was
   expect(quickFirst([vi('Mình đã sửa lỗi đăng nhập, giờ chạy lại toàn bộ test để kiểm tra.'), vi('Xong.')])).toEqual([
-    vi('Mình đã sửa lỗi đăng nhập,'), vi('giờ chạy lại toàn bộ test để kiểm tra.'), vi('Xong.'),
+    vi('Mình đã sửa lỗi'), vi('đăng nhập, giờ chạy lại toàn bộ test'), vi('để kiểm tra.'), vi('Xong.'),
   ])
-  expect(quickFirst([vi('một hai ba bốn năm sáu bảy tám chín mười mười một')])).toEqual([vi('một hai ba bốn năm sáu bảy tám'), vi('chín mười mười một')])
-  expect(quickFirst([vi('một hai ba bốn năm sáu bảy tám chín mười')])).toEqual([vi('một hai ba bốn năm sáu bảy tám chín mười')])
+  expect(quickFirst([vi('Đã sửa xong, giờ chạy lại test.')])).toEqual([vi('Đã sửa xong,'), vi('giờ chạy lại test.')])
+  expect(quickFirst([vi('một hai ba bốn năm sáu bảy tám chín mười mười một')])).toEqual([vi('một hai ba bốn'), vi('năm sáu bảy tám chín mười mười một')])
+  expect(quickFirst([vi('một hai ba bốn năm sáu')])).toEqual([vi('một hai ba bốn năm sáu')])
+  expect(quickFirst([vi('một hai ba bốn năm sáu bảy tám chín mười mười một mười hai mười ba')])).toEqual([
+    vi('một hai ba bốn'), vi('năm sáu bảy tám chín mười mười một'), vi('mười hai mười ba'),
+  ])
   expect(quickFirst([vi('Đã xong.'), vi('Một câu dài hơn tám chữ ở phía sau thì vẫn để nguyên như vậy.')])).toEqual([
     vi('Đã xong.'), vi('Một câu dài hơn tám chữ ở phía sau thì vẫn để nguyên như vậy.'),
   ])

@@ -894,9 +894,8 @@ async function sayAll() {
   while (sayQueue.length) {
     const piece = sayQueue.shift()
     if (piece.run !== speakRun) continue
-    // the next ZeroTTS piece is made while this one plays
-    const next = sayQueue.find(q => q.run === speakRun && isZero(q))
-    if (next) void zeroAudio(next)
+    // the next two ZeroTTS pieces are asked for while this one plays (the Mac makes them in turn)
+    for (const next of sayQueue.filter(q => q.run === speakRun && isZero(q)).slice(0, 2)) void zeroAudio(next)
     const isSaid = isZero(piece) ? await sayZero(piece) : false
     if (!isSaid && piece.run === speakRun) await saySpeech(piece)
   }

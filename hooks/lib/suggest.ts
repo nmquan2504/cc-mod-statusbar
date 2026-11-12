@@ -3,14 +3,15 @@
 export const MAX = 3
 
 // What Haiku is asked: the prompts the person may send next, one a line, as they would type them.
-export function suggestPrompt(request: string, answer: string) {
+// `isMust` (forceSuggest): at least one line, the likeliest, even when the next step is not plain.
+export function suggestPrompt(request: string, answer: string, isMust = false) {
   return [
     'Guess what the person will type next in Claude Code, a coding assistant, after the answer below.',
     `Reply with at most ${MAX} short prompts they are likely to send next, one per line and nothing else: no numbering, no quotes, no explanation.`,
     'Each under 60 characters, worded as the person would type it, in the language of their request.',
     'When the answer asks a question or offers options, the likely replies come first.',
     'A slash command the answer tells them to run may be a line, as typed (/reload-plugins).',
-    'Reply NONE when nothing fits.',
+    isMust ? 'Always reply with at least one line: the likeliest next prompt, even a short one such as a follow-up question.' : 'Reply NONE when nothing fits.',
     '',
     `Their request: ${request.slice(0, 1500)}`,
     `Claude's answer (its end): ${answer.slice(-3000)}`,

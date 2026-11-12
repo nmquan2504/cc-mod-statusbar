@@ -13,6 +13,7 @@ import { barOrder, cfg } from '../state/config'
 import type { CfgKey } from '../state/config'
 import { rt } from '../state/runtime'
 import { drawMenu } from './menus/index'
+import { keyRows, rowsOf } from '../lib/rows'
 import { desktopBar } from './desktopBar'
 import { chipsNow, dismissChips, sendChip } from '../features/chips'
 
@@ -327,7 +328,7 @@ export async function drawBand($: any, e: any, next: any) {
   if (e.surface !== 'terminal') {
     return desktopBar($, els, {
       open,
-      menuTree: open !== null ? await drawMenu($, els, open, false) : null,
+      menuTree: open !== null && !rt.isMenuPaneOpen ? await drawMenu($, els, open, false) : null,
       chips,
       model: b.model,
       modelColor: ms.color,
@@ -362,19 +363,47 @@ export async function drawBand($: any, e: any, next: any) {
       split,
     })
   }
+  // An open menu taller than the band leaves the head (its title and ✕) and the bar in view and
+  // scrolls in the rows between them: the band's two border rows, the head and the gap under the
+  // menu, and the bar's row are fixed. The window holds 3 rows at least.
+  // with the menu in its own pane the band keeps the bar alone (the open menu's chip still marked)
+  const isInBand = open !== null && !rt.isMenuPaneOpen
+  const menuTree = isInBand ? await drawMenu($, els, open, e.surface === 'terminal') : null
+  const menuWindow = { isClipped: false, rows: 0, from: 0, to: 0 }
+  if (menuTree !== null && e.surface === 'terminal' && cfg.pinMenuHead) {
+    const rows = rowsOf(menuTree, Math.max(20, e.props.bodyColumns - 4))
+    const windowRows = Math.max(3, (Number(e.props.maxRows) || 24) - 5)
+    rt.menuRows = rows
+    rt.menuWindow = windowRows
+    rt.menuKeyRows = rows > windowRows ? keyRows(menuTree, Math.max(20, e.props.bodyColumns - 4)) : new Map()
+    if (rows > windowRows) {
+      rt.menuOffset = Math.min(Math.max(0, rt.menuOffset), rows - windowRows)
+      Object.assign(menuWindow, { isClipped: true, rows: windowRows, from: rt.menuOffset + 1, to: rt.menuOffset + windowRows })
+    } else rt.menuOffset = 0
+  } else rt.menuRows = rt.menuWindow = 0
   return (
     <Box flexDirection="column" width={e.props.bodyColumns} borderStyle="round" borderColor={open ? 'claude' : 'subtle'} paddingX={1}>
       {/* the menu opens upward: the bar stays next to the prompt */}
-      {open !== null && (
+      {isInBand && (
         <Box flexDirection="column" marginBottom={1}>
           <Box flexDirection="row" justifyContent="space-between">
-            <Text color="claude" bold>{TITLES[open]}</Text>
+            <Text>
+              <Text color="claude" bold>{TITLES[open as MenuKind]}</Text>
+              {menuWindow.isClipped ? <Text dimColor>{`   ↑↓ ${menuWindow.from}–${menuWindow.to} of ${rt.menuRows}`}</Text> : null}
+            </Text>
             {/* a wide square target, drawn as the bar's chips are */}
             <Button key="close-menu" plain role="dismiss" hover={{ scope: 'qsb-close', bold: true }} onPress={() => closeMenu($)}>
               <Text backgroundColor="subtle" color="inverseText" bold>{'  ✕  '}</Text>
             </Button>
           </Box>
-          {await drawMenu($, els, open, e.surface === 'terminal')}
+          {menuWindow.isClipped
+            // the head above and the bar below stay put: the menu moves in a window between them
+            ? (
+              <Box flexDirection="column" height={menuWindow.rows} overflow="hidden">
+                <Box flexDirection="column" flexShrink={0} marginTop={-rt.menuOffset}>{menuTree}</Box>
+              </Box>
+            )
+            : menuTree}
         </Box>
       )}
       {/* what Claude's last answer suggests sending next: a press sends it */}
@@ -446,4 +475,14 @@ export async function drawBand($: any, e: any, next: any) {
       </Box>
     </Box>
   )
+}
+
+// The open menu in its own pane (menuInPane): the same drawing as in the band, under the pane's own
+// title; the pane closed by the person (Escape, its mark, ctrl+x x) closes the menu.
+export async function drawMenuPane($: any, e: any, next: any) {
+  const open = await read($, menu)
+  if (open === null) return next(e)
+  const els = $.ui.resolve(e)
+  const { Box } = els
+  return <Box flexDirection="column" paddingX={1}>{await drawMenu($, els, open, e.surface === 'terminal')}</Box>
 }
