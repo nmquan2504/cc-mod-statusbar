@@ -88,7 +88,8 @@ async function followInstall($: any) {
   }
 }
 
-// Stops the voice (the hub, when one runs) and an install still running, then deletes the folder.
+// Stops the voice (the hub, when one runs) and an install still running, then deletes the folder
+// and the pieces the hub kept.
 // Only a folder whose name is zerotts goes, so a QSB_TTS_HOME set to something else is left alone.
 export async function uninstallZeroTts($: any) {
   await hub($, 'POST', '/tts-stop').catch(() => undefined)
@@ -99,6 +100,8 @@ export async function uninstallZeroTts($: any) {
     'pkill -f zerotts-setup.sh 2>/dev/null; pkill -f "remote/tts.py" 2>/dev/null',
     'size=$(du -sh "$home" 2>/dev/null | cut -f1)',
     'rm -rf "$home"',
+    // the pieces the hub kept (remote/server.mjs cachedTts) go with the voice
+    'rm -rf "$HOME/.cache/cc-mod-statusbar/tts-cache"',
     'echo "removed $home $size"',
   ].join('\n')
   const r = await $.process.run(['/bin/sh', '-c', sh]).catch(() => undefined)
