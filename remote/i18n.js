@@ -455,6 +455,7 @@ const VI_SENT = {
 }
 // ... and those with a name or a value in them
 const VI_SENT_SHAPES = [
+  [/^Nothing answers on port (\d+) now\.$/, 'Hiện không có gì trả lời ở cổng $1.'],
   [/^\/(\S+) is not a command in this session$/, '/$1 không phải lệnh của phiên này'],
   [/^\/(\S+) opens as a page on the phone: pick it from the \+ menu's Slash commands$/, '/$1 mở thành trang trên điện thoại: chọn nó trong Lệnh slash của menu +'],
   [/^\/(\S+) with no value opens a picker on the computer; give it one, as \/\S+ <value>$/, '/$1 không có giá trị sẽ mở bộ chọn trên máy tính; hãy cho nó một giá trị, như /$1 <giá trị>'],
