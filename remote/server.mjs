@@ -210,7 +210,7 @@ function stateOf() {
   const list = [...sessions.entries()]
     .map(([id, s]) => ({ id, ...s.snapshot, queued: [...(s.snapshot.queued ?? []), ...s.inbox], ask: s.held?.length ? shownAsk(s.held[0]) : null }))
     .sort((a, b) => Number(b.busy) - Number(a.busy) || (b.lastAt ?? 0) - (a.lastAt ?? 0))
-  return { version, sessions: list, notice }
+  return { version, sessions: list, notice, tunnels: tunnelsOf() }
 }
 
 // ---- Web Push: no payload; the service worker asks /api/notice when it wakes ---------------
@@ -707,6 +707,22 @@ async function answerOp(dev, id, op, a, res) {
       try { readSync(fd, piece, 0, piece.length, at) } finally { closeSync(fd) }
       return [200, { type: r.raw.type, name: r.body.name, size: r.raw.size, at, b64: piece.toString('base64') }]
     }
+    // the Running tab: a port this session's processes listen on, shared through a quick tunnel of its
+    // own (anyone with its link reaches it), for 30 minutes at most; untunnel stops it at once
+    case 'tunnel': {
+      const port = Number(a.port)
+      const listed = (sessions.get(session)?.snapshot.running?.servers ?? []).some(sv => sv.port === port)
+      if (!Number.isInteger(port) || !listed) return [403, { error: "Only a port this session's processes listen on can be shared." }]
+      try {
+        const t = startPortTunnel(session, port)
+        return [200, { port, url: t.url, isReady: t.isReady, until: t.until }]
+      } catch (err) {
+        return [503, { error: String(err.message || err) }]
+      }
+    }
+    case 'untunnel':
+      stopPortTunnel(Number(a.port))
+      return [200, { ok: true }]
     case 'ttsinfo':
       // asked with warm by a phone that reads with ZeroTTS: the model loads now, not at the first piece
       if (a.warm && ttsState() === 'ready') {
@@ -918,6 +934,8 @@ const ctl = createServer(async (req, res) => {
     if (text !== s.text) {
       s.text = text
       s.snapshot = body
+      // a shared port no longer listened on by this session: its tunnel goes
+      for (const [port, pt] of portTunnels) if (pt.session === id && !(body.running?.servers ?? []).some(sv => sv.port === port)) stopPortTunnel(port)
       sessions.set(id, s)
       bump()
     } else sessions.set(id, s)
@@ -966,6 +984,7 @@ const ctl = createServer(async (req, res) => {
   }
   if (route === 'POST /bye') {
     dropHeld(sessions.get(id))
+    for (const [port, pt] of portTunnels) if (pt.session === id) stopPortTunnel(port)
     if (sessions.delete(id)) bump()
     return send(res, 200, { ok: true })
   }
@@ -1083,6 +1102,78 @@ async function whenResolvable(url) {
   tunnelUrl = url
   log(`tunnel ready ${url} (the name resolved after ${Math.round((Date.now() - startedAt) / 1000) - 3} s, asked of ${servers.length ? `the zone's ${servers.length} name servers` : '1.1.1.1'})`)
 }
+// ---- a port of a session shared with the phone (the Running tab) ----------------------------------
+// One quick tunnel a port, its own cloudflared child (not detached: it ends with the hub), its link
+// shown on the phone once its name resolves. Anyone with the link reaches the port, with no key: the
+// page says so before it opens one. Stopped by untunnel, after PORT_TUNNEL_MS, or with the hub.
+const PORT_TUNNEL_MS = 30 * 60_000
+const portTunnels = new Map()
+const tunnelsOf = () => [...portTunnels].map(([port, t]) => ({ port, session: t.session, url: t.url, isReady: t.isReady, until: t.until, error: t.error }))
+function stopPortTunnel(port) {
+  const t = portTunnels.get(port)
+  if (!t) return
+  portTunnels.delete(port)
+  clearTimeout(t.timer)
+  try { t.proc?.kill('SIGTERM') } catch {}
+  log(`port ${port}: no longer shared`)
+  bump()
+}
+function startPortTunnel(session, port) {
+  const was = portTunnels.get(port)
+  if (was) return was
+  const t = { session, url: '', isReady: false, until: Date.now() + PORT_TUNNEL_MS, error: '', proc: null, timer: null }
+  portTunnels.set(port, t)
+  t.timer = setTimeout(() => stopPortTunnel(port), PORT_TUNNEL_MS)
+  t.timer.unref?.()
+  // tests (QSB_REMOTE_LOCAL): no tunnel, the port's own address
+  if (process.env.QSB_REMOTE_LOCAL) {
+    Object.assign(t, { url: `http://127.0.0.1:${port}`, isReady: true })
+    bump()
+    return t
+  }
+  const bin = findCloudflared()
+  if (!bin) {
+    portTunnels.delete(port)
+    clearTimeout(t.timer)
+    throw new Error('cloudflared is not installed: brew install cloudflared')
+  }
+  t.proc = spawn(bin, ['tunnel', '--no-autoupdate', '--url', `http://127.0.0.1:${port}`], { stdio: ['ignore', 'pipe', 'pipe'] })
+  let seen = ''
+  const read = chunk => {
+    if (t.url) return
+    seen = (seen + chunk).slice(-8000)
+    const m = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/.exec(seen)
+    if (!m) return
+    t.url = m[0]
+    log(`port ${port}: shared at ${t.url}, waiting for its name to resolve`)
+    bump()
+    void (async () => {
+      const host = new URL(t.url).hostname
+      const servers = await zoneServers()
+      for (let i = 0; i < 90 && portTunnels.get(port) === t; i++) {
+        if (await isResolvable(host, servers)) break
+        await new Promise(resolve => setTimeout(resolve, 1000))
+      }
+      if (portTunnels.get(port) !== t) return
+      t.isReady = true
+      bump()
+    })()
+  }
+  t.proc.stdout.on('data', read)
+  t.proc.stderr.on('data', read)
+  t.proc.on('exit', code => {
+    if (portTunnels.get(port) !== t) return
+    t.error = `the tunnel stopped (${code})`
+    portTunnels.delete(port)
+    clearTimeout(t.timer)
+    log(`port ${port}: ${t.error}`)
+    bump()
+  })
+  log(`port ${port}: sharing it for session ${session}`)
+  bump()
+  return t
+}
+
 function findCloudflared() {
   for (const d of [...String(process.env.PATH ?? '').split(':'), '/opt/homebrew/bin', '/usr/local/bin'])
     if (d && existsSync(join(d, 'cloudflared'))) return join(d, 'cloudflared')
@@ -1158,6 +1249,7 @@ function shutdown(code = 0, isHandOver = false) {
   log(`stopping (${code})${isHandOver ? ', the tunnel kept for the next hub' : ''}`)
   for (const w of waiters) w()
   stopTts()
+  for (const port of [...portTunnels.keys()]) stopPortTunnel(port)
   if (isHandOver) {
     try {
       writeState()
@@ -1193,7 +1285,13 @@ process.on('SIGHUP', () => undefined) // started detached: a closed terminal is 
 // idle time, the hub stops and the link with it
 setInterval(() => {
   const now = Date.now()
-  for (const [id, s] of sessions) if (now - s.seenAt > 15_000) { dropHeld(s); sessions.delete(id); bump() }
+  for (const [id, s] of sessions)
+    if (now - s.seenAt > 15_000) {
+      dropHeld(s)
+      for (const [port, pt] of portTunnels) if (pt.session === id) stopPortTunnel(port)
+      sessions.delete(id)
+      bump()
+    }
   for (const [id, d] of devices) if (d.isApproved && now - d.seenAt > DEVICE_TTL) { dropDevice(id); log(`unpaired, not seen for a week: ${d.name}`) }
   if (now - lastSessionAt > SESSION_TTL) return shutdown(0)
   if (now - lastPhoneAt > idleMs) shutdown(0)

@@ -1351,7 +1351,7 @@ function fileRow(path, note, cls) {
   return row
 }
 // The files page: the session's folders to browse, what it holds in context, what changed, images.
-const TABS = ['folder', 'context', 'changes', 'images']
+const TABS = ['folder', 'context', 'changes', 'images', 'running']
 let browse = { root: '', path: '' } // the folder shown in the Folder tab
 const inContext = path => {
   const c = snap.context || {}
@@ -1368,6 +1368,7 @@ function renderFiles() {
     context: ((snap.context?.mentions?.length || 0) + (snap.context?.reads?.length || 0) + (snap.context?.dirs?.length || 0) + (snap.context?.memory?.length || 0)) || '',
     changes: snap.edited.length + snap.changes.length || '',
     images: snap.images.length || '',
+    running: (snap.running?.servers?.length || 0) + (snap.running?.tasks?.filter(x => x.status === 'running').length || 0) || '',
   }
   for (const t of TABS) {
     const b = $(`seg-${t}`)
@@ -1380,6 +1381,7 @@ function renderFiles() {
   if (filesTab === 'folder') return renderFolder(root)
   if (filesTab === 'context') return renderContext(root)
   if (filesTab === 'images') return renderImages(root)
+  if (filesTab === 'running') return renderRunning(root)
   renderChanges(root)
 }
 
@@ -1532,6 +1534,74 @@ function renderImages(root) {
       const body = openViewer(tx('Image #{n}', { n: img.n }))
       body.appendChild(el('img')).src = node.src
     }
+  }
+}
+
+// The Running tab: the ports this session's processes listen on, and the commands Claude left
+// running. A port can be opened on the phone through a quick tunnel of its own, after a warning:
+// anyone with its link reaches the port, with no key and no end-to-end encryption, for 30 minutes.
+let shareAsked = 0 // the port whose warning is open
+function renderRunning(root) {
+  const run = snap.running || { servers: [], tasks: [] }
+  if (!run.servers?.length && !run.tasks?.length) return root.append(el('div', 'none', tx('Nothing running in this session: the servers and commands Claude starts show here.')))
+  const shared = new Map((state?.tunnels || []).filter(x => x.session === snap.id).map(x => [x.port, x]))
+  if (run.servers.length) root.append(el('div', 'fhead', tx('Ports')))
+  for (const sv of run.servers) {
+    const row = root.appendChild(el('div', 'runrow'))
+    const head = row.appendChild(el('div', 'runhead'))
+    const health = sv.code === null || sv.code === undefined ? '' : sv.code === 0 ? tx('no answer') : String(sv.code)
+    head.append(el('strong', '', `:${sv.port}`), el('span', 'meta', [sv.framework, health].filter(Boolean).join(' · ')))
+    if (sv.command) row.append(el('div', 'runcmd', tildify(sv.command)))
+    const acts = row.appendChild(el('div', 'fileacts'))
+    const t = shared.get(sv.port)
+    if (t) {
+      if (t.isReady) {
+        const link = row.insertBefore(el('a', 'runlink', t.url), acts)
+        link.href = t.url
+        link.target = '_blank'
+        link.rel = 'noopener noreferrer'
+        const open = acts.appendChild(el('a', 'pbtn', tx('Open')))
+        open.href = t.url
+        open.target = '_blank'
+        open.rel = 'noopener noreferrer'
+      } else acts.append(el('span', 'meta', tx('Sharing… the link works in a few seconds')))
+      acts.append(el('span', 'meta', tx('until {time}', { time: new Date(t.until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) })))
+      const stop = acts.appendChild(el('button', 'pbtn danger', tx('Stop sharing')))
+      stop.onclick = async () => {
+        stop.disabled = true
+        await api('untunnel', { port: sv.port })
+      }
+      continue
+    }
+    if (shareAsked === sv.port) {
+      row.insertBefore(el('div', 'runwarn', tx('Anyone with the link reaches this port: no key, and not end-to-end encrypted (Cloudflare can read it). It stops in 30 minutes, or when you stop it. Share it?')), acts)
+      const yes = acts.appendChild(el('button', 'pbtn danger', tx('Share it')))
+      yes.onclick = async () => {
+        yes.disabled = true
+        const r = await api('tunnel', { port: sv.port })
+        shareAsked = 0
+        if (r.s !== 200) toast({ title: tx('Not shared'), body: txSent(r.b?.error) || '' })
+        renderFiles()
+      }
+      const no = acts.appendChild(el('button', 'pbtn', tx('Cancel')))
+      no.onclick = () => {
+        shareAsked = 0
+        renderFiles()
+      }
+      continue
+    }
+    const share = acts.appendChild(el('button', 'pbtn', tx('Open on the phone')))
+    share.onclick = () => {
+      shareAsked = sv.port
+      renderFiles()
+    }
+  }
+  if (run.tasks?.length) root.append(el('div', 'fhead', tx('Commands Claude left running')))
+  for (const task of run.tasks || []) {
+    const row = root.appendChild(el('div', 'runrow'))
+    const head = row.appendChild(el('div', 'runhead'))
+    head.append(el('strong', '', tx(task.status === 'running' ? 'running' : task.status === 'completed' ? 'completed' : task.status === 'failed' ? 'failed' : task.status)))
+    row.append(el('div', 'runcmd', tildify(task.command)))
   }
 }
 

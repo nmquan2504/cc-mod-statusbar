@@ -12,6 +12,7 @@ import { maskSecrets } from '../lib/mask'
 import { cfg } from '../state/config'
 import { ME, rt } from '../state/runtime'
 import { projectDir } from '../lib/project'
+import { checkServers, frameworkOf, readServers } from './work'
 
 // The atoms this file reads (each file declares its own: the engine reads an atom only where a
 // const of the same file made it; the same plugin and key are the same value).
@@ -47,8 +48,13 @@ export type RemoteStatus = {
   // a restart keeps the link and the paired phones (POST /restart); absent from a hub before it
   canHandOver?: boolean
 }
+// The ports Claude's processes listen on (features/work.ts readServers), for the phone's Running tab
+const servers = atom({ plugin: 'cc-mod-statusbar', key: 'servers' } as const, [])
+
 export const remote = {
   dir: '',
+  // ticks since the session joined: the servers are read every 5th (10 s), asked over HTTP every 15th
+  ticks: 0,
   // a tick of tickRemote under way (since when): the next waits for it, so one queued text goes in
   // once; a tick stuck past TICK_STUCK_MS no longer holds the others back
   isTicking: false,
@@ -799,6 +805,15 @@ async function snapshotOf($: any) {
     pages: Object.values(remote.pages).filter(p => Date.now() - p!.at < 600_000),
     // the mod's version this session loaded, for the foot of the phone's drawer
     version: modVersionShort(),
+    // the Running tab: the ports Claude's processes listen on, each with its framework and its last
+    // HTTP answer, and the commands Claude left running; command lines with their secrets masked
+    running: {
+      servers: (await read($, servers)).map(sv => {
+        const task = rt.bgTasks.find(t => sv.command && t.command && sv.command.includes(t.command.split(/\s+/)[0] ?? '\u0000'))
+        return { port: sv.port, pid: sv.pid, command: hide(oneLine(sv.command, 160)), framework: frameworkOf(sv.command, task?.command ?? ''), code: rt.serverHealth[sv.port]?.code ?? null }
+      }),
+      tasks: rt.bgTasks.slice(-5).map(t => ({ id: t.id, command: hide(oneLine(t.command, 160)), status: t.status ?? 'running', at: t.at })),
+    },
   }
 }
 
@@ -838,6 +853,10 @@ async function tickRemoteOnce($: any) {
   // the transcript: on joining, and every tick while a turn runs (a prompt is stored a moment after
   // turn.start, and a phone that comes back to the page must find it there)
   if (!remote.isJoined || rt.isBusy) await readRemoteMessages($)
+  // the Running tab's ports: read every 10 seconds, asked over HTTP every 30
+  remote.ticks++
+  if (remote.ticks % 5 === 1) await readServers($).catch(() => undefined)
+  if (remote.ticks % 15 === 1) await checkServers($).catch(() => undefined)
   const status: RemoteStatus | undefined = await hub($, 'POST', `/session?id=${encodeURIComponent(id)}&idle=${cfg.remoteIdleMinutes}`, await snapshotOf($))
   if (!status) {
     // the hub went away: stopped from another session, or idle

@@ -26,7 +26,7 @@ const big = Buffer.alloc(5 * 1024 * 1024 + 3)
 for (let i = 0; i < big.length; i++) big[i] = (i * 31) & 0xff
 writeFileSync(join(root, 'big.mov'), big)
 writeFileSync(join(root, 'huge.zip'), Buffer.alloc(25 * 1024 * 1024))
-ctl('POST', '/session?id=t1', { folder: 'shop', roots: [root], transcript: [], images: [], edited: [], changes: [], busy: false })
+ctl('POST', '/session?id=t1', { folder: 'shop', roots: [root], transcript: [], images: [], edited: [], changes: [], busy: false, running: { servers: [{ port: 5173, pid: 1, command: 'vite', framework: 'Vite', code: 200 }], tasks: [] } })
 const link = parseLink(ctl('GET', '/status').link)
 check('the QR link parses', Boolean(link?.k && link.base.startsWith('http')), link)
 check('a link with no K does not', parseLink('https://x.trycloudflare.com/') === null)
@@ -87,6 +87,16 @@ if (ttsInfo.b?.state === 'ready') {
   const againMs = Date.now() - at
   check('a piece said again comes from the cache, the same WAV, faster', made.s === 200 && again.s === 200 && again.b.b64 === made.b.b64 && againMs < makeMs, { makeMs, againMs })
 } else console.log(`skip ZeroTTS is ${ttsInfo.b?.state}`)
+// the Running tab: a listed port shared (with QSB_REMOTE_LOCAL, its own address), an unlisted one refused
+const shared = await call(device, 'tunnel', { session: 't1', port: 5173 })
+check('a listed port is shared', shared.s === 200 && shared.b.url === 'http://127.0.0.1:5173' && shared.b.isReady === true, shared.b)
+const listedState = await call(device, 'state', { since: -1 })
+check('the state lists the shared port', listedState.b.tunnels?.some((x: any) => x.port === 5173 && x.session === 't1'), listedState.b.tunnels)
+check('a port the session does not list is refused', (await call(device, 'tunnel', { session: 't1', port: 22 })).s === 403)
+check('untunnel stops it', (await call(device, 'untunnel', { port: 5173 })).s === 200 && !(await call(device, 'state', { since: -1 })).b.tunnels?.length)
+await call(device, 'tunnel', { session: 't1', port: 5173 })
+ctl('POST', '/session?id=t1', { folder: 'shop', roots: [root], transcript: [], images: [], edited: [], changes: [], busy: false, running: { servers: [], tasks: [] } })
+check('a port the session no longer listens on stops being shared', !(await call(device, 'state', { since: -1 })).b.tunnels?.length)
 const devs = await call(device, 'devices')
 check('the hub lists this phone as itself', devs.b.devices.some((d: any) => d.isThis), devs.b)
 // the app's service: watch waits for the next notice, and answers it with its folder
