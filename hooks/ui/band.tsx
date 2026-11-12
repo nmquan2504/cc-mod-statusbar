@@ -42,6 +42,10 @@ const autoContinue = atom({ plugin: 'cc-mod-statusbar', key: 'autoContinue' } as
 // The full usage reading, for the usage menu the gauges open.
 const usage = atom({ plugin: 'cc-mod-statusbar', key: 'usage' } as const, null)
 
+// The bar's items a row too narrow for the compact bar gives up first, one at a time: the model, the
+// mode, the folder, the usage and the shield stay
+const DROP_ORDER: CfgKey[] = ['barImages', 'barMcp', 'barRemote', 'barEffort', 'barGit']
+
 // The band above the prompt: the bar, and the menu open above it.
 export async function drawBand($: any, e: any, next: any) {
   // Claude Code for VS Code draws its panel its own way (every button a bright native one): the bar
@@ -168,12 +172,17 @@ export async function drawBand($: any, e: any, next: any) {
   // The bar's labels and the cells its two groups take, full or compact. Compact, on a terminal
   // too narrow for the full bar and the arena: the model as O5.5, the mode as its icon, the
   // effort as its first letter, a shorter folder and branch, and the figures without gauges.
-  const layout = (isCompact: boolean) => {
+  // Two levels past compact, for a terminal where even the compact bar overran the frame: tight cuts
+  // the folder and the branch to 8 and drops the git marks; then the items least needed go one by
+  // one (DROP_ORDER), each still a press away in its menu. `dropped` holds those gone.
+  const dropped = new Set<string>()
+  const layout = (isCompact: boolean, isTight = false) => {
     const name = shortModel(b.model)
+    const cut = isTight ? 8 : isCompact ? 14 : 28
     // each part is '' when its switch is off
-    const folderText = cfg.barFolder ? oneLine(b.folder, isCompact ? 14 : 28) : ''
-    const branchText = cfg.barGit && b.branch ? `⎇ ${oneLine(b.branch, isCompact ? 14 : 32)}` : ''
-    const marksText = cfg.barGit && gitMarks ? ` ${gitMarks}` : ''
+    const folderText = cfg.barFolder ? oneLine(b.folder, cut) : ''
+    const branchText = cfg.barGit && !dropped.has('barGit') && b.branch ? `⎇ ${oneLine(b.branch, isTight ? 8 : isCompact ? 14 : 32)}` : ''
+    const marksText = cfg.barGit && !dropped.has('barGit') && !isTight && gitMarks ? ` ${gitMarks}` : ''
     const modelLabel = !cfg.barModel ? '' : isCompact ? ` ● ${name.charAt(0)}${name.split(' ')[1] ?? ''} ` : ` ● ${name} `
     const modeLabel = !cfg.barMode ? '' : isCompact ? ` ${m.icon} ` : ` ${m.icon} ${m.label.split(' (')[0]} `
     const effortLabel = !cfg.barEffort || !b.effort ? '' : isCompact ? ` ${effortIcon(b.effort)} ${b.effort.charAt(0)} ` : ` ${effortIcon(b.effort)} ${b.effort} `
@@ -190,10 +199,11 @@ export async function drawBand($: any, e: any, next: any) {
       barImages: imagesLabel.length,
       barMcp: mcpLabel.length,
       barMode: modeLabel.length,
-      barGuard: guardLabel.length,
+      // tight: ◈ alone, its red still saying a guardrail fails
+      barGuard: !cfg.barGuard ? 0 : isTight ? (' ◈ ' + guardDanger).length : guardLabel.length,
     }
     // a gap before every item in the left group (+ and ⁄ open it), between the items in the right
-    const cellsOf = (keys: string[]) => keys.map(k => width[k] ?? 0).filter(Boolean).reduce((n, w) => n + 1 + w, 0)
+    const cellsOf = (keys: string[]) => keys.filter(k => !dropped.has(k)).map(k => width[k] ?? 0).filter(Boolean).reduce((n, w) => n + 1 + w, 0)
     const left = 3 + 1 + 3 + cellsOf(order.slice(0, split))
     const rightCells = (brokenLabel ? 1 + brokenLabel.length : 0) + (continueLabel ? 1 + continueLabel.length : 0)
       + (updateLabel ? 1 + updateLabel.length : 0) + cellsOf(order.slice(split + 1))
@@ -221,7 +231,25 @@ export async function drawBand($: any, e: any, next: any) {
   // the arena wants ARENA_MIN cells besides its margins, the kill count, the clock, the ctx chip and Claude's badge
   const extras = killsText.length + (ctxLabel ? ctxLabel.length + 1 : 0) + (turnText ? turnText.length + 1 : 0) + badge.length
   const isCompact = e.props.bodyColumns - 4 - full.left - full.right - 2 * ARENA_GAP - 1 - extras < ARENA_MIN
-  const { folderText, branchText, marksText, modelLabel, modeLabel, effortLabel, showGauge, left, right } = isCompact ? layout(true) : full
+  // With no room to play, Claude stands at the head of the right group with the turn's clock: what
+  // is left of the row must hold both groups, or the bar runs past the frame
+  const restCells = 1 + 2 + badge.length + 1 + (turnText ? turnText.length + 1 : 0) + (ctxLabel ? ctxLabel.length : 0)
+  const fits = (l: { left: number; right: number }) => e.props.bodyColumns - 4 - l.left - l.right - restCells >= 0
+  let chosen = isCompact ? layout(true) : full
+  let isTightNow = false
+  if (isCompact && !fits(chosen)) {
+    isTightNow = true
+    chosen = layout(true, true)
+    for (const key of DROP_ORDER) {
+      if (fits(chosen)) break
+      if (!cfg[key]) continue
+      dropped.add(key)
+      chosen = layout(true, true)
+    }
+  }
+  // the last resort, a row narrower still: the left group gives up cells at its end rather than overrun
+  const isSqueezed = isCompact && !fits(chosen)
+  const { folderText, branchText, marksText, modelLabel, modeLabel, effortLabel, showGauge, left, right } = chosen
   arena.width = e.props.bodyColumns - 4 - left - right - 2 * ARENA_GAP - 1 - extras
 
 
@@ -316,7 +344,7 @@ export async function drawBand($: any, e: any, next: any) {
       case 'barGuard':
         return guardLabel ? (
           <Button key="guard" plain hover={{ scope: 'qsb-guard', bold: true }} onPress={() => openMenu($, 'guard')}>
-            {pill('guard', guardScore, isAlert ? 'error' : 'success')}
+            {pill('guard', isTightNow ? ' ◈ ' : guardScore, isAlert ? 'error' : 'success')}
             {guardDanger ? <Text backgroundColor={open === 'guard' ? 'inverseText' : isAlert ? 'error' : 'success'} color="warning" bold>{guardDanger}</Text> : null}
           </Button>
         ) : null
@@ -428,14 +456,14 @@ export async function drawBand($: any, e: any, next: any) {
         {/* the left group keeps its width: the arena takes the spare cells, so the gaps on either
             side of it stay two cells (branch to kills, Claude to the clock). Neither group
             shrinks: when the row runs short, the arena gives up cells and clips, never the folder */}
-        <Box flexDirection="row" gap={1} flexShrink={0}>
+        <Box flexDirection="row" gap={1} flexShrink={isSqueezed ? 1 : 0} minWidth={0} overflow="hidden">
           <Button key="add" plain hover={{ scope: 'qsb-add', bold: true }} onPress={() => openMenu($, 'add')}>
             {pill('add', ' + ', 'claude')}
           </Button>
           <Button key="commands" plain hover={{ scope: 'qsb-commands', bold: true }} onPress={() => openMenu($, 'commands')}>
             {pill('commands', ' ⁄ ', 'claude')}
           </Button>
-          {order.slice(0, split).map(itemOf)}
+          {order.slice(0, split).filter(k => !dropped.has(k)).map(itemOf)}
         </Box>
         {/* the arcade plays in the gap between the two groups; idle, the field is empty and
             Claude waits at its right end, still a button */}
@@ -474,7 +502,7 @@ export async function drawBand($: any, e: any, next: any) {
               <Text backgroundColor="suggestion" color="inverseText" bold>{updateLabel}</Text>
             </Button>
           ) : null}
-          {order.slice(split + 1).map(itemOf)}
+          {order.slice(split + 1).filter(k => !dropped.has(k)).map(itemOf)}
         </Box>
       </Box>
     </Box>
