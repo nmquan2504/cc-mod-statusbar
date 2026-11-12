@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView } from 'react-native-webview'
 import type { WebViewMessageEvent } from 'react-native-webview'
 import type { ShouldStartLoadRequest, WebViewErrorEvent } from 'react-native-webview/lib/WebViewTypes'
+import { CameraView } from 'expo-camera'
 import * as IntentLauncher from 'expo-intent-launcher'
 import * as Notifications from 'expo-notifications'
 import * as Speech from 'expo-speech'
@@ -150,6 +151,14 @@ export function Chat({ c, device, onUnpaired, onRescan, onCheckUpdate, onReady }
       }
     }
     else if (m.t === 'rescan') onRescan()
+    else if (m.t === 'scan') {
+      // another server's QR code, for the page's Settings: Google's code scanner, as at the start
+      try {
+        done(await scanQr())
+      } catch (err) {
+        fail(err)
+      }
+    }
     else if (m.t === 'insets') setInsetByPage(Number(m.top) > 0 || Number(m.bottom) > 0)
     else if (m.t === 'alive' && m.isShown) {
       shownAt.current = Date.now()
@@ -283,3 +292,19 @@ const styles = StyleSheet.create({
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   link: { fontSize: 15, marginTop: 12 },
 })
+
+// a QR code's text from Google's code scanner (no camera permission), or '' when shut without one
+function scanQr() {
+  return new Promise<string>((resolve, reject) => {
+    if (!CameraView.isModernBarcodeScannerAvailable) return reject(new Error('no-reader'))
+    const sub = CameraView.onModernBarcodeScanned(r => {
+      sub.remove()
+      resolve(r.data)
+    })
+    CameraView.launchScanner({ barcodeTypes: ['qr'] }).catch((err: Error) => {
+      sub.remove()
+      if (/cancel/i.test(String(err?.message))) resolve('')
+      else reject(new Error('no-reader'))
+    })
+  })
+}

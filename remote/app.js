@@ -811,7 +811,7 @@ function renderDrawer() {
   const order = state.isMany ? [...hubStates.keys()].sort((x, y) => (x === '' ? -1 : y === '' ? 1 : x.localeCompare(y))) : [null]
   for (const hub of order) {
   if (hub !== null) {
-    const name = hubStates.get(hub)?.machine?.name || hub || tx('This Mac')
+    const name = hubStates.get(hub)?.machine?.name || hub || tx('This server')
     const head = box.appendChild(el('div', 'mgroup'))
     head.append(el('span', hubDownSince.has(hub) ? 'dot wait' : 'dot'), document.createTextNode(` ${name}${hubDownSince.has(hub) ? ` · ${tx('not answering')}` : ''}`))
   }
@@ -3236,14 +3236,14 @@ function renderSettings() {
     check.onclick = () => QSB_NATIVE.checkUpdate()
   }
 
-  // Macs: every hub this phone is paired with, and another Mac added by its link
-  const macs = card(tx('Macs'))
+  // Remote servers: every hub this phone is paired with, and another one added by its QR code or link
+  const servers = card(tx('Remote servers'))
   for (const hub of [...hubStates.keys()].sort((x, y) => (x === '' ? -1 : y === '' ? 1 : 0))) {
     const st = hubStates.get(hub)
-    const name = st?.machine?.name || hub || tx('This Mac')
+    const name = st?.machine?.name || hub || tx('This server')
     const count = (st?.sessions || []).length
     const note = hub === '' ? tx('this link') : hubDownSince.has(hub) ? tx('not answering') : tx('{n} sessions', { n: count })
-    const right = row(macs, name, note)
+    const right = row(servers, name, note)
     if (hub !== '') {
       const b = right.appendChild(el('button', 'pbtn danger', tx('Remove')))
       b.onclick = async () => {
@@ -3255,29 +3255,43 @@ function renderSettings() {
       }
     }
   }
-  const add = macs.appendChild(el('div', 'prow'))
+  const add = servers.appendChild(el('div', 'prow'))
   add.append(el('div', 'pd', native
-    ? tx("Add another Mac: on it, ⇄ on the bar, Start, then copy its link here. Its sessions show beside this Mac's.")
-    : tx("Add another Mac: on it, ⇄ on the bar, Start, then copy its link here. This page comes from this Mac's link and will hold the other Mac's key too: open the remote in the Android app if you would rather not.")))
+    ? tx("Add a remote server: on it, ⇄ on the bar, Start, then scan its QR code or paste its link here. Its sessions show beside this server's.")
+    : tx("Add a remote server: on it, ⇄ on the bar, Start, then scan its QR code or paste its link here. This page comes from this server's link and will hold the other server's key too: open the remote in the Android app if you would rather not.")))
   const line = add.appendChild(el('div', 'ph'))
   const input = line.appendChild(el('input', 'addmac'))
   input.type = 'url'
   input.placeholder = 'https://….trycloudflare.com/#k=…'
   const go = line.appendChild(el('button', 'pbtn', tx('Add')))
   const said = add.appendChild(el('div', 'pd', ''))
-  go.onclick = async () => {
-    let base = '', k = ''
-    try {
-      const u = new URL(input.value.trim())
-      base = u.origin
-      k = new URLSearchParams(u.hash.slice(1)).get('k') || ''
-    } catch {}
-    if (!base || !k) return void (said.textContent = tx('That is not a remote link: it ends in #k=…'))
-    if (base === location.origin && !native) return void (said.textContent = tx('That is this Mac already.'))
+  // its QR code, read by the app's scanner, or in a browser by the camera here
+  if (canScanQr()) {
+    const scan = line.appendChild(el('button', 'pbtn', tx('Scan QR')))
+    scan.onclick = async () => {
+      said.textContent = ''
+      scan.disabled = true
+      try {
+        const text = await scanQr()
+        if (!text) return
+        if (!readLink(text)) return void (said.textContent = tx('That QR code is not a remote link.'))
+        input.value = text
+        await addServer()
+      } catch (err) {
+        said.textContent = err?.message === 'no-camera' ? tx('The camera did not open: paste the link instead.') : tx('This phone cannot scan here: paste the link instead.')
+      } finally {
+        scan.disabled = false
+      }
+    }
+  }
+  const addServer = async () => {
+    const link = readLink(input.value)
+    if (!link) return void (said.textContent = tx('That is not a remote link: it ends in #k=…'))
+    if (link.base === location.origin && !native) return void (said.textContent = tx('That is this server already.'))
     go.disabled = true
     try {
-      const { code, hub } = await E2E.pair(k, base)
-      said.textContent = tx('In that Mac\'s terminal, pick {code} to allow this phone.', { code })
+      const { code, hub } = await E2E.pair(link.k, link.base)
+      said.textContent = tx('In that server\'s terminal, pick {code} to allow this phone.', { code })
       for (let i = 0; i < 60; i++) {
         await sleep(2000)
         const r = await E2E.call('paired', {}, hub).catch(err => err)
@@ -3292,11 +3306,12 @@ function renderSettings() {
       }
       said.textContent = tx('Not allowed in time. Try again.')
     } catch (err) {
-      said.textContent = txSent(err?.message) || tx('Could not add that Mac.')
+      said.textContent = txSent(err?.message) || tx('Could not add that server.')
     } finally {
       go.disabled = false
     }
   }
+  go.onclick = () => void addServer()
 
   const paired = card(tx('Paired devices'))
   if (!pairedList) paired.append(el('div', 'meta pad', tx('Loading…')))
@@ -3319,6 +3334,76 @@ addEventListener('qsb-native', e => {
   if (!$('settings').hidden) renderSettings()
   if (e.detail?.note) toast({ title: tx('Not changed'), body: e.detail.note })
 })
+// ---- another remote server's link: pasted, or read from its QR code -----------------------------
+// { base, k } from https://….trycloudflare.com/#k=… or the app's clauderemote://pair?base=…&k=…;
+// null for anything else
+function readLink(text) {
+  const s = String(text || '').trim()
+  let base = '', k = ''
+  try {
+    const handed = /^clauderemote:\/\/pair\?(.*)$/.exec(s)
+    const u = new URL(handed ? new URLSearchParams(handed[1]).get('base') || '' : s)
+    if (u.protocol === 'https:' || u.protocol === 'http:') base = u.origin
+    k = (handed ? new URLSearchParams(handed[1]) : new URLSearchParams(u.hash.slice(1))).get('k') || ''
+  } catch {}
+  return base && /^[A-Za-z0-9_-]{43}$/.test(k) ? { base, k } : null
+}
+// the app has its scanner; a browser, a camera and a QR reader of its own (Chrome's BarcodeDetector)
+const canScanQr = () => (window.QSB_NATIVE
+  ? typeof QSB_NATIVE.scan === 'function'
+  : isSecureContext && 'BarcodeDetector' in window && Boolean(navigator.mediaDevices?.getUserMedia))
+// a QR code's text, or '' when shut without one; throws when nothing here can read one
+async function scanQr() {
+  if (window.QSB_NATIVE) {
+    const r = await QSB_NATIVE.scan()
+    return typeof r === 'string' ? r : ''
+  }
+  const formats = await BarcodeDetector.getSupportedFormats().catch(() => [])
+  if (!formats.includes('qr_code')) throw new Error('no-reader')
+  let stream
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })
+  } catch {
+    throw new Error('no-camera')
+  }
+  const detector = new BarcodeDetector({ formats: ['qr_code'] })
+  const layer = document.body.appendChild(el('div', 'qrscan'))
+  const video = layer.appendChild(el('video'))
+  video.muted = true
+  video.playsInline = true
+  video.srcObject = stream
+  const bar = layer.appendChild(el('div', 'qrbar'))
+  const hint = bar.appendChild(el('span', '', tx('Point the camera at the QR code in the other terminal.')))
+  const cancel = bar.appendChild(el('button', 'pbtn', tx('Cancel')))
+  return new Promise(resolve => {
+    let isDone = false
+    const finish = text => {
+      if (isDone) return
+      isDone = true
+      for (const t of stream.getTracks()) t.stop()
+      layer.remove()
+      resolve(text)
+    }
+    cancel.onclick = () => finish('')
+    // the page put away (another app, the screen off): the camera with it
+    addEventListener('visibilitychange', () => document.hidden && finish(''), { once: true })
+    // the first code that is a remote link goes; another one is named and let pass
+    const look = async () => {
+      if (isDone) return
+      try {
+        if (video.readyState >= 2) {
+          for (const code of await detector.detect(video)) {
+            if (readLink(code.rawValue)) return finish(code.rawValue)
+            hint.textContent = tx('Not a remote link: {text}', { text: code.rawValue.slice(0, 40) })
+          }
+        }
+      } catch {}
+      setTimeout(look, 250)
+    }
+    void video.play().catch(() => undefined)
+    look()
+  })
+}
 // ---- paired devices: the phones this hub allowed, this one marked; another one unpaired from here
 let pairedList = null
 async function readPaired() {

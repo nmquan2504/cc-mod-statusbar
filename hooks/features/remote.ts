@@ -92,6 +92,9 @@ export const remote = {
   // the commands the phone sent, each with what it printed or why it did not run, newest last
   // `anchor`: how many messages the session held when it ran, which places it in the transcript
   cmdLog: [] as { at: number; anchor: number; command: string; text: string; isError: boolean }[],
+  // how many messages the session held at the last read: fewer now means /clear, /compact or a
+  // rewind replaced the transcript, and the commands anchored in the old one go with it
+  msgCount: 0,
   // prompts typed while Claude worked, which no message of the session holds (see midTurnOf),
   // and how many messages there were when the request form was last read for them, and when
   midTurn: [] as MidTurn[],
@@ -572,6 +575,13 @@ function hideItem(it: TranscriptItem): TranscriptItem {
   return out
 }
 
+// The phone's command log as the transcript changes: when it holds fewer messages than at the last
+// read (/clear, /compact, a rewind), every command was anchored in a transcript that is gone, and
+// would show past the new one's end, under each later turn; so none is kept
+export function cmdsKept<T>(cmds: readonly T[], before: number, now: number): T[] {
+  return now < before ? [] : [...cmds]
+}
+
 // The session's messages as the terminal draws them: the last TURNS_MAX turns, long ones trimmed.
 // `max`: the turns kept, the last; `info.turns` is set to how many there are in all.
 export function transcriptOf(list: readonly any[], cwd: string, cmds: readonly { anchor: number; command: string; text: string; isError: boolean }[] = [], mids: readonly MidTurn[] = [], typed: readonly string[] = [], max = TURNS_MAX, info?: { turns: number }) {
@@ -742,7 +752,12 @@ async function readCommands($: any) {
 // `isFinal`: a turn ended, so prompts typed during it are looked for whatever the time.
 export async function readRemoteMessages($: any, isFinal = false) {
   if (!cfg.selfRemote || !remote.status) return
-  const list: any[] = await $.session.messages().catch(() => [])
+  const got: any[] | null = await $.session.messages().catch(() => null)
+  const list: any[] = got ?? []
+  if (got) {
+    remote.cmdLog = cmdsKept(remote.cmdLog, remote.msgCount, list.length)
+    remote.msgCount = list.length
+  }
   const { cwd, dirs } = await rootsOf($)
   const home: string = (await $.env.get('HOME').catch(() => '')) ?? ''
   remote.context = { ...remote.context, ...contextOf(list, cwd, home), dirs }
@@ -942,8 +957,8 @@ async function tickRemoteOnce($: any) {
     const what = phoneCommand(text, remote.commands)
     // where the session stands before the command runs: its place in the transcript
     const anchor = (await $.session.messages().catch(() => [])).length
-    const log = async (out: string, isError: boolean) => {
-      remote.cmdLog = [...remote.cmdLog, { at: Date.now(), anchor, command: text.trim(), text: out, isError }].slice(-10)
+    const log = async (out: string, isError: boolean, at = anchor) => {
+      remote.cmdLog = [...remote.cmdLog, { at: Date.now(), anchor: at, command: text.trim(), text: out, isError }].slice(-10)
       await readRemoteMessages($)
     }
     if (what.kind === 'refuse') return log(what.text, true)
@@ -961,7 +976,14 @@ async function tickRemoteOnce($: any) {
       if (!r?.error) noteAddDir(what.name, what.args ?? '') // a plugin's own command.run passes its hooks by
       if (r?.error) return log(`/${what.name} did not run: ${oneLine(r.error, 200)}`, true)
       $.ui.toast(`statusbar: remote: ran /${what.name} from the phone`)
-      await log(typeof r?.text === 'string' && r.text.trim() ? (r.text.length > 8000 ? `${r.text.slice(0, 8000)}…` : r.text) : 'ran', false)
+      // a command that made the transcript shorter (/clear, /compact): the old log goes, and this
+      // one stands where the new transcript ends now, not past it under every later turn
+      const after = (await $.session.messages().catch(() => null))?.length ?? anchor
+      if (after < anchor) {
+        remote.cmdLog = []
+        remote.msgCount = after
+      }
+      await log(typeof r?.text === 'string' && r.text.trim() ? (r.text.length > 8000 ? `${r.text.slice(0, 8000)}…` : r.text) : 'ran', false, Math.min(anchor, after))
       return
     }
     await noteTyped($, text)
