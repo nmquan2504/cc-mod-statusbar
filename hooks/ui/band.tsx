@@ -374,7 +374,9 @@ export async function drawBand($: any, e: any, next: any) {
   const menuWindow = { isClipped: false, rows: 0, from: 0, to: 0 }
   if (menuTree !== null && e.surface === 'terminal' && cfg.pinMenuHead) {
     const rows = rowsOf(menuTree, Math.max(20, e.props.bodyColumns - 4))
-    const windowRows = Math.max(3, (Number(e.props.maxRows) || 24) - 5)
+    // the band's rows less the engine's "n more" row (the tree is taller than the band, below), its
+    // two borders, the head, the gap under the menu and the bar
+    const windowRows = Math.max(3, (Number(e.props.maxRows) || 24) - 6)
     rt.menuRows = rows
     rt.menuWindow = windowRows
     rt.menuKeyRows = rows > windowRows ? keyRows(menuTree, Math.max(20, e.props.bodyColumns - 4)) : new Map()
@@ -383,7 +385,7 @@ export async function drawBand($: any, e: any, next: any) {
       Object.assign(menuWindow, { isClipped: true, rows: windowRows, from: rt.menuOffset + 1, to: rt.menuOffset + windowRows })
     } else rt.menuOffset = 0
   } else rt.menuRows = rt.menuWindow = 0
-  return (
+  const drawn = (
     <Box flexDirection="column" width={e.props.bodyColumns} borderStyle="round" borderColor={open ? 'claude' : 'subtle'} paddingX={1}>
       {/* the menu opens upward: the bar stays next to the prompt */}
       {isInBand && (
@@ -477,6 +479,13 @@ export async function drawBand($: any, e: any, next: any) {
       </Box>
     </Box>
   )
+  // A clipped menu: two blank rows under the band make the tree taller than the band, so the engine
+  // takes it as one that scrolls and hands the wheel to ui.scroll (events/ui.ts), which moves the
+  // menu in its window and keeps the band's own window at its top: the head and the bar stay in view
+  // and the two rows stay below it. A tree that fits gets no ui.scroll for the wheel.
+  return menuWindow.isClipped
+    ? <Box flexDirection="column">{drawn}<Box key="wheel-room" height={2} /></Box>
+    : drawn
 }
 
 // The open menu in its own pane (menuInPane): the same drawing as in the band, under the pane's own

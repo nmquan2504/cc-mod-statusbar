@@ -75,6 +75,7 @@ export function registerUi(on: On) {
       rt.menuOffset = to
       $.ui.invalidate('ui.render')
     }
-    return {}
+    // the band's own window stays at its top, where the head and the bar are
+    return e.offset === 0 ? {} : next({ ...e, offset: 0 })
   }).catch(($, e, next) => next(e))
 }
