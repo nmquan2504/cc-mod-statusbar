@@ -311,6 +311,14 @@
   .file .path { overflow-wrap: anywhere; color: var(--link); }
   .add { color: var(--ok); } .del { color: var(--bad); } .hunk { color: var(--link); } .ctx { color: var(--dim); }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
+  /* the Running tab: a port or a command a card, its actions under it */
+  .runrow { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 8px 0; }
+  .runhead { display: flex; align-items: baseline; gap: 8px; }
+  .runhead strong { font-size: 16px; }
+  .runcmd { font: 12px ui-monospace, Menlo, monospace; color: var(--dim); margin: 4px 0 6px; overflow-wrap: anywhere; }
+  .runwarn { font-size: 13px; color: var(--warn, #b26b00); margin: 6px 0; }
+  .runlink { font: 13px ui-monospace, Menlo, monospace; overflow-wrap: anywhere; }
+  .fhead { font-weight: 600; margin: 14px 0 2px; }
   .grid img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); }
   .diff { font: calc(12px * var(--fs))/1.45 var(--mono); white-space: pre; overflow-x: auto; padding-top: 12px; }
   .diff div { min-height: 1.45em; }
@@ -529,6 +537,7 @@
     <button id="seg-context" data-t="Context">Context</button>
     <button id="seg-changes" data-t="Changes">Changes</button>
     <button id="seg-images" data-t="Images">Images</button>
+    <button id="seg-running" data-t="Running">Running</button>
   </div>
   <div id="files-body"></div>
 </div>
