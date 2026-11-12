@@ -265,3 +265,23 @@ export function qrRows(m: boolean[][], quiet = 2) {
   }
   return rows
 }
+
+// The symbol as an SVG document, for a surface that draws vector images (the desktop app, the
+// phone) where a proportional font and its line height break the text rows apart. Each run of
+// dark modules along a row is one rectangle in a single path; `quiet` light modules ring it.
+export function qrSvg(m: boolean[][], quiet = 4) {
+  const size = m.length + quiet * 2
+  let d = ''
+  for (let y = 0; y < m.length; y++) {
+    for (let x = 0; x < m.length;) {
+      if (!m[y]![x]) {
+        x++
+        continue
+      }
+      const start = x
+      while (x < m.length && m[y]![x]) x++
+      d += `M${start + quiet} ${y + quiet}h${x - start}v1h${start - x}z`
+    }
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" shape-rendering="crispEdges"><rect width="${size}" height="${size}" fill="#ffffff"/><path fill="#000000" d="${d}"/></svg>`
+}
