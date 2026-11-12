@@ -12,9 +12,9 @@ export async function probeMode($: any, root: string): Promise<string | undefine
     if (edit.decision === 'deny' && bash.decision === 'deny') return 'dontAsk'
     if (/plan mode/i.test(edit.reason ?? '')) return 'plan'
     if (edit.decision === 'allow') return 'acceptEdits'
-    if (/\? for shortcuts/.test(rt.lastHint)) return 'manual'
-    if (/shift\+tab to cycle/.test(rt.lastHint)) return 'auto'
-    return undefined
+    // both ask: manual and auto look the same to the checks; the hint line tells them apart
+    // (events/ui.ts reads it). None read yet: the bar keeps what it shows.
+    return rt.hintMode
   } catch {
     return undefined // no session bound yet, or shutting down: keep what the bar shows
   }

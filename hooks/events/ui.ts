@@ -32,10 +32,15 @@ export function registerUi(on: On) {
 
   // Between turns (a shift+tab), the hint line under the prompt is the first to show it.
   on('ui.render', { component: 'PromptHint' }, ($, e, next) => {
-    // The hint names every mode but the default one: there it reads "? for shortcuts" alone.
+    // The hint names every mode but the default one: "auto mode on", "accept edits on", "plan mode
+    // on", with "(shift+tab to cycle)" or, while shells or agents run, "· 1 shell · ← 1 agent" after
+    // it. The default mode shows no name: "? for shortcuts", or only the shells and agents. So a hint
+    // that names no mode, drawn at rest (no turn, no draft), is the default; one drawn mid-turn or
+    // over a draft may have left the name out, and the last reading stands.
     rt.lastHint = e.props.hint
     const named = MODES.find(m => m.re.test(e.props.hint))?.mode
-    rt.hintMode = named ?? (/\? for shortcuts/.test(e.props.hint) ? 'manual' : rt.hintMode)
+    const isAtRest = !e.props.isWorking && !e.props.isDraft
+    rt.hintMode = named ?? (/\? for shortcuts/.test(e.props.hint) || isAtRest ? 'manual' : rt.hintMode)
     return next(e)
   })
 

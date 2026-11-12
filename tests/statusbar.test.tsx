@@ -145,12 +145,34 @@ async function probedEngine($: any, on: any, check: (e: { tool: string }) => obj
   on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
   await $.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
   await clock.advance(1000)
+  return clock
 }
 
 test('the mode comes from the permission checks', async ($, on) => {
   await probedEngine($, on, e => e.tool === 'Edit' ? { decision: 'deny', reason: 'Claude Code is in plan mode' } : { decision: 'ask' })
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   expect((await band.find({ key: 'mode' }))?.text).toContain('plan')
+})
+
+test('manual and auto, which the checks cannot tell apart, follow the hint line, shells and agents in it or not', async ($, on) => {
+  const clock = await probedEngine($, on, () => ({ decision: 'ask' }))
+  const hint = async (text: string, extra: object = {}) => {
+    await ($ as any).ui.mount({ plugin: 'cc-mod-statusbar', surface: 'terminal', component: 'PromptHint', props: { hint: text, isDraft: false, isWorking: false, ...extra } })
+    await clock.advance(1000)
+  }
+  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await hint('? for shortcuts')
+  expect((await band.find({ key: 'mode' }))?.text).toContain('manual')
+  // auto, with a shell and an agent running: no "shift+tab to cycle" in the line
+  await hint('⏵⏵ auto mode on · 1 shell · ← 1 agent · ↓ to manage')
+  expect((await band.find({ key: 'mode' }))?.text).toContain('auto')
+  // back to the default with the shell still running: the line names no mode
+  await hint('1 shell · ← 1 agent · ↓ to manage')
+  expect((await band.find({ key: 'mode' }))?.text).toContain('manual')
+  // mid-turn a line without the name keeps the last reading
+  await hint('⏵⏵ auto mode on (shift+tab to cycle)')
+  await hint('esc to interrupt', { isWorking: true })
+  expect((await band.find({ key: 'mode' }))?.text).toContain('auto')
 })
 
 test('the shield reads the guardrails from the settings', async ($, on) => {
