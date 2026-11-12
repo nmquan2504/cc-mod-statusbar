@@ -10,10 +10,11 @@ import * as Speech from 'expo-speech'
 import { bridge } from './bridge'
 import { handFile } from './files'
 import { askUnlock } from './lock'
-import { onNoticeOpened } from './notices'
+import { onNoticeOpened, watchHubs } from './notices'
 import { onSettings, saveSettings, settings } from './settings'
 import type { AppSettings } from './settings'
-import { call, Unpaired } from './e2e'
+import { call, pair, Unpaired } from './e2e'
+import { hostOf, loadExtras, saveExtras } from './store'
 import { USER_AGENT, VERSION } from './version'
 import type { Device } from './e2e'
 
@@ -56,13 +57,44 @@ export function Chat({ c, device, onUnpaired, onRescan, onCheckUpdate, onReady }
   const onMessage = useCallback(async (e: WebViewMessageEvent) => {
     let m: any
     try { m = JSON.parse(e.nativeEvent.data) } catch { return }
+    const done = (r: unknown) => reply(`window.__qsb.done(${Number(m.id)}, ${JSON.stringify(r)})`)
+    const fail = (err: unknown) => reply(`window.__qsb.fail(${Number(m.id)}, ${JSON.stringify(err instanceof Unpaired ? 'unpaired' : 'error')}, ${JSON.stringify((err as Error)?.message ?? String(err))})`)
     if (m.t === 'call') {
       try {
-        const r = await call(device, String(m.op), m.a && typeof m.a === 'object' ? m.a : {})
-        reply(`window.__qsb.done(${Number(m.id)}, ${JSON.stringify(r)})`)
+        // another Mac's call goes to its hub with its own key
+        const hub = String(m.hub ?? '')
+        const to = hub ? (await loadExtras()).find(d => hostOf(d) === hub) : device
+        if (!to) throw new Unpaired('That Mac is no longer paired.')
+        done(await call(to, String(m.op), m.a && typeof m.a === 'object' ? m.a : {}))
       } catch (err) {
-        reply(`window.__qsb.fail(${Number(m.id)}, ${JSON.stringify(err instanceof Unpaired ? 'unpaired' : 'error')}, ${JSON.stringify((err as Error).message)})`)
+        fail(err)
       }
+    } else if (m.t === 'pair') {
+      // another Mac, by its link: kept at once, its calls answered 202 until its terminal allows it
+      try {
+        const base = new URL(String(m.base)).origin
+        const { device: added, code } = await pair(base, String(m.k))
+        const list = (await loadExtras()).filter(d => hostOf(d) !== hostOf(added))
+        await saveExtras([...list, added])
+        done({ code, hub: hostOf(added) })
+      } catch (err) {
+        fail(err)
+      }
+    } else if (m.t === 'hubs') {
+      const extras = await loadExtras()
+      done([{ hub: '', base: device.base, machine: null }, ...extras.map(d => ({ hub: hostOf(d), base: d.base, machine: d.machine ?? null }))])
+    } else if (m.t === 'machine') {
+      // a Mac named by its hub: kept, and an older pairing with the same Mac (an earlier link) let go
+      const machine = m.machine && typeof m.machine === 'object' ? { id: String(m.machine.id ?? ''), name: String(m.machine.name ?? '') } : null
+      const hub = String(m.hub ?? '')
+      if (machine?.id && hub) {
+        const list = await loadExtras()
+        await saveExtras(list.filter(d => hostOf(d) === hub || d.machine?.id !== machine.id).map(d => (hostOf(d) === hub ? { ...d, machine } : d)))
+        watchHubs()
+      }
+    } else if (m.t === 'forgetHub') {
+      await saveExtras((await loadExtras()).filter(d => hostOf(d) !== String(m.hub ?? '')))
+      watchHubs()
     } else if (m.t === 'forget') onUnpaired()
     else if (m.t === 'back' && !m.isHandled) BackHandler.exitApp()
     else if (m.t === 'set') {

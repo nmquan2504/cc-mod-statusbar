@@ -97,6 +97,24 @@ check('untunnel stops it', (await call(device, 'untunnel', { port: 5173 })).s ==
 await call(device, 'tunnel', { session: 't1', port: 5173 })
 ctl('POST', '/session?id=t1', { folder: 'shop', roots: [root], transcript: [], images: [], edited: [], changes: [], busy: false, running: { servers: [], tasks: [] } })
 check('a port the session no longer listens on stops being shared', !(await call(device, 'state', { since: -1 })).b.tunnels?.length)
+// a second Mac (the hub of argv[3], if given): paired too, each hub naming its own Mac, and a page
+// of the first allowed to call the second across origins, a page from elsewhere not
+const dir2 = process.argv[3]
+if (dir2) {
+  const ctl2 = (method: string, path: string, body?: unknown) =>
+    JSON.parse(execFileSync('curl', ['-s', '--max-time', '5', '--unix-socket', `${dir2}/hub.sock`, '-X', method, ...(body ? ['-H', 'Content-Type: application/json', '-d', JSON.stringify(body)] : []), `http://hub${path}`], { encoding: 'utf8' }) || 'null')
+  ctl2('POST', '/session?id=m2', { folder: 'infra', roots: [root], transcript: [], images: [], edited: [], changes: [], busy: false })
+  const link2 = parseLink(ctl2('GET', '/status').link)!
+  const second = await pair(link2.base, link2.k)
+  ctl2('POST', '/allow', { id: ctl2('GET', '/status').pending[0].id })
+  const p2 = await call(second.device, 'paired')
+  const p1 = await call(device, 'paired')
+  check('each hub names its own Mac', p1.b.machine?.id && p2.b.machine?.id && p1.b.machine.id !== p2.b.machine.id, [p1.b.machine, p2.b.machine])
+  check("the second Mac's state lists its own session", (await call(second.device, 'state', { since: -1 })).b.sessions?.[0]?.folder === 'infra')
+  const pre = (origin: string) => execFileSync('curl', ['-s', '-o', '/dev/null', '-D', '-', '-X', 'OPTIONS', '-H', `Origin: ${origin}`, `${link2.base}/x`], { encoding: 'utf8' })
+  check("a page of the first Mac may call the second", pre(link!.base).includes(`Access-Control-Allow-Origin: ${link!.base}`))
+  check('a page from elsewhere may not', !/Access-Control-Allow-Origin/i.test(pre('https://evil.example')))
+}
 const devs = await call(device, 'devices')
 check('the hub lists this phone as itself', devs.b.devices.some((d: any) => d.isThis), devs.b)
 // the app's service: watch waits for the next notice, and answers it with its folder

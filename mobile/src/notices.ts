@@ -12,6 +12,8 @@ import BackgroundService from 'react-native-background-actions'
 import { b64, call, Unpaired } from './e2e'
 import type { Device } from './e2e'
 import { settings } from './settings'
+import { hostOf, loadExtras } from './store'
+import type { Extra } from './store'
 
 const CHANNEL = 'notices'
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
@@ -128,10 +130,53 @@ async function listen(device: Device, onUnpaired: () => void) {
   if (mine !== run) await new Promise<never>(() => undefined)
 }
 
+// The other Macs (Settings, Macs, in the page): a watch loop each, in the same service, their notices
+// named with the Mac's ("Mac mini · Claude has responded, shop"). Started with the service, and again
+// whenever the list changes; a loop whose Mac is gone, or no longer knows this phone, ends.
+const hubLoops = new Map<string, number>()
+let hubRun = 0
+let loopSeq = 0
+export function watchHubs() {
+  if (!BackgroundService.isRunning()) return
+  const mine = ++hubRun
+  void loadExtras().then(list => {
+    if (mine !== hubRun) return
+    const hosts = new Set(list.map(hostOf))
+    for (const host of [...hubLoops.keys()]) if (!hosts.has(host)) hubLoops.delete(host)
+    for (const d of list) {
+      const host = hostOf(d)
+      if (hubLoops.has(host)) continue
+      const loop = ++loopSeq
+      hubLoops.set(host, loop)
+      void listenHub(d, host, loop)
+    }
+  })
+}
+async function listenHub(device: Extra, host: string, loop: number) {
+  let since = Date.now()
+  while (hubLoops.get(host) === loop && BackgroundService.isRunning()) {
+    try {
+      const r = await call(device, 'watch', { since })
+      if (hubLoops.get(host) !== loop) break
+      const n = r.b?.notice as Notice | undefined
+      if (r.s === 200 && n && n.at > since) {
+        since = n.at
+        const folder = String(r.b.folder ?? '')
+        await announce(device, n, device.machine?.name ? `${device.machine.name} · ${folder}` : folder)
+      } else if (r.s !== 200) await sleep(15_000)
+    } catch (err) {
+      if (err instanceof Unpaired) break
+      await sleep(15_000)
+    }
+  }
+  if (hubLoops.get(host) === loop) hubLoops.delete(host)
+}
+
 // The service, started once the app is paired, and again for a new pairing
 export async function startListening(device: Device, onUnpaired: () => void) {
   await stopListening()
-  await BackgroundService.start(() => listen(device, onUnpaired), {
+  hubLoops.clear()
+  await BackgroundService.start(() => (watchHubs(), listen(device, onUnpaired)), {
     taskName: 'claude-remote',
     taskTitle: 'Claude remote',
     taskDesc: 'Đã kết nối · đọc to khi Claude trả lời',

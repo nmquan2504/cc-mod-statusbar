@@ -120,6 +120,22 @@ The page's own HTML and scripts still come through Cloudflare. This protects aga
 
 `h` takes this session off the phone's list and leaves the others. `x` stops the hub for every session, after a second press. The hub says which version of the mod it was started from; when a session loaded another (after a pull, say), the menu names both and `r` restarts the hub on that session's code, after a second press. A session whose code is newer than the hub's (by the commit's date) restarts it by itself, once a load, when no phone asks to pair; a session on older code never restarts a newer hub. A restart keeps the link and the paired phones. cloudflared runs detached from the hub, writing to `tunnel.log`, so it outlives the hub; asked to restart, the hub writes K, the phones it allowed with their keys, their push subscriptions, the VAPID key and its port to `state.json` (mode 600, in the hub's folder), and stops without stopping the tunnel. The hub started next reads that file once, deletes it, listens on the same port and takes the tunnel over, so a phone reconnects in about a second and is never asked to scan. A file older than 10 minutes, or whose tunnel is gone, is not used. A hub from before 0.14.4 cannot hand over: it restarts by itself only when no phone watches, and every phone scans again. Stopping the remote (`x`, the idle time, no session left) stops the tunnel and keeps nothing, and a hub killed outright leaves its tunnel to the next hub, which stops it. The hub also stops by itself when no session has called in for two minutes, or no phone has watched for `remoteIdleMinutes` (never, when that is off). Its log is `/tmp/qsb-remote-<uid>/hub.log`. Quick tunnels carry at most 200 requests at once and no server-sent events, so the page asks again (a long poll) and gets each change within a second or two. Each start has a new address, so a page saved to an iPhone's Home Screen works until the remote stops.
 
+### Several Macs
+
+A phone can follow the sessions of several Macs at once. On the other Mac, turn the remote on (`⇄`, Start) and copy its link (the `https://….trycloudflare.com/#k=…` under its QR code). On the phone, open Settings, then Macs, paste it, and press Add. That Mac's terminal then asks you to allow this phone with a code, as a first pairing does.
+
+From then on the drawer lists each Mac's sessions under the Mac's name (its Computer Name), and a Mac that stops answering reads "not answering". The session's header names its Mac, and every call for a session goes to that session's own hub with that hub's own key. Macs lists every Mac with its session count, and Remove lets one go.
+
+Each hub has a machine id made from the Mac's host name and user. A Mac paired again by a new link (its remote started again) replaces its older pairing, so the list keeps one row a Mac.
+
+In the Android app, every Mac's notices come through the app's service, named with the Mac ("Mac mini · Claude has responded, shop").
+
+A browser has two limits:
+- The page comes from the first Mac's link and holds the other Macs' keys too. A Cloudflare that changed that page could read them, which is why Macs says so and points to the app.
+- A browser takes Web Push from one hub only (one push subscription a service worker), so another Mac's notices show while the page is open.
+
+A hub answers another Mac's page only from a quick tunnel's origin (`https://*.trycloudflare.com`), and the page's `connect-src` allows those hosts alone.
+
 ## The Android app
 
 Claude remote for Android (`mobile/`, Expo SDK 58) is the same page in an app, with what a browser cannot do. Its APK is on the repository's latest release, named with its version (`claude-remote-0.16.6.apk`, its SHA-256 beside it): GitHub Actions builds it when main gets a mod version that has no release yet, signs it with the app's own key from the repository's secrets, and publishes it as `v<version>`. The app takes the mod's version, so each release installs over the one before. Its icon, a white screen with its stand and a small orange spark in it, on Claude's orange, is drawn by `mobile/scripts/icon.py`, and the same orange with the screen holds the splash until the chat has loaded (4 seconds at most).

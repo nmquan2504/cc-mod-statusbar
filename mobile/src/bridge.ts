@@ -20,6 +20,12 @@ import type { AppSettings } from './settings'
 export const bridge = (settings: AppSettings, version: string) => `(() => {
   const waiting = new Map()
   let next = 1
+  // a message to the app answered by __qsb.done or __qsb.fail
+  const ask = m => new Promise((resolve, reject) => {
+    const id = next++
+    waiting.set(id, { resolve, reject })
+    post({ ...m, id })
+  })
   const post = m => window.ReactNativeWebView.postMessage(JSON.stringify(m))
   class Unpaired extends Error {}
   const b64 = {
@@ -29,14 +35,16 @@ export const bridge = (settings: AppSettings, version: string) => `(() => {
   const E2E = {
     isSupported: () => true,
     load: async () => ({ id: 'app' }),
-    pair: async () => { throw new Error('The app pairs by itself.') },
-    call: (op, a = {}) => new Promise((resolve, reject) => {
-      const id = next++
-      waiting.set(id, { resolve, reject })
-      post({ t: 'call', id, op, a })
-    }),
-    // the page unpairs (Unpair this phone, or the hub no longer knows it): the app goes back to its start
-    forget: async () => post({ t: 'forget' }),
+    // hub: another Mac's (its host, from hubs()); none, the first Mac's
+    call: (op, a = {}, hub) => ask({ t: 'call', op, a, hub: hub || '' }),
+    // another Mac paired by its link: { code, hub }, then Allow in its terminal
+    pair: (k, base) => ask({ t: 'pair', k, base }),
+    // every Mac paired: { hub ('' the first), base, machine }
+    hubs: () => ask({ t: 'hubs' }),
+    setMachine: async (hub, machine) => post({ t: 'machine', hub: hub || '', machine }),
+    // the page unpairs (Unpair this phone, or the hub no longer knows it): the app goes back to its
+    // start; another Mac's: that Mac alone is let go
+    forget: async hub => post(hub ? { t: 'forgetHub', hub } : { t: 'forget' }),
     Unpaired,
     b64,
   }

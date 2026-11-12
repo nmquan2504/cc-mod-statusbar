@@ -24,7 +24,7 @@ import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, re
 import { Resolver } from 'node:dns/promises'
 import { createServer } from 'node:http'
 import { connect } from 'node:net'
-import { homedir } from 'node:os'
+import { homedir, hostname } from 'node:os'
 import { basename, dirname, extname, isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { heldAsk, heldCall, heldDecision, heldRules, isHeldCall } from './held.mjs'
@@ -165,7 +165,9 @@ const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'no-referrer',
   'X-Frame-Options': 'DENY',
-  'Content-Security-Policy': "default-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+  // connect-src: this hub, and the other Macs' hubs a page paired with (their tunnels; their local
+  // addresses in tests), every call to them sealed with that hub's own key
+  'Content-Security-Policy': "default-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.trycloudflare.com http://127.0.0.1:*; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
 }
 function send(res, status, body, type = 'application/json; charset=utf-8', extra = {}) {
   if (res.headersSent) return
@@ -210,7 +212,7 @@ function stateOf() {
   const list = [...sessions.entries()]
     .map(([id, s]) => ({ id, ...s.snapshot, queued: [...(s.snapshot.queued ?? []), ...s.inbox], ask: s.held?.length ? shownAsk(s.held[0]) : null }))
     .sort((a, b) => Number(b.busy) - Number(a.busy) || (b.lastAt ?? 0) - (a.lastAt ?? 0))
-  return { version, sessions: list, notice, tunnels: tunnelsOf() }
+  return { version, sessions: list, notice, tunnels: tunnelsOf(), machine: MACHINE }
 }
 
 // ---- Web Push: no payload; the service worker asks /api/notice when it wakes ---------------
@@ -807,10 +809,32 @@ const STATIC = {
 }
 const MANIFEST = { name: 'Claude remote', short_name: 'Claude', start_url: '/', display: 'standalone', background_color: '#1a1a18', theme_color: '#1a1a18', icons: [{ src: '/icon.svg', sizes: 'any', type: 'image/svg+xml' }] }
 
+// Another Mac's page may call this hub (a phone paired with both): /hello and /x answer a page from a
+// quick tunnel, or from 127.0.0.1 in tests. Every such call is sealed with that phone's key for this
+// hub, so the header gives a page nothing it could not already send.
+const PEER_ORIGIN = /^(https:\/\/[a-z0-9-]+\.trycloudflare\.com|http:\/\/127\.0\.0\.1:\d+)$/
+// This Mac: an id that stays the same across hubs and tunnels (from the host name and the user), so a
+// phone that pairs again with a new link replaces the old one; and the name the Mac goes by
+const MACHINE = {
+  id: process.env.QSB_MACHINE_ID || createHash('sha256').update(`${hostname()}|${process.getuid?.() ?? ''}|qsb-machine`).digest('base64url').slice(0, 16),
+  name: process.env.QSB_MACHINE_NAME || (() => {
+    try { return execFileSync('scutil', ['--get', 'ComputerName'], { encoding: 'utf8', timeout: 2000 }).trim() || hostname() } catch { return hostname().replace(/\.local$/, '') }
+  })(),
+}
+
 const pub = createServer(async (req, res) => {
   try {
     const url = new URL(req.url ?? '/', 'http://x')
     const route = `${req.method} ${url.pathname}`
+    const origin = String(req.headers.origin ?? '')
+    if ((url.pathname === '/hello' || url.pathname === '/x') && PEER_ORIGIN.test(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin)
+      res.setHeader('Vary', 'Origin')
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204, { 'Access-Control-Allow-Methods': 'POST', 'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Max-Age': '600' })
+        return res.end()
+      }
+    }
     const file = STATIC[url.pathname]
     if (req.method === 'GET' && file) return send(res, 200, readFileSync(join(HERE, file[0])), file[1], url.pathname === '/sw.js' ? { 'Service-Worker-Allowed': '/' } : {})
     if (route === 'GET /manifest.webmanifest') return send(res, 200, MANIFEST, 'application/manifest+json')
@@ -884,7 +908,7 @@ const pub = createServer(async (req, res) => {
       }
       if (!dev.isApproved) return send(res, 200, await seal(dev, id, n, op === 'paired' ? 202 : 403, { code: dev.code, secondsLeft: secondsLeft(dev) }))
       dev.seenAt = lastPhoneAt = now
-      if (op === 'paired') return send(res, 200, await seal(dev, id, n, 200, { ok: true }))
+      if (op === 'paired') return send(res, 200, await seal(dev, id, n, 200, { ok: true, machine: MACHINE }))
       const [s, b] = await answerOp(dev, id, op, a, res)
       // the phone hung up while the long poll waited
       if (res.writableEnded || res.destroyed) return
