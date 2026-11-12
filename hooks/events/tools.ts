@@ -101,7 +101,7 @@ export function registerTools(on: On) {
       const server = /^mcp__(.+?)__/.exec(e.tool)?.[1]
       if (server) await keepMcpCall($, server, Boolean(r?.deny || r?.isError)).catch(() => undefined)
       if (hosts.length) {
-        const via = e.tool === 'mcp__cc-mod-statusbar__secret_fetch' ? 'secret_fetch' : e.tool.startsWith('mcp__') ? 'MCP' : e.tool
+        const via = (e.tool as string) === 'mcp__cc-mod-statusbar__secret_fetch' ? 'secret_fetch' : e.tool.startsWith('mcp__') ? 'MCP' : e.tool
         await keepEgress($, hosts, e.agentId ? `${via} (agent)` : via, Boolean(r?.deny)).catch(() => undefined)
       }
       // the redact guardrail: what any tool gives Claude, its strings masked (the mod's own tools aside)
