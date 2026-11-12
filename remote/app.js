@@ -73,6 +73,10 @@ const ICONS = {
   speaker: 'M4 9.5v5h3.5L12 18V6L7.5 9.5zM15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11',
   stop: 'M8 8h8v8H8z',
   play: 'M8 5.5v13l10.5-6.5z',
+  layers: 'M12 3l9 5-9 5-9-5zM3 12.5l9 5 9-5M3 17l9 5 9-5',
+  diff: 'M12 4v8M8 8h8M8 18h8',
+  image: 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM4 16l5-5 4 4 3-3 4 4M15.5 8.5h.01',
+  terminal: 'M4 6l6 6-6 6M12 18h8',
   gear: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z',
 }
 function icon(name) {
@@ -1448,6 +1452,8 @@ function shortPath(path) {
   for (const root of snap.roots || []) if (path.startsWith(`${root}/`)) return path.slice(root.length + 1)
   return tildify(path)
 }
+// each tab of the Files page: its name and its icon
+const TAB_NAMES = { folder: ['Folder', 'folder'], context: ['Context', 'layers'], changes: ['Changes', 'diff'], images: ['Images', 'image'], running: ['Running', 'terminal'] }
 function renderFiles() {
   const counts = {
     folder: '',
@@ -1459,7 +1465,12 @@ function renderFiles() {
   for (const t of TABS) {
     const b = $(`seg-${t}`)
     b.classList.toggle('on', filesTab === t)
-    b.textContent = `${t[0].toUpperCase()}${t.slice(1)} ${counts[t]}`.trim()
+    const name = tx(TAB_NAMES[t][0])
+    const ic = el('span', 'tabic')
+    ic.append(icon(TAB_NAMES[t][1]))
+    if (counts[t]) ic.append(el('span', 'tabn', counts[t] > 99 ? '99+' : String(counts[t])))
+    b.replaceChildren(ic, el('span', 'tabl', name))
+    b.setAttribute('aria-label', counts[t] ? `${name} ${counts[t]}` : name)
   }
   const root = $('files-body')
   root.replaceChildren()

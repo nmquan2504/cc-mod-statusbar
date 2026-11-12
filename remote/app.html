@@ -341,6 +341,12 @@
   .viewer .zoom img { max-width: 100%; max-height: 100%; margin: 0; transition: transform .15s ease; user-select: none; -webkit-user-select: none; }
   .none { color: var(--dim); text-align: center; padding: 40px 0; }
   .seg button { padding: 8px 2px; font-size: 13px; }
+  /* the Files page's tabs: an icon, its count in a circle on the icon's corner, the name small under it */
+  .seg.tabs button { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 0; padding: 7px 2px 5px; font-size: 11px; line-height: 1.2; white-space: nowrap; }
+  .tabic { position: relative; display: inline-flex; }
+  .tabic svg.ic { width: 20px; height: 20px; }
+  .tabn { position: absolute; top: -6px; left: 12px; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 8px; background: var(--claude); color: #fff; font: 700 10px/16px -apple-system, sans-serif; text-align: center; }
+  .tabl { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
   .roots { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
   .crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; margin: 0 0 8px; font: 13px var(--mono); color: var(--dim); }
   .crumbs button { border: 0; background: none; color: var(--link); padding: 4px 2px; font: inherit; }
@@ -538,12 +544,12 @@
     <strong data-t="Files &amp; images">Files &amp; images</strong>
   </div>
   <div class="fsearch"><input id="files-q" type="text" placeholder="Search file names and contents" aria-label="Search files" autocomplete="off" enterkeyhint="search"><button id="files-q-clear" class="icon" aria-label="Clear the search" data-icon="close" hidden></button></div>
-  <div class="seg">
-    <button id="seg-folder" class="on" data-t="Folder">Folder</button>
-    <button id="seg-context" data-t="Context">Context</button>
-    <button id="seg-changes" data-t="Changes">Changes</button>
-    <button id="seg-images" data-t="Images">Images</button>
-    <button id="seg-running" data-t="Running">Running</button>
+  <div class="seg tabs">
+    <button id="seg-folder" class="on">Folder</button>
+    <button id="seg-context">Context</button>
+    <button id="seg-changes">Changes</button>
+    <button id="seg-images">Images</button>
+    <button id="seg-running">Running</button>
   </div>
   <div id="files-body"></div>
 </div>
