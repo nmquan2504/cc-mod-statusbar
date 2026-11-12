@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 import { contextOf, midTurnsIn, pairChoices, phoneCommand, phoneMayRun, sessionTitleIn, transcriptOf } from '../hooks/features/remote'
-import { qrMatrix, qrRows } from '../hooks/lib/qr'
+import { qrMatrix, qrRows, qrSvg } from '../hooks/lib/qr'
 
 // Self remote: the ⇄ chip and its menu. The hooks registered here stand for the engine; the hub
 // (remote/server.mjs) is answered by http.fetch on its Unix socket.
@@ -86,6 +86,30 @@ test('the QR code: a tunnel link (99 bytes) fits version 5, drawn two module row
   expect(rows.length).toBe(21) // 37 modules and a quiet zone of 2 each side: 41, two to a row
   expect(rows.every(r => [...r].length === 41)).toBe(true)
   expect(rows[0]).toBe('█'.repeat(41)) // the quiet zone is light
+})
+
+test('the QR code as SVG: one square per module plus a quiet zone of 4, dark runs merged per row', () => {
+  const m = qrMatrix(LINK)
+  const svg = qrSvg(m)
+  expect(svg).toContain('viewBox="0 0 45 45"') // 37 modules and 4 each side
+  expect(svg).toContain('shape-rendering="crispEdges"')
+  // the top-left finder's first row: seven dark modules from (4, 4) as one run
+  expect(svg).toContain('M4 4h7v1h-7z')
+  expect(svg.length).toBeLessThan(131072) // the engine's bound on an Svg's source
+  // the version-10 limit (271 bytes) still fits the bound
+  expect(qrSvg(qrMatrix('x'.repeat(271))).length).toBeLessThan(131072)
+})
+
+test('on the desktop the QR code is an Svg, not text rows', async ($, on) => {
+  engine(on, { hub: () => STATUS })
+  const band = await $.ui.mount({ plugin: 'cc-mod-statusbar', surface: 'desktop', ...BAND } as never)
+  await switchOn(band)
+  await band.press({ key: 'remote' })
+  await band.press({ key: 'remote-qr' })
+  const drawn = await textOf(band)
+  expect(drawn).toContain('QR code of the remote link')
+  expect(drawn).toContain('<svg')
+  expect(drawn).not.toContain('█▀')
 })
 
 test('Self remote is off by default: no ⇄ on the bar, and no hub is asked', async ($, on) => {

@@ -2,13 +2,13 @@ import { ARM_MS } from '../../features/permissions'
 import { CLOUDFLARED_DOWNLOAD, answerPairing, pairChoices, checkCloudflared, forgetDevices, hideSession, hubIsOther, installCloudflared, pendingPairs, remote, restartKeepsPhones, restartRemote, secondsToPair, spinnerFrame, startRemote, stopRemote, waitedFor } from '../../features/remote'
 import { modVersionShort } from '../../features/update'
 import { oneLine } from '../../lib/format'
-import { qrMatrix, qrRows } from '../../lib/qr'
+import { qrMatrix, qrRows, qrSvg } from '../../lib/qr'
 import { rt } from '../../state/runtime'
 import type { Entry } from './entry'
 
 // The Self remote menu: start the hub, the QR code a phone scans, the phones asking to pair,
 // the paired ones, and stop. Start and Stop take a second press within ARM_MS.
-export async function drawRemoteMenu($: any, els: any, _isTerminal: boolean, entry: Entry) {
+export async function drawRemoteMenu($: any, els: any, isTerminal: boolean, entry: Entry) {
   const { Box, Button, Text } = els
   const s = remote.status
   const isArmed = (key: string) => rt.armedRule === key && Date.now() - rt.armedAt < ARM_MS
@@ -68,14 +68,23 @@ export async function drawRemoteMenu($: any, els: any, _isTerminal: boolean, ent
     )
   }
 
+  // the terminal draws the code as text rows; another surface (the desktop app) as an Svg image,
+  // since its font and line height pull the half-block rows apart. The terminal's table resolves
+  // Svg to an empty fragment, so the surface decides, not whether the table names it.
+  const Svg = !isTerminal && 'Svg' in els ? els.Svg : undefined
   let rows: string[] = []
+  let svg = ''
   try {
-    rows = s.link ? qrRows(qrMatrix(s.link)) : []
-    // drawn now: shutting the menu puts it away until asked for again
-    if (rows.length && remote.isQrShown) remote.isQrSeen = true
+    const m = s.link ? qrMatrix(s.link) : undefined
+    if (m && Svg) svg = qrSvg(m)
+    else if (m) rows = qrRows(m)
   } catch {
     rows = []
+    svg = ''
   }
+  const hasQr = rows.length > 0 || svg !== ''
+  // drawn now: shutting the menu puts it away until asked for again
+  if (hasQr && remote.isQrShown) remote.isQrSeen = true
   const age = (at: number) => {
     const sec = Math.max(0, Math.round((Date.now() - at) / 1000))
     return sec < 60 ? `${sec} s ago` : `${Math.round(sec / 60)} min ago`
@@ -99,13 +108,15 @@ export async function drawRemoteMenu($: any, els: any, _isTerminal: boolean, ent
           </Button>
         </Box>
       ))}
-      {rows.length > 0 && !remote.isQrShown ? entry('remote-qr', 'q', '▦', 'Show the QR code', 'to pair another phone; it goes away again when the menu shuts', () => {
+      {hasQr && !remote.isQrShown ? entry('remote-qr', 'q', '▦', 'Show the QR code', 'to pair another phone; it goes away again when the menu shuts', () => {
         remote.isQrShown = true
         $.ui.invalidate('ui.render')
       }) : null}
-      {rows.length > 0 && remote.isQrShown && (
+      {hasQr && remote.isQrShown && (
         <Box flexDirection="column" marginY={1}>
-          {rows.map((row, i) => <Text key={`qr:${i}`} color="#ffffff" backgroundColor="#000000">{row}</Text>)}
+          {svg
+            ? <Svg key="qr" source={svg} alt="QR code of the remote link" width={240} height={240} />
+            : rows.map((row, i) => <Text key={`qr:${i}`} color="#ffffff" backgroundColor="#000000">{row}</Text>)}
         </Box>
       )}
       {s.url ? <Text dimColor>{`${s.url}  ·  the code holds the pairing key; only a phone you allow gets in`}</Text> : null}
