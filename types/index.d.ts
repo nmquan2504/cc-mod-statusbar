@@ -78,7 +78,7 @@ export type AgentRow = { id: string; description: string; type: string; status: 
 export type ServerRow = { pid: number; port: number; command: string }
 // An MCP server connected now: its tool-name key (claude_ai_Gmail), the name /mcp shows, its
 // tool count, and whether it shows only its sign-in tools.
-export type McpRow = { key: string; name: string; tools: number; needsAuth: boolean }
+export type McpRow = { key: string; name: string; tools: number; needsAuth: boolean; toolNames?: string[] }
 // One line of `claude mcp list`: status connected, auth (needs sign-in) or failed.
 export type McpCheckRow = { name: string; status: 'connected' | 'auth' | 'failed'; target: string; detail: string }
 // An image pasted this session: its [Image #n], the file the engine saved it to, when, how big.

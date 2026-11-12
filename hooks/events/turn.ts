@@ -3,6 +3,7 @@ import { summarizeTurn } from '../features/assist'
 import { suggestNext } from '../features/chips'
 import { planContinue } from '../features/automation'
 import { readGuard } from '../features/guard'
+import { guardsOnTurnComplete, guardsOnTurnStart } from './guards'
 import { clearPrompts } from '../features/prompts'
 import { notifyRemote, readRemoteMessages, releaseHeld, remote } from '../features/remote'
 import { refreshBar } from '../features/status'
@@ -64,6 +65,7 @@ export function registerTurn(on: On) {
     }
     rt.turnStartedAt = await $.clock.now()
     rt.turnEndedAt = 0
+    guardsOnTurnStart($, e)
     rt.turnTools = []
     rt.turnPrompt = String((e as any).text ?? '')
     await update($, edited, () => [])
@@ -101,6 +103,8 @@ export function registerTurn(on: On) {
       } else if (isLimit && cfg.autoContinue) $.ui.toast(`statusbar: the limit stopped ${MAX_TRIES} tries in a row; auto-continue gave up`)
       rt.isContinueTurn = false
     }
+    // prove done: files changed with nothing run to check them asks Claude once
+    await guardsOnTurnComplete($, e).catch(() => undefined)
     // the main loop's turn: an agent ending mid-turn neither ends it nor sums it up
     if (rt.turnStartedAt && !e.agentId) {
       rt.turnEndedAt = await $.clock.now()

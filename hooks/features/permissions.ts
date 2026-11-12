@@ -1,5 +1,5 @@
 import { logAudit } from './audit'
-import { projectDir } from '../lib/project'
+import { editSettings, scopeFile, scopeNow } from './settingsfile'
 
 // The permission prompts you answer, counted across sessions by the rule that would skip them.
 export const ASK_KEY = 'permission-asks'
@@ -27,15 +27,10 @@ export async function countAsk($: any, rules: string[]) {
 
 export const ARM_MS = 5000
 
-// Adds the rule to this project's .claude/settings.local.json (the file you keep out of git).
-// Read, change and write this project's .claude/settings.local.json (made when missing).
+// The phone's Permissions page reads and writes the project's .claude/settings.local.json alone. The
+// shield menu's own writes below go to the file its scope chip picks (features/settingsfile.ts).
 export async function editLocalSettings($: any, change: (json: any) => void) {
-  const root: string = await projectDir($)
-  const path = `${root}/.claude/settings.local.json`
-  const text = (await $.fs.exists(path)) ? await $.fs.read(path) : '{}'
-  const json = JSON.parse(text || '{}')
-  change(json)
-  await $.fs.write(path, `${JSON.stringify(json, null, 2)}\n`)
+  return editSettings($, change, 'local')
 }
 
 // The deny rules the shield menu suggests when there are none: the secrets this mod locks in
@@ -52,25 +47,25 @@ export const AUDIT_LOG = '"$CLAUDE_PROJECT_DIR/.claude/audit.jsonl"'
 export const AUDIT_HOOK = { matcher: 'Bash', hooks: [{ type: 'command', command: `cat >> ${AUDIT_LOG}; echo >> ${AUDIT_LOG}` }] }
 
 export async function addSuggestedDeny($: any) {
-  await editLocalSettings($, json => {
+  await editSettings($, json => {
     json.permissions ??= {}
     json.permissions.deny ??= []
     for (const rule of SUGGESTED_DENY) if (!json.permissions.deny.includes(rule)) json.permissions.deny.push(rule)
   })
-  await logAudit($, `added ${SUGGESTED_DENY.length} deny rules to .claude/settings.local.json`)
+  await logAudit($, `added ${SUGGESTED_DENY.length} deny rules to ${scopeFile[scopeNow()]}`)
 }
 
 export async function addAuditHook($: any) {
-  await editLocalSettings($, json => {
+  await editSettings($, json => {
     json.hooks ??= {}
     json.hooks.PreToolUse ??= []
     if (!JSON.stringify(json.hooks.PreToolUse).includes('audit.jsonl')) json.hooks.PreToolUse.push(AUDIT_HOOK)
   })
-  await logAudit($, 'added a PreToolUse audit hook to .claude/settings.local.json')
+  await logAudit($, `added a PreToolUse audit hook to ${scopeFile[scopeNow()]}`)
 }
 
 export async function allowRule($: any, rule: string) {
-  await editLocalSettings($, json => {
+  await editSettings($, json => {
     json.permissions ??= {}
     json.permissions.allow ??= []
     if (!json.permissions.allow.includes(rule)) json.permissions.allow.push(rule)
@@ -78,5 +73,20 @@ export async function allowRule($: any, rule: string) {
   const all = ((await $.store.get(ASK_KEY).catch(() => undefined)) ?? {}) as AskCount
   delete all[rule]
   await $.store.set(ASK_KEY, all)
-  await logAudit($, `allowed ${rule} in .claude/settings.local.json`)
+  await logAudit($, `allowed ${rule} in ${scopeFile[scopeNow()]}`)
+}
+
+// An MCP server's or tool's rule (mcp__server, mcp__server__tool) set to allow, deny, or neither, in
+// the scope's file: taken out of both lists there first, so a rule is in one list at most
+export type McpRule = 'allow' | 'deny' | 'default'
+export async function setMcpRule($: any, rule: string, to: McpRule) {
+  const file = await editSettings($, json => {
+    json.permissions ??= {}
+    for (const list of ['allow', 'deny'] as const) {
+      if (Array.isArray(json.permissions[list])) json.permissions[list] = json.permissions[list].filter((r: string) => r !== rule)
+    }
+    if (to !== 'default') (json.permissions[to] ??= []).push(rule)
+  })
+  await logAudit($, `${to === 'default' ? 'cleared the rule for' : to === 'allow' ? 'allowed' : 'denied'} ${rule} in ${file}`, to === 'deny')
+  return file
 }

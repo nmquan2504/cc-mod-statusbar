@@ -1,5 +1,6 @@
 import type { Register } from 'claude-code'
 import { registerCommands } from './events/commands'
+import { registerGuards } from './events/guards'
 import { registerPermissionCounts } from './events/permissions'
 import { registerPrompt } from './events/prompt'
 import { registerRemote } from './events/remote'
@@ -28,6 +29,9 @@ export const register: Register = on => {
   registerPermissionCounts(on)
   registerCommands(on)
   registerSecretTools(on)
+  // the guardrails' refusals come before the dangerous-command dialog: a push to main is refused
+  // without a question first
+  registerGuards(on)
   registerTools(on)
   registerPrompt(on)
   registerTurn(on)
