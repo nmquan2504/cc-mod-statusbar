@@ -277,6 +277,81 @@ function showDown(ms) {
     $('gate-scan').onclick = () => QSB_NATIVE.rescan()
   }
 }
+// ---- several Macs: each paired hub followed, their sessions shown together ----------------------
+// hubStates: each hub's last state, by hub ('' this page's own, else the other Mac's host). The page
+// draws `state`, their merge: every session marked with its hub and, with two Macs or more, the Mac's
+// name; the newest notice of them all; every shared port.
+const hubStates = new Map()
+const hubDownSince = new Map()
+const hubLoops = new Set()
+function merged() {
+  const many = hubStates.size > 1
+  const sessions = [], tunnels = []
+  let notice = { at: 0 }
+  for (const [hub, s] of hubStates) {
+    const machine = s.machine?.name || ''
+    for (const x of s.sessions || []) sessions.push({ ...x, hub, machine: many ? machine : '' })
+    for (const x of s.tunnels || []) tunnels.push({ ...x, hub })
+    if ((s.notice?.at || 0) > notice.at) notice = { ...s.notice, hub }
+  }
+  sessions.sort((a, b) => Number(b.busy) - Number(a.busy) || (b.lastAt ?? 0) - (a.lastAt ?? 0))
+  return { ...(hubStates.get('') || {}), sessions, tunnels, notice, isMany: many }
+}
+// a notice newer than the last: its toast, chime and voice (none for the first state, which is old news)
+function takeNotice() {
+  if (state.notice.at <= lastNotice) return
+  const from = state.notice.session
+  if (lastNotice) {
+    toast(localNotice(state.notice), from ? () => openSession(from) : undefined)
+    chimeNotice(state.notice)
+    readNotice(state.notice)
+  }
+  lastNotice = state.notice.at
+}
+// another Mac's hub, followed as this page's own is; one that no longer knows this phone is let go
+async function followHub(hub) {
+  if (!hub || hubLoops.has(hub)) return
+  hubLoops.add(hub)
+  let since = -1
+  while (hubLoops.has(hub)) {
+    const r = await E2E.call('state', { since }, hub).catch(err => err)
+    if (!hubLoops.has(hub)) break
+    if (r instanceof E2E.Unpaired) {
+      hubLoops.delete(hub)
+      hubStates.delete(hub)
+      break
+    }
+    if (r instanceof Error || r.s !== 200) {
+      if (!hubDownSince.has(hub)) hubDownSince.set(hub, Date.now())
+      if (hubStates.has('')) render()
+      await sleep(5000)
+      continue
+    }
+    hubDownSince.delete(hub)
+    since = r.b.version
+    if (!hubStates.has(hub) && r.b.machine) void E2E.setMachine?.(hub, r.b.machine)
+    hubStates.set(hub, r.b)
+    if (!hubStates.has('')) continue
+    state = merged()
+    noteUnread()
+    takeNotice()
+    render()
+  }
+  if (hubStates.has('')) {
+    state = merged()
+    render()
+  }
+}
+function stopHub(hub) {
+  hubLoops.delete(hub)
+  hubStates.delete(hub)
+  hubDownSince.delete(hub)
+  if (hubStates.has('')) {
+    state = merged()
+    render()
+  }
+}
+
 async function follow() {
   let since = -1
   // the first state slow to come: the gate says so, as pair() does
@@ -293,18 +368,16 @@ async function follow() {
     }
     failedSince = 0
     showOffline(0)
-    state = r.b
-    since = state.version
-    noteUnread()
-    if (state.notice.at > lastNotice) {
-      const from = state.notice.session
-      if (lastNotice) {
-        toast(localNotice(state.notice), from ? () => openSession(from) : undefined)
-        chimeNotice(state.notice)
-        readNotice(state.notice)
-      }
-      lastNotice = state.notice.at
+    since = r.b.version
+    // the first state: this Mac named (an older pairing with it let go), the other Macs followed
+    if (!hubStates.has('')) {
+      if (r.b.machine) void E2E.setMachine?.('', r.b.machine)
+      void E2E.hubs?.().then(list => { for (const h of list) if (h.hub) void followHub(h.hub) }).catch(() => undefined)
     }
+    hubStates.set('', r.b)
+    state = merged()
+    noteUnread()
+    takeNotice()
     $('gate').hidden = true
     $('app').hidden = false
     clearInterval(pairTimer)
@@ -313,7 +386,8 @@ async function follow() {
   }
 }
 // a sealed call about the session shown: { s, b }, or { s: 0, b: { error } } when it did not go
-const api = (op, a = {}) => E2E.call(op, { session: snap ? snap.id : '', ...a }).catch(err => ({ s: 0, b: { error: err.message } }))
+// to the hub of the session shown: this page's own, or another Mac's
+const api = (op, a = {}) => E2E.call(op, { session: snap ? snap.id : '', ...a }, snap?.hub || undefined).catch(err => ({ s: 0, b: { error: err.message } }))
 // an image the hub sends sealed, as a URL the page can show; kept per session and image
 const imageUrls = new Map()
 async function imageUrl(op, a, cacheKey) {
@@ -677,7 +751,7 @@ const toBottom = () => window.scrollTo(0, document.documentElement.scrollHeight)
 // ---- the header, the drawer and the session sheet ----------------------------------------------
 function renderHeader() {
   $('dot').className = snap.busy ? 'dot busy' : 'dot'
-  $('title-text').textContent = titleOf(snap)
+  $('title-text').textContent = snap.machine ? `${titleOf(snap)} · ${snap.machine}` : titleOf(snap)
   const n = snap.edited.length + snap.changes.length + snap.images.length
   $('files-badge').hidden = !n
   $('files-badge').textContent = String(n)
@@ -733,7 +807,15 @@ function renderDrawer() {
   const box = $('sessions')
   box.replaceChildren()
   if (!state.sessions.length) box.append(el('div', 'meta', tx('No session has the remote on now.')))
-  for (const s of state.sessions) {
+  // two Macs or more: each Mac's sessions under its name, this page's own first
+  const order = state.isMany ? [...hubStates.keys()].sort((x, y) => (x === '' ? -1 : y === '' ? 1 : x.localeCompare(y))) : [null]
+  for (const hub of order) {
+  if (hub !== null) {
+    const name = hubStates.get(hub)?.machine?.name || hub || tx('This Mac')
+    const head = box.appendChild(el('div', 'mgroup'))
+    head.append(el('span', hubDownSince.has(hub) ? 'dot wait' : 'dot'), document.createTextNode(` ${name}${hubDownSince.has(hub) ? ` · ${tx('not answering')}` : ''}`))
+  }
+  for (const s of state.sessions.filter(x => hub === null || (x.hub || '') === hub)) {
     const row = box.appendChild(el('button', `srow${s.id === picked ? ' on' : ''}`))
     // orange: a question or a permission prompt waits for you there
     const isWaiting = Boolean(s.ask) || (s.permissions || []).length > 0
@@ -750,6 +832,7 @@ function renderDrawer() {
     const ctx = s.usage?.ctx
     if (typeof ctx === 'number') row.append(ctxRing(ctx))
     row.onclick = () => openSession(s.id)
+  }
   }
 }
 function openDrawer() {
@@ -1544,7 +1627,7 @@ let shareAsked = 0 // the port whose warning is open
 function renderRunning(root) {
   const run = snap.running || { servers: [], tasks: [] }
   if (!run.servers?.length && !run.tasks?.length) return root.append(el('div', 'none', tx('Nothing running in this session: the servers and commands Claude starts show here.')))
-  const shared = new Map((state?.tunnels || []).filter(x => x.session === snap.id).map(x => [x.port, x]))
+  const shared = new Map((state?.tunnels || []).filter(x => x.session === snap.id && (x.hub || '') === (snap.hub || '')).map(x => [x.port, x]))
   if (run.servers.length) root.append(el('div', 'fhead', tx('Ports')))
   for (const sv of run.servers) {
     const row = root.appendChild(el('div', 'runrow'))
@@ -3151,6 +3234,68 @@ function renderSettings() {
     const app = card(tx('App'))
     const check = row(app, `Claude remote ${QSB_NATIVE.version}`, tx('Updates come from the GitHub release, checked by their SHA-256.')).appendChild(el('button', 'pbtn', tx('Check for update')))
     check.onclick = () => QSB_NATIVE.checkUpdate()
+  }
+
+  // Macs: every hub this phone is paired with, and another Mac added by its link
+  const macs = card(tx('Macs'))
+  for (const hub of [...hubStates.keys()].sort((x, y) => (x === '' ? -1 : y === '' ? 1 : 0))) {
+    const st = hubStates.get(hub)
+    const name = st?.machine?.name || hub || tx('This Mac')
+    const count = (st?.sessions || []).length
+    const note = hub === '' ? tx('this link') : hubDownSince.has(hub) ? tx('not answering') : tx('{n} sessions', { n: count })
+    const right = row(macs, name, note)
+    if (hub !== '') {
+      const b = right.appendChild(el('button', 'pbtn danger', tx('Remove')))
+      b.onclick = async () => {
+        b.disabled = true
+        await E2E.call('forget', {}, hub).catch(() => undefined)
+        await E2E.forget(hub)
+        stopHub(hub)
+        renderSettings()
+      }
+    }
+  }
+  const add = macs.appendChild(el('div', 'prow'))
+  add.append(el('div', 'pd', native
+    ? tx("Add another Mac: on it, ⇄ on the bar, Start, then copy its link here. Its sessions show beside this Mac's.")
+    : tx("Add another Mac: on it, ⇄ on the bar, Start, then copy its link here. This page comes from this Mac's link and will hold the other Mac's key too: open the remote in the Android app if you would rather not.")))
+  const line = add.appendChild(el('div', 'ph'))
+  const input = line.appendChild(el('input', 'addmac'))
+  input.type = 'url'
+  input.placeholder = 'https://….trycloudflare.com/#k=…'
+  const go = line.appendChild(el('button', 'pbtn', tx('Add')))
+  const said = add.appendChild(el('div', 'pd', ''))
+  go.onclick = async () => {
+    let base = '', k = ''
+    try {
+      const u = new URL(input.value.trim())
+      base = u.origin
+      k = new URLSearchParams(u.hash.slice(1)).get('k') || ''
+    } catch {}
+    if (!base || !k) return void (said.textContent = tx('That is not a remote link: it ends in #k=…'))
+    if (base === location.origin && !native) return void (said.textContent = tx('That is this Mac already.'))
+    go.disabled = true
+    try {
+      const { code, hub } = await E2E.pair(k, base)
+      said.textContent = tx('In that Mac\'s terminal, pick {code} to allow this phone.', { code })
+      for (let i = 0; i < 60; i++) {
+        await sleep(2000)
+        const r = await E2E.call('paired', {}, hub).catch(err => err)
+        if (r instanceof Error) throw r
+        if (r.s === 200) {
+          if (r.b?.machine) await E2E.setMachine(hub, r.b.machine)
+          said.textContent = tx('Added.')
+          input.value = ''
+          void followHub(hub)
+          return
+        }
+      }
+      said.textContent = tx('Not allowed in time. Try again.')
+    } catch (err) {
+      said.textContent = txSent(err?.message) || tx('Could not add that Mac.')
+    } finally {
+      go.disabled = false
+    }
   }
 
   const paired = card(tx('Paired devices'))
