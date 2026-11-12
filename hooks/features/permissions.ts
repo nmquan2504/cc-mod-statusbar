@@ -1,4 +1,5 @@
 import { logAudit } from './audit'
+import { projectDir } from '../lib/project'
 
 // The permission prompts you answer, counted across sessions by the rule that would skip them.
 export const ASK_KEY = 'permission-asks'
@@ -29,7 +30,7 @@ export const ARM_MS = 5000
 // Adds the rule to this project's .claude/settings.local.json (the file you keep out of git).
 // Read, change and write this project's .claude/settings.local.json (made when missing).
 export async function editLocalSettings($: any, change: (json: any) => void) {
-  const root: string = await $.session.cwd()
+  const root: string = await projectDir($)
   const path = `${root}/.claude/settings.local.json`
   const text = (await $.fs.exists(path)) ? await $.fs.read(path) : '{}'
   const json = JSON.parse(text || '{}')

@@ -21,6 +21,7 @@ import { rt } from '../state/runtime'
 const menu = atom({ plugin: 'cc-mod-statusbar', key: 'menu' } as const, null)
 
 import type { On } from 'claude-code'
+import { projectDir } from '../lib/project'
 
 export function registerSession(on: On) {
   on('session.start', async ($, e, next) => {
@@ -46,7 +47,7 @@ export function registerSession(on: On) {
       $.ui.invalidate('ui.render')
     })
     // shift+tab changes the mode between turns: only the hint line shows it then
-    const root: string = await $.session.cwd().catch(() => '.')
+    const root: string = await projectDir($).catch(() => '.')
     let ticks = 0
     $.clock.every(1000, () => {
       void probeMode($, root).then(mode => {

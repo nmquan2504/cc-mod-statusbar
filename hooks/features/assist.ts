@@ -3,6 +3,7 @@ import { scrub } from './vault'
 import { oneLine } from '../lib/format'
 import { cfg } from '../state/config'
 import { rt } from '../state/runtime'
+import { projectDir } from '../lib/project'
 
 // The atoms this file reads or writes (each file declares its own: the engine reads an atom only
 // where a const of the same file made it; the same plugin and key are the same value).
@@ -59,7 +60,7 @@ export async function rewritePrompt($: any, how: 'polish' | 'translate') {
 // The output styles to pick from: the three built in, then the person's and the project's files.
 export async function outputStyles($: any): Promise<string[]> {
   const home: string = (await $.env.get('HOME').catch(() => '')) ?? ''
-  const cwd: string = await $.session.cwd().catch(() => '')
+  const cwd: string = await projectDir($).catch(() => '')
   // the styles /config offers, built-in and custom, as Claude Code lists them; the built-ins of
   // 2.1.296 and the style files where that list is not there
   const rows: { key: string; options?: readonly string[] }[] = await $.config.list().catch(() => [])

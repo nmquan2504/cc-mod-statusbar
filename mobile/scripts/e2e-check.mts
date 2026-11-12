@@ -21,6 +21,11 @@ writeFileSync(join(root, 'report.pdf'), '%PDF-1.4\nno NUL in its head\n')
 writeFileSync(join(root, 'data.bin'), Buffer.from([1, 0, 2, 3]))
 writeFileSync(join(root, 'clip.mp4'), Buffer.from([0, 0, 0, 24]))
 writeFileSync(join(root, '.env'), 'KEY=1\n')
+// a file of 5 MB and 3 bytes: two pieces of 2 MB and a last of 1 MB and 3 bytes; and one of 25 MB, past a whole fetch
+const big = Buffer.alloc(5 * 1024 * 1024 + 3)
+for (let i = 0; i < big.length; i++) big[i] = (i * 31) & 0xff
+writeFileSync(join(root, 'big.mov'), big)
+writeFileSync(join(root, 'huge.zip'), Buffer.alloc(25 * 1024 * 1024))
 ctl('POST', '/session?id=t1', { folder: 'shop', roots: [root], transcript: [], images: [], edited: [], changes: [], busy: false })
 const link = parseLink(ctl('GET', '/status').link)
 check('the QR link parses', Boolean(link?.k && link.base.startsWith('http')), link)
@@ -50,6 +55,26 @@ const mp4 = await file('clip.mp4')
 check('a video', mp4.s === 200 && mp4.b.kind === 'video' && mp4.b.type === 'video/mp4', mp4.b)
 const env = await file('.env', true)
 check('a secret is locked, raw or not', env.s === 403 && env.b.isLocked && !env.b.b64, env.b)
+// by the piece: 2 MB from `at`, with the size; the pieces put together are the file
+const bigInfo = await file('big.mov')
+check('a file says the piece it is served by', bigInfo.s === 200 && bigInfo.b.piece === 2 * 1024 * 1024 && bigInfo.b.size === big.length && bigInfo.b.isTooBig === false, bigInfo.b)
+const pieces: Buffer[] = []
+for (let at = 0; at < big.length;) {
+  const r = await call(device, 'file', { session: 't1', path: join(root, 'big.mov'), raw: true, at })
+  if (r.s !== 200 || r.b.size !== big.length || r.b.at !== at) { check('a piece', false, { at, s: r.s, b: r.b?.error }); break }
+  const bytes = Buffer.from(r.b.b64, 'base64')
+  pieces.push(bytes)
+  at += bytes.length
+}
+check('three pieces, the last short, make the file', pieces.length === 3 && pieces[2]!.length === 1024 * 1024 + 3 && Buffer.concat(pieces).equals(big), pieces.map(p => p.length))
+const huge = await call(device, 'file', { session: 't1', path: join(root, 'huge.zip'), raw: true })
+check('over 20 MB, a whole fetch is refused', huge.s === 413, huge.b)
+const hugePiece = await call(device, 'file', { session: 't1', path: join(root, 'huge.zip'), raw: true, at: 24 * 1024 * 1024 })
+check('over 20 MB, by the piece it comes', hugePiece.s === 200 && Buffer.from(hugePiece.b.b64, 'base64').length === 1024 * 1024, hugePiece.b?.error)
+const past = await call(device, 'file', { session: 't1', path: join(root, 'big.mov'), raw: true, at: big.length + 1 })
+check('a piece past the end is refused', past.s === 400, past.b)
+const envPiece = await call(device, 'file', { session: 't1', path: join(root, '.env'), raw: true, at: 0 })
+check('a secret is locked by the piece too', envPiece.s === 403 && !envPiece.b.b64, envPiece.b)
 const devs = await call(device, 'devices')
 check('the hub lists this phone as itself', devs.b.devices.some((d: any) => d.isThis), devs.b)
 // the app's service: watch waits for the next notice, and answers it with its folder

@@ -212,6 +212,20 @@ test('outside a git repository the bar shows the folder alone', async ($, on) =>
   expect(where).not.toContain('⎇')
 })
 
+test("the folder is where the session started: a shell cd in Claude's Bash does not move it", async ($, on) => {
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('session.root', () => ({ value: '/tmp/scratch' }))
+  on('session.cwd', () => ({ value: '/tmp/scratch/build/deeper' }))
+  on('session.usage', () => ({ value: { startedAt: 0, context: { window: 1 }, rateLimits: [] } }))
+  on('process.run', () => ({ value: exited(128, 'not a git repository') }))
+  on('settings.read', () => ({ value: {} }))
+  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await band.press({ key: 'model' })
+  const where = await textOf(band)
+  expect(where).toContain('scratch')
+  expect(where).not.toContain('deeper')
+})
+
 test('the gauges follow session.measure, the figures the footer shows', async ($, on) => {
   engine(on)
   on('session.measure', (_, e) => ({ changed: e.changed }))

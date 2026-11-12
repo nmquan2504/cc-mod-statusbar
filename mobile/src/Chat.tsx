@@ -84,7 +84,8 @@ export function Chat({ c, device, onUnpaired, onRescan, onCheckUpdate, onReady }
     } else if (m.t === 'hush') void Speech.stop()
     else if (m.t === 'file') {
       const filed = (name: string, error = '') => reply(`window.__qsb.filed(${Number(m.id)}, ${JSON.stringify(name)}, ${JSON.stringify(error)})`)
-      handFile(device, m.how === 'save' ? 'save' : 'open', m.a && typeof m.a === 'object' ? m.a : {})
+      const part = (done: number, size: number) => reply(`window.__qsb.filePart(${Number(m.id)}, ${done}, ${size})`)
+      handFile(device, m.how === 'save' ? 'save' : 'open', m.a && typeof m.a === 'object' ? m.a : {}, part)
         .then(name => filed(name), (e: unknown) => filed('', e instanceof Error ? e.message : String(e)))
     }
     else if (m.t === 'update') {

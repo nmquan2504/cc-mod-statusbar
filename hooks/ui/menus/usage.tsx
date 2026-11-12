@@ -8,6 +8,7 @@ import { cfg } from '../../state/config'
 import { rt } from '../../state/runtime'
 import { drawAutomation } from './automation'
 import type { Entry } from './entry'
+import { projectDir } from '../../lib/project'
 
 // The atoms this file reads or writes (each file declares its own: the engine reads an atom only
 // where a const of the same file made it; the same plugin and key are the same value).
@@ -22,7 +23,7 @@ export async function drawUsageMenu($: any, els: any, isTerminal: boolean, _entr
   const u = await read($, usage)
   const ctx = await read($, ctxBreakdown)
   const home: string = (await $.env.get('HOME').catch(() => '')) ?? ''
-  const cwd: string = await $.session.cwd().catch(() => '')
+  const cwd: string = await projectDir($).catch(() => '')
   const rel = (path: string) => (cwd && path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : home && path.startsWith(home) ? `~${path.slice(home.length)}` : path)
   const { Raster } = els
   const now = Date.now()

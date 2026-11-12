@@ -14,7 +14,7 @@
 //   { t: 'alive', isShown } (as it changes, and asked by __qsb.alive()) | { t: 'file', id, how, a }
 // Answers into it: __qsb.done(id, result) | __qsb.fail(id, kind, message) | __qsb.back() |
 //   __qsb.settings(settings, note) | __qsb.voices(list) | __qsb.said(id, isOk) | __qsb.toast(title, body) |
-//   __qsb.heard(id, text, error) | __qsb.alive() | __qsb.filed(id, name, error)
+//   __qsb.heard(id, text, error) | __qsb.alive() | __qsb.filed(id, name, error) | __qsb.filePart(id, done, size)
 import type { AppSettings } from './settings'
 
 export const bridge = (settings: AppSettings, version: string) => `(() => {
@@ -45,11 +45,14 @@ export const bridge = (settings: AppSettings, version: string) => `(() => {
   // the page knows it runs in the app: what the app does itself, its Settings set here
   // a file of the session saved in the phone's Downloads or opened in one of its apps (how: 'save' |
   // 'open'), fetched by the app itself: { name } as saved (Android may add (1)), or { error }
+  // (onPart(done, size): how far the app has fetched it, after each piece)
   const filing = new Map()
+  const fileParts = new Map()
   let fileNext = 1
-  const file = (how, a) => new Promise(resolve => {
+  const file = (how, a, onPart) => new Promise(resolve => {
     const id = fileNext++
     filing.set(id, resolve)
+    if (typeof onPart === 'function') fileParts.set(id, onPart)
     post({ t: 'file', id, how, a })
   })
   const native = { platform: 'android', version: ${JSON.stringify(version)}, settings: ${JSON.stringify(settings)}, set: (key, value) => post({ t: 'set', key, value }), checkUpdate: () => post({ t: 'update' }), rescan: () => post({ t: 'rescan' }), file }
@@ -192,7 +195,11 @@ export const bridge = (settings: AppSettings, version: string) => `(() => {
     filed(id, name, error) {
       const r = filing.get(id)
       filing.delete(id)
+      fileParts.delete(id)
       if (r) r({ name, error })
+    },
+    filePart(id, done, size) {
+      try { fileParts.get(id)?.(done, size) } catch {}
     },
     said(id, isOk) {
       const u = said.get(id)

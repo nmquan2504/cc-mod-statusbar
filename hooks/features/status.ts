@@ -1,6 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { ChangeRow } from '../../types'
 import { keepUsage, liveLimits } from './usage'
+import { projectDir } from '../lib/project'
 
 // The atoms this file reads or writes (each file declares its own: the engine reads an atom only
 // where a const of the same file made it; the same plugin and key are the same value).
@@ -49,7 +50,7 @@ export async function refreshBar($: any) {
   await keepUsage($, usage)
   const limits = liveLimits(usage?.rateLimits ?? [])
   const used = (kind: string): number | null => limits.find(r => r.kind === kind)?.percentUsed ?? null
-  const cwd: string = await $.session.cwd().catch(() => '')
+  const cwd: string = await projectDir($).catch(() => '')
   const folder = cwd.split('/').filter(Boolean).pop() ?? cwd
   // null outside a repository; the branch is null on a detached HEAD
   const git = cwd ? await $.process.run(['git', '-C', cwd, 'status', '--porcelain=v2', '--branch']).catch(() => undefined) : undefined

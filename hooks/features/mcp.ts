@@ -1,6 +1,7 @@
 import { atom, update } from 'claude-code'
 import type { McpRow, McpCheckRow } from '../../types'
 import { rt } from '../state/runtime'
+import { projectDir } from '../lib/project'
 
 // The atoms this file reads or writes (each file declares its own: the engine reads an atom only
 // where a const of the same file made it; the same plugin and key are the same value).
@@ -40,7 +41,7 @@ export async function checkMcp($: any) {
   rt.isCheckingMcp = true
   $.ui.invalidate('ui.render')
   try {
-    const cwd: string = await $.session.cwd().catch(() => '.')
+    const cwd: string = await projectDir($).catch(() => '.')
     const r = await $.process.run(['claude', 'mcp', 'list'], { cwd, timeoutMs: 90_000 }).catch(() => undefined)
     if (!r) return void $.ui.toast('statusbar: could not run claude mcp list')
     const rows: McpCheckRow[] = []
