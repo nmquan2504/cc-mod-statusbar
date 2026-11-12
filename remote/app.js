@@ -386,6 +386,9 @@ async function follow() {
   }
 }
 // a sealed call about the session shown: { s, b }, or { s: 0, b: { error } } when it did not go
+// the servers in the order Settings lists them, this page's own first, and each one's name
+const hubOrder = () => (hubStates.size ? [...hubStates.keys()] : ['']).sort((x, y) => (x === '' ? -1 : y === '' ? 1 : 0))
+const serverName = hub => hubStates.get(hub)?.machine?.name || hub || tx('This server')
 // to the hub of the session shown: this page's own, or another Mac's
 const api = (op, a = {}) => E2E.call(op, { session: snap ? snap.id : '', ...a }, snap?.hub || undefined).catch(err => ({ s: 0, b: { error: err.message } }))
 // an image the hub sends sealed, as a URL the page can show; kept per session and image
@@ -811,7 +814,7 @@ function renderDrawer() {
   const order = state.isMany ? [...hubStates.keys()].sort((x, y) => (x === '' ? -1 : y === '' ? 1 : x.localeCompare(y))) : [null]
   for (const hub of order) {
   if (hub !== null) {
-    const name = hubStates.get(hub)?.machine?.name || hub || tx('This server')
+    const name = serverName(hub)
     const head = box.appendChild(el('div', 'mgroup'))
     head.append(el('span', hubDownSince.has(hub) ? 'dot wait' : 'dot'), document.createTextNode(` ${name}${hubDownSince.has(hub) ? ` · ${tx('not answering')}` : ''}`))
   }
@@ -3238,9 +3241,9 @@ function renderSettings() {
 
   // Remote servers: every hub this phone is paired with, and another one added by its QR code or link
   const servers = card(tx('Remote servers'))
-  for (const hub of [...hubStates.keys()].sort((x, y) => (x === '' ? -1 : y === '' ? 1 : 0))) {
+  for (const hub of hubOrder()) {
     const st = hubStates.get(hub)
-    const name = st?.machine?.name || hub || tx('This server')
+    const name = serverName(hub)
     const count = (st?.sessions || []).length
     const note = hub === '' ? tx('this link') : hubDownSince.has(hub) ? tx('not answering') : tx('{n} sessions', { n: count })
     const right = row(servers, name, note)
@@ -3252,6 +3255,7 @@ function renderSettings() {
         await E2E.forget(hub)
         stopHub(hub)
         renderSettings()
+        void readPaired()
       }
     }
   }
@@ -3301,6 +3305,7 @@ function renderSettings() {
           said.textContent = tx('Added.')
           input.value = ''
           void followHub(hub)
+          void readPaired()
           return
         }
       }
@@ -3313,14 +3318,22 @@ function renderSettings() {
   }
   go.onclick = () => void addServer()
 
+  // each server keeps its own phones: with two or more, each server's under its name
   const paired = card(tx('Paired devices'))
-  if (!pairedList) paired.append(el('div', 'meta pad', tx('Loading…')))
-  else for (const d of pairedList) {
-    const seen = tx('Seen {ago}', { ago: agoText(d.seenAt) })
-    const right = row(paired, d.isThis ? `${d.name} · ${tx('this phone')}` : d.name, d.hasPush ? `${seen} · ${tx('notifications on')}` : seen)
-    if (!d.isThis) {
-      const b = right.appendChild(el('button', 'pbtn danger', tx('Unpair')))
-      b.onclick = () => void unpairOther(b, d.id)
+  if (!pairedByHub) paired.append(el('div', 'meta pad', tx('Loading…')))
+  else for (const [hub, list] of pairedByHub) {
+    if (pairedByHub.size > 1) paired.append(el('div', 'mgroup', serverName(hub)))
+    if (!list) {
+      paired.append(el('div', 'meta pad', tx('not answering')))
+      continue
+    }
+    for (const d of list) {
+      const seen = tx('Seen {ago}', { ago: agoText(d.seenAt) })
+      const right = row(paired, d.isThis ? `${d.name} · ${tx('this phone')}` : d.name, d.hasPush ? `${seen} · ${tx('notifications on')}` : seen)
+      if (!d.isThis) {
+        const b = right.appendChild(el('button', 'pbtn danger', tx('Unpair')))
+        b.onclick = () => void unpairOther(b, d.id, hub)
+      }
     }
   }
   paired.append(el('div', 'pd hint', tx('A phone not seen for 7 days is unpaired by itself.')))
@@ -3404,11 +3417,16 @@ async function scanQr() {
     look()
   })
 }
-// ---- paired devices: the phones this hub allowed, this one marked; another one unpaired from here
-let pairedList = null
+// ---- paired devices: the phones each server allowed, this one marked; another one unpaired from here
+// pairedByHub: hub -> its phones, or null when that server did not answer; null while read
+let pairedByHub = null
 async function readPaired() {
-  const r = await api('devices')
-  pairedList = r.s === 200 ? [...r.b.devices].sort((x, y) => Number(y.isThis) - Number(x.isThis) || y.seenAt - x.seenAt) : []
+  const hubs = hubOrder()
+  const lists = await Promise.all(hubs.map(hub => E2E.call('devices', {}, hub || undefined).catch(() => null)))
+  pairedByHub = new Map(hubs.map((hub, i) => {
+    const r = lists[i]
+    return [hub, r?.s === 200 ? [...r.b.devices].sort((x, y) => Number(y.isThis) - Number(x.isThis) || y.seenAt - x.seenAt) : null]
+  }))
   if (!$('settings').hidden) renderSettings()
 }
 // a time before now, short: just now, 5 min ago, 3 h ago, 2 d ago
@@ -3417,14 +3435,14 @@ function agoText(at) {
   return m < 1 ? tx('just now') : m < 60 ? tx('{n} min ago', { n: m }) : m < 1440 ? tx('{n} h ago', { n: Math.floor(m / 60) }) : tx('{n} d ago', { n: Math.floor(m / 1440) })
 }
 // a second press within 4 seconds, as for this phone
-async function unpairOther(btn, id) {
+async function unpairOther(btn, id, hub) {
   if (btn.dataset.armed !== '1') {
     btn.dataset.armed = '1'
     btn.textContent = tx('Tap again')
     setTimeout(() => { delete btn.dataset.armed; btn.textContent = tx('Unpair') }, 4000)
     return
   }
-  const r = await api('unpair', { id })
+  const r = await E2E.call('unpair', { id }, hub || undefined).catch(err => ({ s: 0, b: { error: err.message } }))
   toast(r.s === 200 ? { title: tx('Unpaired'), body: tx('That phone scans the QR code again to come back.') } : { title: tx('Not unpaired'), body: txSent(r.b?.error) || tx('The session did not answer. Try again.') })
   await readPaired()
 }
@@ -3547,7 +3565,7 @@ async function pickLockAfter(minutes) {
 
 function openSettings() {
   closeLayers()
-  pairedList = null
+  pairedByHub = null
   renderSettings()
   void readZeroInfo()
   void readPaired()
