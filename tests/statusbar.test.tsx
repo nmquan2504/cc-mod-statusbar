@@ -2482,7 +2482,7 @@ test('the shield menu: a guardrail switched off leaves the score; the scope chip
   on('fs.exists', (_: unknown, e: any) => ({ value: e.path in written }))
   on('fs.read', (_: unknown, e: any) => ({ value: written[e.path] ?? '' }))
   on('fs.write', (_: unknown, e: any) => ((written[e.path] = e.text), { value: undefined }))
-  on('tool.list', () => ({ value: [{ name: 'mcp__notion__search', mcp: true }, { name: 'mcp__notion__create_page', mcp: true }] }))
+  on('tool.list', () => ({ value: [{ name: 'mcp__notion__search', description: '', mcp: true }, { name: 'mcp__notion__create_page', description: '', mcp: true }] }))
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   await band.press({ key: 'guard' })
   // no deny rules, no hooks: two of the eight switched on fail
