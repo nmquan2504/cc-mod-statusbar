@@ -5,6 +5,7 @@ import { closeMenu, openMenu } from '../../features/menu'
 import { ARM_MS, ASK_KEY, SUGGESTED_DENY, addAuditHook, addSuggestedDeny, allowRule, setMcpRule } from '../../features/permissions'
 import type { AskCount, McpRule } from '../../features/permissions'
 import { GUARDRAILS, egressHosts, guardScore, guardState } from '../../features/guardrails'
+import { groupHooks, groupRules } from '../../lib/guardclass'
 import { SCOPES, scopeFile, scopeNow } from '../../features/settingsfile'
 import type { RuleScope } from '../../features/settingsfile'
 import { cfg, saveSettings } from '../../state/config'
@@ -196,8 +197,14 @@ export async function drawGuardMenu($: any, els: any, _isTerminal: boolean, _ent
       {GUARDRAILS.map(r => {
         const st = guardState(r, g, mode)
         const isOn = st.state !== 'off'
+        // under deny rules and hooks, what each one is for, a line a kind
+        const detail = !isOn ? [] : r.id === 'deny'
+          ? groupRules(g.deny).map(x => ({ key: x.kind, title: x.title, n: x.rules.length, text: x.rules.join(', ') }))
+          : r.id === 'hooks'
+            ? groupHooks(g.hookList ?? []).map(x => ({ key: x.purpose, title: x.title, n: x.hooks.length, text: x.hooks.map(hk => `${hk.event}${hk.matcher ? ` ${hk.matcher}` : ''}: ${hk.command}`).join(' · ') }))
+            : []
         return (
-          <Box key={`row:gr:${r.id}`} paddingLeft={ENTRY_INDENT}>
+          <Box key={`row:gr:${r.id}`} flexDirection="column" paddingLeft={ENTRY_INDENT}>
             <Button key={`gr:${r.id}`} plain onPress={() => flip(r.key)}>
               <Text color={isOn ? 'success' : 'inactive'} bold>{isOn ? '[on] ' : '[off]'}</Text>
               {' '}{st.state === 'fail'
@@ -208,6 +215,12 @@ export async function drawGuardMenu($: any, els: any, _isTerminal: boolean, _ent
               {' '}<Text bold>{r.title}</Text>
               <Text dimColor>{`  ${isOn ? st.note : r.what}`}</Text>
             </Button>
+            {detail.map(d => (
+              <Text key={`gd:${r.id}:${d.key}`}>
+                {'        '}<Text color="suggestion">{`${d.title} ${d.n}`}</Text>
+                <Text dimColor>{`  ${oneLine(d.text, 110)}`}</Text>
+              </Text>
+            ))}
           </Box>
         )
       })}
@@ -215,12 +228,13 @@ export async function drawGuardMenu($: any, els: any, _isTerminal: boolean, _ent
         <Box key="sec:allow" flexDirection="column">
           <Text dimColor>{'  allowed hosts (a name covers its subdomains; ✕ takes one off):'}</Text>
           <Box flexDirection="row" flexWrap="wrap" columnGap={1} paddingLeft={ENTRY_INDENT}>
-            {egressHosts().map(h => (
-              <Button key={`host:${h}`} plain onPress={async () => {
-                cfg.egressHosts = egressHosts().filter(x => x !== h).join(',')
+            {/* never `h` here: JSX compiles to h(...), which a parameter of that name would hide */}
+            {egressHosts().map(host => (
+              <Button key={`host:${host}`} plain onPress={async () => {
+                cfg.egressHosts = egressHosts().filter(x => x !== host).join(',')
                 await saveSettings($)
               }}>
-                <Text color="suggestion">{h}</Text><Text dimColor> ✕</Text>
+                <Text color="suggestion">{host}</Text><Text dimColor> ✕</Text>
               </Button>
             ))}
           </Box>

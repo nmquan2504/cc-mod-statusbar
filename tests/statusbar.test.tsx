@@ -6,6 +6,7 @@ import { keyRows, rowsOf } from '../hooks/lib/rows'
 import { gitRisk, newPackage } from '../hooks/lib/gitguard'
 import { hostsOf } from '../hooks/features/egress'
 import { redactText } from '../hooks/lib/pii'
+import { groupHooks, groupRules, hookEntries, hookPurpose, ruleKind } from '../hooks/lib/guardclass'
 import { SHOW_MS, WAIT_MS, clearPrompts, duePrompts, noteCheck, noteSpinner, prompts, waitingPrompts } from '../hooks/features/prompts'
 
 // The hooks registered here sit beneath the plugin and stand for the engine: the model,
@@ -2537,4 +2538,65 @@ test('protect git reads the commands a shell string runs', () => {
     expect(gitRisk(c, 'feat/x', true)?.kind).toBe('deny')
   // printed, not run
   expect(gitRisk('echo "git push origin main"', 'feat/x', true)).toBeNull()
+})
+
+test('the network allowlist switched on lists its hosts, each with ✕', async ($, on) => {
+  engine(on)
+  settingsStore(on)
+  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await band.press({ key: 'guard' })
+  await band.press({ key: 'gr:egress' })
+  const drawn = await textOf(band)
+  expect(drawn).toContain('github.com')
+  await band.press({ key: 'host:github.com' })
+  expect(await band.find({ key: 'host:github.com' })).toBeUndefined()
+  expect(await band.find({ key: 'host:npmjs.org' })).toBeDefined()
+})
+
+test('the shield sorts deny rules and hooks by what they are for', async ($, on) => {
+  expect(ruleKind('Read(./.env)')).toBe('secrets')
+  expect(ruleKind('Read(./**/*.pem)')).toBe('secrets')
+  expect(ruleKind('Read(~/.ssh/**)')).toBe('credentials')
+  expect(ruleKind('Bash(rm -rf:*)')).toBe('destructive')
+  expect(ruleKind('Bash(git push --force:*)')).toBe('destructive')
+  expect(ruleKind('WebFetch(domain:evil.example)')).toBe('network')
+  expect(ruleKind('Bash(curl:*)')).toBe('network')
+  expect(ruleKind('mcp__notion__create_page')).toBe('mcp')
+  expect(ruleKind('Edit(./dist/**)')).toBe('files')
+  expect(ruleKind('Agent')).toBe('tools')
+  expect(groupRules(['Read(./.env)', 'Read(~/.aws/**)', 'Read(./secrets/**)']).map(g => [g.kind, g.rules.length])).toEqual([['secrets', 2], ['credentials', 1]])
+  const hooks = hookEntries({
+    PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'cat >> "$CLAUDE_PROJECT_DIR/.claude/audit.jsonl"' }, { type: 'command', command: 'node guard.js || exit 2' }] }],
+    PermissionRequest: [{ hooks: [{ type: 'command', command: 'node ~/.claude/skills/cc-mod-statusbar/remote/dialog-hook.mjs' }] }],
+    PostToolUse: [{ matcher: 'Edit', hooks: [{ type: 'command', command: 'npx prettier --write "$FILE"' }] }],
+    Stop: [{ hooks: [{ type: 'command', command: 'osascript -e "display notification \"done\""' }] }],
+  })
+  expect(hooks.map(hookPurpose)).toEqual(['audit', 'block', 'phone', 'format', 'notify'])
+  expect(groupHooks(hooks).map(g => g.purpose)).toEqual(['block', 'audit', 'phone', 'notify', 'format'])
+  // and the menu draws a line a kind under each guardrail
+  engine(on, { settings: { permissions: { deny: ['Read(./.env)', 'Read(~/.ssh/**)', 'Bash(rm -rf:*)'] }, hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'cat >> audit.jsonl' }] }] } } })
+  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await band.press({ key: 'guard' })
+  const drawn = await textOf(band)
+  for (const line of ['Secrets and keys 1', 'Credential folders 1', 'Destructive commands 1', 'Audit and logs 1']) expect(drawn).toContain(line)
+})
+
+test('the bar stays inside the frame on a narrow terminal: tight labels, then the least needed items go', async ($, on) => {
+  // a long folder and branch, files changed and commits to push: the compact bar alone overruns 76
+  const status = ['# branch.oid 0123abc', '# branch.head feature/a-long-branch-name-here', '# branch.upstream origin/x', '# branch.ab +3 -0', '1 .M N... 100644 100644 100644 aaa bbb src/app.ts', ''].join('\n')
+  engine(on, { run: argv => (argv[0] === 'git' ? { exitCode: 0, stdout: status, stderr: '' } : undefined) })
+  on('session.root', () => ({ value: '/work/a-really-long-project-folder' }))
+  on('tool.list', () => ({ value: [{ name: 'mcp__notion__search', description: '', mcp: true }] }))
+  for (const bodyColumns of [56, 66, 76, 96]) {
+    const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, bodyColumns } } as never)
+    // the usage menu reads the bar (folder, branch, marks) at once; shut, the bar alone is measured
+    await band.press({ key: 'usage' })
+    await band.press({ key: 'close-menu' })
+    const root = JSON.parse(await textOf(band))
+    expect(JSON.stringify(root)).toContain('a-reall')
+    // inside the frame: its borders and its padding take 4
+    expect(cells(root.children[root.children.length - 1])).toBeLessThanOrEqual(bodyColumns - 4)
+    // what always stays
+    for (const key of ['add', 'commands', 'model', 'mode', 'guard']) expect(await band.find({ key })).toBeDefined()
+  }
 })

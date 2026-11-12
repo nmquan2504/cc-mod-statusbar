@@ -23,6 +23,8 @@ export type GuardInfo = {
   allowRules: string[]
   sandbox: boolean
   hooks: string[]
+  // every hook the settings hold, its event, matcher and command (masked), for the shield's breakdown
+  hookList?: { event: string; matcher: string; command: string }[]
   plugins: number
 }
 

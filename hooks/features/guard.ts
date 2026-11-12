@@ -1,5 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { GuardInfo } from '../../types'
+import { hookEntries } from '../lib/guardclass'
+import { oneLine } from '../lib/format'
+import { maskSecrets } from '../lib/mask'
 
 // The atoms this file reads or writes (each file declares its own: the engine reads an atom only
 // where a const of the same file made it; the same plugin and key are the same value).
@@ -23,6 +26,7 @@ export async function readGuard($: any) {
     allowRules: p.allow ?? [],
     sandbox: s.sandbox?.enabled === true,
     hooks: Object.keys(s.hooks ?? {}),
+    hookList: hookEntries(s.hooks).map(h => ({ ...h, command: maskSecrets(oneLine(h.command, 160)) })),
     plugins: Object.values(s.enabledPlugins ?? {}).filter(Boolean).length,
   }
   // read every 5 seconds: a write only when something changed, so the bar redraws only then
