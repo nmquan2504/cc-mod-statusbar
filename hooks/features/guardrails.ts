@@ -84,11 +84,12 @@ export function guardState(row: GuardRow, g: GuardInfo, mode: string): { state: 
   }
 }
 
-// The ◈ score: the guardrails on, of them all; red while a core one is off
+// The ◈ score: the guardrails on, of them all, and the core ones off; red while a core one is off
 export function guardScore(g: GuardInfo, mode: string) {
   const states = GUARDRAILS.map(r => ({ row: r, ...guardState(r, g, mode) }))
   const ok = states.filter(s => s.state === 'pass').length
-  return { ok, of: states.length, isAlert: states.some(s => s.row.isCore && s.state === 'off') }
+  const coreOff = states.filter(s => s.row.isCore && s.state === 'off').length
+  return { ok, of: states.length, coreOff, isAlert: coreOff > 0 }
 }
 
 // ---- the network allowlist -------------------------------------------------------------------

@@ -26,9 +26,8 @@ export type BarData = {
   week: number | null
   ctx: number | null
   isCtxShown: boolean
-  guardOk: number
-  guardOf: number
   isGuardAlert: boolean
+  guardCoreOff: number
   dangers: number
   mcpLive: number
   mcpFailed: number
@@ -103,7 +102,7 @@ export function desktopBar($: any, els: any, d: BarData) {
       case 'barGuard':
         return cfg.barGuard ? (
           <Button key="guard" plain onPress={go('guard')}>
-            {d.isGuardAlert ? `◈ ! ${d.guardOk}/${d.guardOf}` : '◈ ✓'}
+            {d.isGuardAlert ? `◈ ! ${d.guardCoreOff}` : '◈ ✓'}
             {d.dangers ? `  ⚠ ${d.dangers}` : ''}
           </Button>
         ) : null
