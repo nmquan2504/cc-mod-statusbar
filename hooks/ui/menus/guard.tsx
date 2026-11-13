@@ -155,11 +155,16 @@ export async function drawGuardMenu($: any, els: any, _isTerminal: boolean, _ent
       {rt.guardSection === 'mcp' ? mcpSection : null}
       <Text>
         {'\n'}<Text color="claude" bold>◆ Guardrails</Text>
-        <Text dimColor>{`  ✓ on, ✗ off; a press switches one (rules and the hook go to ${file})`}</Text>
+        <Text dimColor>{`  a press switches one (rules and the hook go to ${file}): `}</Text>
+        <Text color="success">✓</Text><Text dimColor> on, </Text>
+        <Text color="error">✗</Text><Text dimColor> a core one off (the ◈ chip turns red), </Text>
+        <Text color="warning">!</Text><Text dimColor> another off</Text>
       </Text>
       {GUARDRAILS.map(r => {
         const st = guardState(r, g, mode)
         const isOn = st.state !== 'off'
+        // off: red for a core guardrail, which turns the chip red; yellow for the rest
+        const offColor = r.isCore ? 'error' : 'warning'
         // under the audit hook, every settings hook by what it is for, a line a kind
         const detail = r.id === 'hooks'
           ? groupHooks(g.hookList ?? []).map(x => ({ key: x.purpose, title: x.title, n: x.hooks.length, text: x.hooks.map(hk => `${hk.event}${hk.matcher ? ` ${hk.matcher}` : ''}: ${hk.command}`).join(' · ') }))
@@ -167,11 +172,12 @@ export async function drawGuardMenu($: any, els: any, _isTerminal: boolean, _ent
         return (
           <Box key={`row:gr:${r.id}`} flexDirection="column" paddingLeft={ENTRY_INDENT}>
             <Button key={`gr:${r.id}`} plain onPress={() => press(r, isOn)}>
-              <Text color={isOn ? 'success' : 'error'} bold>{isOn ? '[on] ' : '[off]'}</Text>
+              <Text color={isOn ? 'success' : offColor} bold>{isOn ? '[on] ' : '[off]'}</Text>
               {' '}{st.state === 'warn'
                 ? <Text color="warning">!</Text>
-                : isOn ? <Text color="success">✓</Text> : <Text color="error">✗</Text>}
+                : isOn ? <Text color="success">✓</Text> : r.isCore ? <Text color="error">✗</Text> : <Text color="warning">!</Text>}
               {' '}<Text bold>{r.title}</Text>
+              {r.isCore ? <Text dimColor> core</Text> : null}
               <Text dimColor>{`  ${st.note}`}</Text>
             </Button>
             {detail.map(d => (
