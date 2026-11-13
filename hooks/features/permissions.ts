@@ -1,5 +1,5 @@
 import { logAudit } from './audit'
-import { editSettings, scopeFile, scopeNow } from './settingsfile'
+import { SCOPES, editSettings, scopeFile, scopeNow, scopePath } from './settingsfile'
 
 // The permission prompts you answer, counted across sessions by the rule that would skip them.
 export const ASK_KEY = 'permission-asks'
@@ -33,35 +33,70 @@ export async function editLocalSettings($: any, change: (json: any) => void) {
   return editSettings($, change, 'local')
 }
 
-// The deny rules the shield menu suggests when there are none: the secrets this mod locks in
-// the files menu (.env, secrets/, exports/, key files) and the SSH and cloud keys in the home folder.
-export const SUGGESTED_DENY = [
-  'Read(./.env)', 'Read(./.env.*)', 'Read(./secrets/**)', 'Read(./exports/**)',
-  'Read(./**/*.pem)', 'Read(./**/*.key)', 'Read(~/.ssh/**)', 'Read(~/.aws/**)',
-]
-
-// The settings hook the shield menu suggests when there is none: an audit trail, each Bash call's
-// hook input appended as one JSON line to .claude/audit.jsonl. It records; it blocks nothing.
+// The audit hook a shield menu row switches: each Bash call's hook input appended as one JSON line
+// to .claude/audit.jsonl. It records; it blocks nothing.
 export const AUDIT_LOG = '"$CLAUDE_PROJECT_DIR/.claude/audit.jsonl"'
 
 export const AUDIT_HOOK = { matcher: 'Bash', hooks: [{ type: 'command', command: `cat >> ${AUDIT_LOG}; echo >> ${AUDIT_LOG}` }] }
 
-export async function addSuggestedDeny($: any) {
-  await editSettings($, json => {
-    json.permissions ??= {}
-    json.permissions.deny ??= []
-    for (const rule of SUGGESTED_DENY) if (!json.permissions.deny.includes(rule)) json.permissions.deny.push(rule)
-  })
-  await logAudit($, `added ${SUGGESTED_DENY.length} deny rules to ${scopeFile[scopeNow()]}`)
+// Change every settings file that exists (project, local, user), none made: what a switch takes off
+// goes from wherever it was written. The files changed, as the scope chip names them.
+async function editEveryFile($: any, change: (json: any) => boolean) {
+  const changed: string[] = []
+  for (const scope of SCOPES) {
+    const path = await scopePath($, scope).catch(() => '')
+    if (!path || !(await $.fs.exists(path))) continue
+    const json = JSON.parse((await $.fs.read(path)) || '{}')
+    if (!change(json)) continue
+    await $.fs.write(path, `${JSON.stringify(json, null, 2)}\n`)
+    changed.push(scopeFile[scope])
+  }
+  return changed
 }
 
-export async function addAuditHook($: any) {
-  await editSettings($, json => {
-    json.hooks ??= {}
-    json.hooks.PreToolUse ??= []
-    if (!JSON.stringify(json.hooks.PreToolUse).includes('audit.jsonl')) json.hooks.PreToolUse.push(AUDIT_HOOK)
+// A set of deny rules switched on: the rules missing from the scope's file added there. Switched off:
+// taken out of every settings file. The files written, for the toast.
+export async function setDenyRules($: any, rules: readonly string[], on: boolean) {
+  if (on) {
+    const file = await editSettings($, json => {
+      json.permissions ??= {}
+      json.permissions.deny ??= []
+      for (const rule of rules) if (!json.permissions.deny.includes(rule)) json.permissions.deny.push(rule)
+    })
+    await logAudit($, `added ${rules.length} deny rules to ${file}`)
+    return [file]
+  }
+  const files = await editEveryFile($, json => {
+    const deny = json.permissions?.deny
+    if (!Array.isArray(deny) || !deny.some((r: string) => rules.includes(r))) return false
+    json.permissions.deny = deny.filter((r: string) => !rules.includes(r))
+    return true
   })
-  await logAudit($, `added a PreToolUse audit hook to ${scopeFile[scopeNow()]}`)
+  await logAudit($, `took ${rules.length} deny rules out of ${files.join(', ') || 'no file'}`)
+  return files
+}
+
+// The audit hook switched on (added to the scope's file) or off (taken out of every file)
+export async function setAuditHook($: any, on: boolean) {
+  if (on) {
+    const file = await editSettings($, json => {
+      json.hooks ??= {}
+      json.hooks.PreToolUse ??= []
+      if (!JSON.stringify(json.hooks.PreToolUse).includes('audit.jsonl')) json.hooks.PreToolUse.push(AUDIT_HOOK)
+    })
+    await logAudit($, `added a PreToolUse audit hook to ${file}`)
+    return [file]
+  }
+  const files = await editEveryFile($, json => {
+    const pre = json.hooks?.PreToolUse
+    if (!Array.isArray(pre) || !JSON.stringify(pre).includes('audit.jsonl')) return false
+    json.hooks.PreToolUse = pre.filter((m: any) => !JSON.stringify(m).includes('audit.jsonl'))
+    if (!json.hooks.PreToolUse.length) delete json.hooks.PreToolUse
+    if (!Object.keys(json.hooks).length) delete json.hooks
+    return true
+  })
+  await logAudit($, `took the audit hook out of ${files.join(', ') || 'no file'}`)
+  return files
 }
 
 export async function allowRule($: any, rule: string) {

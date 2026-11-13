@@ -2,9 +2,10 @@ import { ENTRY_INDENT } from './entry'
 import { atom, read } from 'claude-code'
 import { readGuard } from '../../features/guard'
 import { closeMenu, openMenu } from '../../features/menu'
-import { ARM_MS, ASK_KEY, SUGGESTED_DENY, addAuditHook, addSuggestedDeny, allowRule, setMcpRule } from '../../features/permissions'
+import { ARM_MS, ASK_KEY, allowRule, setAuditHook, setDenyRules, setMcpRule } from '../../features/permissions'
 import type { AskCount, McpRule } from '../../features/permissions'
-import { GUARDRAILS, egressHosts, guardScore, guardState } from '../../features/guardrails'
+import { DENY_SETS, GUARDRAILS, egressHosts, guardScore, guardState, isDenySet } from '../../features/guardrails'
+import type { GuardRow } from '../../features/guardrails'
 import { groupHooks, groupRules } from '../../lib/guardclass'
 import { SCOPES, scopeFile, scopeNow } from '../../features/settingsfile'
 import type { RuleScope } from '../../features/settingsfile'
@@ -51,31 +52,23 @@ export async function drawGuardMenu($: any, els: any, _isTerminal: boolean, _ent
   const score = guardScore(g, mode)
   const file = scopeFile[scopeNow()]
   const servers = (await read($, mcpServers)).filter(r => !r.needsAuth)
-  // What would make each check that fails pass, and the advised sandbox: a fix that writes the
-  // settings asks for a second press within 5 seconds, as allowing an asked rule does
-  const fixes: { key: string; hotkey: string; title: string; note: string; isWrite: boolean; done?: string; run: () => Promise<unknown> }[] = [
-    ...(cfg.guardDeny && g.deny.length === 0 ? [{
-      key: 'fix:deny', hotkey: 'd', title: 'Add the suggested deny rules', isWrite: true,
-      note: `${SUGGESTED_DENY.slice(0, 3).join(', ')} and ${SUGGESTED_DENY.length - 3} more: .env, secrets, key files, ~/.ssh, ~/.aws`,
-      done: `${SUGGESTED_DENY.length} deny rules added to ${file}`, run: () => addSuggestedDeny($),
-    }] : []),
-    ...(cfg.guardHooks && g.hooks.length === 0 ? [{
-      key: 'fix:hook', hotkey: 'h', title: 'Add an audit hook', isWrite: true,
-      note: 'PreToolUse: each Bash call appended to .claude/audit.jsonl; it records, blocks nothing',
-      done: `audit hook added to ${file}`, run: () => addAuditHook($),
-    }, {
-      key: 'fix:hooks', hotkey: 'k', title: 'Write your own in /hooks', isWrite: false,
-      note: "Claude Code's hook editor", run: async () => { await closeMenu($); await $.command.run({ command: 'hooks' }) },
-    }] : []),
-    ...(cfg.guardMode && mode === 'bypass' ? [{
-      key: 'fix:mode', hotkey: 'm', title: 'Pick a mode that asks', isWrite: false,
-      note: 'bypass runs every tool without a prompt', run: () => openMenu($, 'mode'),
-    }] : []),
-    ...(!g.sandbox ? [{
-      key: 'fix:sandbox', hotkey: 'x', title: 'Turn on the sandbox', isWrite: false,
-      note: 'advised: Bash runs walled off from your files and network; /sandbox sets it up', run: async () => { await closeMenu($); await $.command.run({ command: 'sandbox' }) },
-    }] : []),
-  ]
+  // A press on a guardrail's row: a deny set or the audit hook written into the scope's file (or
+  // taken out of every file), the mode menu or /sandbox opened, a guard's switch flipped
+  const press = async (r: GuardRow, isOnNow: boolean) => {
+    if (r.id === 'mode') return openMenu($, 'mode')
+    if (r.id === 'sandbox') {
+      await closeMenu($)
+      return $.command.run({ command: 'sandbox' })
+    }
+    if (isDenySet(r.id) || r.id === 'hooks') {
+      const what = r.id === 'hooks' ? 'audit hook' : `${DENY_SETS[r.id].length} deny rules`
+      await (r.id === 'hooks' ? setAuditHook($, !isOnNow) : setDenyRules($, DENY_SETS[r.id], !isOnNow)).then(
+        files => $.ui.toast(`statusbar: ${r.title}: ${isOnNow ? `${what} taken out of ${files.join(', ') || 'no settings file'}` : `${what} written to ${files.join(', ')}${scopeNow() === 'project' ? ' (shared through git)' : ''}`}`),
+        () => $.ui.toast(`statusbar: could not write ${file}`))
+      return readGuard($)
+    }
+    if (r.key) return flip(r.key)
+  }
   // A scored check: a green check or a red cross. 'warn': a yellow mark for what is advised,
   // not scored. 'info': a dim dot for a figure that is neither.
   // two cells in from its group's heading, as every menu's rows
@@ -147,7 +140,7 @@ export async function drawGuardMenu($: any, els: any, _isTerminal: boolean, _ent
   return (
     <Box flexDirection="column">
       <Box flexDirection="row" gap={1}>
-        <Text color={score.isAlert ? 'error' : 'success'} bold>{`◈ ${score.ok}/${score.of} on and passing`}</Text>
+        <Text color={score.isAlert ? 'error' : 'success'} bold>{`◈ ${score.ok}/${score.of} on`}</Text>
         <Text dimColor>  rules go to</Text>
         {SCOPES.map((sc: RuleScope) => (
           <Button key={`scope:${sc}`} plain onPress={async () => {
@@ -160,60 +153,26 @@ export async function drawGuardMenu($: any, els: any, _isTerminal: boolean, _ent
         <Text dimColor>{file}</Text>
       </Box>
       {rt.guardSection === 'mcp' ? mcpSection : null}
-      {fixes.length > 0 && (
-        <Text>
-          {'\n'}<Text color="warning" bold>◆ To fix</Text>
-          <Text dimColor>{`  a fix that writes ${file} asks for a second press`}</Text>
-        </Text>
-      )}
-      {fixes.map(f => {
-        const isArmed = f.isWrite && rt.armedRule === f.key && Date.now() - rt.armedAt < ARM_MS
-        // indented by the row, not the label: a highlighted fix starts at its hotkey
-        return (
-          <Box key={`row:${f.key}`} paddingLeft={ENTRY_INDENT}>
-            <Button key={f.key} plain hotkey={f.hotkey} onPress={async () => {
-              if (!f.isWrite) return f.run()
-              if (rt.armedRule === f.key && Date.now() - rt.armedAt < ARM_MS) {
-                rt.armedRule = ''
-                await f.run().then(() => $.ui.toast(`statusbar: ${f.done}`), () => $.ui.toast(`statusbar: could not write ${file}`))
-                await readGuard($)
-              } else {
-                rt.armedRule = f.key
-                rt.armedAt = Date.now()
-                $.ui.toast(`statusbar: press again within 5 s to ${f.title.toLowerCase()}`)
-              }
-              $.ui.invalidate('ui.render')
-            }}>
-              <Text color={isArmed ? 'warning' : 'suggestion'} bold>{f.title}</Text>
-              <Text dimColor>{`  ${isArmed ? 'press again to write it' : f.note}`}</Text>
-            </Button>
-          </Box>
-        )
-      })}
       <Text>
         {'\n'}<Text color="claude" bold>◆ Guardrails</Text>
-        <Text dimColor>  a press switches one on or off; one off is not counted</Text>
+        <Text dimColor>{`  ✓ on, ✗ off; a press switches one (rules and the hook go to ${file})`}</Text>
       </Text>
       {GUARDRAILS.map(r => {
         const st = guardState(r, g, mode)
         const isOn = st.state !== 'off'
-        // under deny rules and hooks, what each one is for, a line a kind
-        const detail = !isOn ? [] : r.id === 'deny'
-          ? groupRules(g.deny).map(x => ({ key: x.kind, title: x.title, n: x.rules.length, text: x.rules.join(', ') }))
-          : r.id === 'hooks'
-            ? groupHooks(g.hookList ?? []).map(x => ({ key: x.purpose, title: x.title, n: x.hooks.length, text: x.hooks.map(hk => `${hk.event}${hk.matcher ? ` ${hk.matcher}` : ''}: ${hk.command}`).join(' · ') }))
-            : []
+        // under the audit hook, every settings hook by what it is for, a line a kind
+        const detail = r.id === 'hooks'
+          ? groupHooks(g.hookList ?? []).map(x => ({ key: x.purpose, title: x.title, n: x.hooks.length, text: x.hooks.map(hk => `${hk.event}${hk.matcher ? ` ${hk.matcher}` : ''}: ${hk.command}`).join(' · ') }))
+          : []
         return (
           <Box key={`row:gr:${r.id}`} flexDirection="column" paddingLeft={ENTRY_INDENT}>
-            <Button key={`gr:${r.id}`} plain onPress={() => flip(r.key)}>
-              <Text color={isOn ? 'success' : 'inactive'} bold>{isOn ? '[on] ' : '[off]'}</Text>
-              {' '}{st.state === 'fail'
-                ? <Text color="error">✗</Text>
-                : st.state === 'warn'
-                  ? <Text color="warning">!</Text>
-                  : st.state === 'pass' ? <Text color="success">✓</Text> : <Text dimColor>·</Text>}
+            <Button key={`gr:${r.id}`} plain onPress={() => press(r, isOn)}>
+              <Text color={isOn ? 'success' : 'error'} bold>{isOn ? '[on] ' : '[off]'}</Text>
+              {' '}{st.state === 'warn'
+                ? <Text color="warning">!</Text>
+                : isOn ? <Text color="success">✓</Text> : <Text color="error">✗</Text>}
               {' '}<Text bold>{r.title}</Text>
-              <Text dimColor>{`  ${isOn ? st.note : r.what}`}</Text>
+              <Text dimColor>{`  ${st.note}`}</Text>
             </Button>
             {detail.map(d => (
               <Text key={`gd:${r.id}:${d.key}`}>
@@ -243,6 +202,13 @@ export async function drawGuardMenu($: any, els: any, _isTerminal: boolean, _ent
       {rt.guardSection === 'mcp' ? null : mcpSection}
       <Text color="claude" bold>{'\n'}◆ Permissions</Text>
       {row(g.deny.length > 0 || 'info', 'Deny rules', g.deny.length ? `${g.deny.length}: ${oneLine(g.deny.slice(0, 4).join(', '), 90)}` : 'none: Claude may read any file')}
+      {/* every deny rule in force by what it is for, a line a kind */}
+      {groupRules(g.deny).map(x => (
+        <Text key={`dk:${x.kind}`}>
+          {'      '}<Text color="suggestion">{`${x.title} ${x.rules.length}`}</Text>
+          <Text dimColor>{`  ${oneLine(x.rules.join(', '), 110)}`}</Text>
+        </Text>
+      ))}
       {row('info', 'Ask rules', `${g.ask} ask before running`)}
       {row('info', 'Allow rules', `${g.allow} run without asking`)}
       {row(mode !== 'bypass' || 'info', 'Mode', mode === 'bypass' ? 'bypass permissions: no prompts at all' : modeStyle(mode).note)}

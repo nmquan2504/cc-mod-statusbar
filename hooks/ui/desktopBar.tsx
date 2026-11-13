@@ -103,7 +103,7 @@ export function desktopBar($: any, els: any, d: BarData) {
       case 'barGuard':
         return cfg.barGuard ? (
           <Button key="guard" plain onPress={go('guard')}>
-            {d.isGuardAlert ? `◈ ! ${d.guardOk}/${d.guardOf}` : d.guardOk < d.guardOf ? `◈ ${d.guardOk}/${d.guardOf}` : '◈ ✓'}
+            {d.isGuardAlert ? `◈ ! ${d.guardOk}/${d.guardOf}` : '◈ ✓'}
             {d.dangers ? `  ⚠ ${d.dangers}` : ''}
           </Button>
         ) : null

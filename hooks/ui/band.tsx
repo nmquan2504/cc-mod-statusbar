@@ -70,7 +70,7 @@ export async function drawBand($: any, e: any, next: any) {
   const m = modeStyle(rt.drawnMode)
   const ms = modelStyle(b.model)
   const g = await read($, guard)
-  // the guardrails switched on that pass, of those switched on (features/guardrails.ts)
+  // the guardrails on, of them all; red while a core one is off (features/guardrails.ts)
   const score = scoreGuards(g, rt.drawnMode)
   const checks = { length: score.of }
   const ok = score.ok
@@ -126,8 +126,9 @@ export async function drawBand($: any, e: any, next: any) {
   // ◈ 2/3, then ⚠n once a dangerous command was caught this session: one chip, one menu
   const dangerCount = await read($, dangers)
   // the ⚠n part: yellow text on the shield's own background (inverted with it while its menu is open)
-  // ◈ alone once every check passes; ◈ 2/3 while one fails
-  const guardScore = ok < checks.length ? ` ◈ ${ok}/${checks.length} ` : ' ◈ '
+  // ◈ alone while the core guardrails are on (project and home secrets denied, a mode that asks);
+  // ◈ 7/16, red, while one of them is off: the guardrails on, of them all
+  const guardScore = isAlert ? ` ◈ ${ok}/${checks.length} ` : ' ◈ '
   const guardDanger = dangerCount ? `⚠${dangerCount} ` : ''
   const guardLabel = !cfg.barGuard ? '' : guardScore + guardDanger
   // ⌁ n: the MCP servers connected; red when the last check found one that failed

@@ -2,19 +2,39 @@ import type { GuardInfo } from '../../types'
 import { cfg } from '../state/config'
 import type { CfgKey } from '../state/config'
 
-// The guardrails the shield menu lists, each with its switch. Two kinds:
-//   setting: a check on Claude Code's own settings, which passes or fails (deny rules, hooks, the
-//     mode, the sandbox); its fix writes the settings.
-//   guard: a check this mod makes on every tool call or turn; switched on, it is in force, so it
-//     passes, unless it lacks what it needs (an empty allowlist).
-// One switched off is left out of the ◈ score and, for a guard, not enforced.
-export type GuardId = 'deny' | 'hooks' | 'mode' | 'sandbox' | 'danger' | 'vault' | 'redact' | 'proveDone' | 'git' | 'outside' | 'egress' | 'budget' | 'deps'
-export type GuardRow = { id: GuardId; key: CfgKey; kind: 'setting' | 'guard'; title: string; what: string }
+// The guardrails the shield menu lists. Each is on (a green ✓) or off (a red ✗), and a press on
+// its row switches it. Two kinds:
+//   setting: read from Claude Code's own settings, as they stand: a set of deny rules is on while
+//     every rule of it is in the merged settings, the audit hook while it is there, the mode while it
+//     is not bypass, the sandbox while it is enabled. A press writes the rules or the hook into the
+//     scope chip's file (or takes them out of every file that has them), or opens the mode menu or
+//     /sandbox.
+//   guard: a check this mod makes on every tool call or turn, on while its switch is on.
+export type DenySetId = 'denyProject' | 'denyHome' | 'denyLogins' | 'denyClaude'
+export type GuardId = DenySetId | 'hooks' | 'mode' | 'sandbox' | 'danger' | 'vault' | 'redact' | 'proveDone' | 'git' | 'outside' | 'egress' | 'budget' | 'deps'
+// core: off, it turns the bar's ◈ red (secrets open to Claude, or no prompts at all)
+export type GuardRow = { id: GuardId; key?: CfgKey; kind: 'setting' | 'guard'; title: string; what: string; isCore?: boolean }
+
+// Each deny set: the paths it shuts to Read (Read, Grep, Glob) and Edit (Edit, Write, NotebookEdit).
+// A Bash command such as cat still reaches them: the sandbox is what walls Bash off.
+const readWrite = (paths: string[]) => paths.flatMap(p => [`Read(${p})`, `Edit(${p})`])
+export const DENY_SETS: Record<DenySetId, string[]> = {
+  denyProject: readWrite(['./.env', './.env.*', './secrets/**', './exports/**', './**/*.pem', './**/*.key']),
+  denyHome: readWrite(['~/.ssh/**', '~/.aws/**']),
+  denyLogins: readWrite(['~/.config/gcloud/**', '~/.azure/**', '~/.kube/**', '~/.docker/config.json', '~/.npmrc', '~/.pypirc', '~/.netrc', '~/.git-credentials', '~/.gnupg/**']),
+  // Claude cannot loosen its own rules or hooks; you still can, here or in /permissions
+  denyClaude: ['Edit(./.claude/settings.json)', 'Edit(./.claude/settings.local.json)', 'Edit(~/.claude/settings.json)'],
+}
+export const isDenySet = (id: GuardId): id is DenySetId => id in DENY_SETS
+
 export const GUARDRAILS: GuardRow[] = [
-  { id: 'deny', key: 'guardDeny', kind: 'setting', title: 'Deny rules', what: 'settings deny reading .env, secrets and keys' },
-  { id: 'hooks', key: 'guardHooks', kind: 'setting', title: 'Settings hooks', what: 'a hook in the settings sees the tool calls' },
-  { id: 'mode', key: 'guardMode', kind: 'setting', title: 'A mode that asks', what: 'not bypass permissions' },
-  { id: 'sandbox', key: 'guardSandbox', kind: 'setting', title: 'Sandbox', what: 'Bash runs walled off from your files and network' },
+  { id: 'denyProject', kind: 'setting', isCore: true, title: 'Deny project secrets and keys', what: '.env, .env.*, secrets/, exports/, *.pem, *.key: no Read, no Edit' },
+  { id: 'denyHome', kind: 'setting', isCore: true, title: 'Deny home secrets and keys', what: '~/.ssh, ~/.aws: no Read, no Edit' },
+  { id: 'denyLogins', kind: 'setting', title: 'Deny cloud and registry logins', what: 'gcloud, Azure, kube, Docker, .npmrc, .pypirc, .netrc, .git-credentials, .gnupg' },
+  { id: 'denyClaude', kind: 'setting', title: 'Deny edits to Claude settings', what: "Claude cannot change its own rules and hooks in the settings files" },
+  { id: 'hooks', kind: 'setting', title: 'Audit hook', what: 'each Bash call appended to .claude/audit.jsonl; it records, blocks nothing' },
+  { id: 'mode', kind: 'setting', isCore: true, title: 'A mode that asks', what: 'not bypass permissions' },
+  { id: 'sandbox', kind: 'setting', title: 'Sandbox', what: 'Bash runs walled off from your files and network' },
   { id: 'danger', key: 'dangerConfirm', kind: 'guard', title: 'Dangerous commands', what: 'rm -rf, push --force, reset --hard, curl | sh ask you, in any mode' },
   { id: 'vault', key: 'guardVault', kind: 'guard', title: 'Secret vault', what: "Bash never reads the vault; its values are masked in what Bash prints" },
   { id: 'redact', key: 'guardRedact', kind: 'guard', title: 'Redact PII and secrets', what: 'emails, phone numbers, ID and card numbers, keys masked in what tools give Claude' },
@@ -26,31 +46,45 @@ export const GUARDRAILS: GuardRow[] = [
   { id: 'deps', key: 'guardDeps', kind: 'guard', title: 'New packages', what: 'npm, pnpm, yarn, pip, uv, cargo or go installing a package asks you' },
 ]
 
-export const isOn = (id: GuardId) => Boolean(cfg[GUARDRAILS.find(g => g.id === id)!.key])
+export const isOn = (id: GuardId) => {
+  const key = GUARDRAILS.find(g => g.id === id)?.key
+  return key ? Boolean(cfg[key]) : false
+}
 
-// One guardrail as it stands: off; on and passing; on and failing (red); on and lacking (yellow).
-export type GuardState = 'off' | 'pass' | 'fail' | 'warn'
+// The audit hook in the settings: a hook command that writes audit.jsonl
+export const hasAuditHook = (g: GuardInfo) => (g.hookList ?? []).some(h => h.command.includes('audit.jsonl'))
+
+// One guardrail as it stands: off (a red ✗); on (a green ✓); on but lacking what it needs (a yellow !).
+export type GuardState = 'off' | 'pass' | 'warn'
 export function guardState(row: GuardRow, g: GuardInfo, mode: string): { state: GuardState; note: string } {
-  if (!cfg[row.key]) return { state: 'off', note: 'off: not counted' }
+  if (isDenySet(row.id)) {
+    const rules = DENY_SETS[row.id]
+    const have = rules.filter(r => g.deny.includes(r)).length
+    return have === rules.length
+      ? { state: 'pass', note: `${rules.length} deny rules in force` }
+      : { state: 'off', note: have ? `${have} of ${rules.length} rules: a press adds the rest` : row.what }
+  }
   switch (row.id) {
-    case 'deny': return g.deny.length ? { state: 'pass', note: `${g.deny.length} rules` } : { state: 'fail', note: 'none: Claude may read any file' }
-    case 'hooks': return g.hooks.length ? { state: 'pass', note: `on ${g.hooks.join(', ')}` } : { state: 'fail', note: 'no settings hooks' }
-    case 'mode': return mode === 'bypass' ? { state: 'fail', note: 'bypass permissions: no prompts at all' } : { state: 'pass', note: mode }
-    case 'sandbox': return g.sandbox ? { state: 'pass', note: 'on' } : { state: 'fail', note: 'off: /sandbox sets it up' }
+    case 'hooks': return hasAuditHook(g) ? { state: 'pass', note: 'Bash calls go to .claude/audit.jsonl' } : { state: 'off', note: row.what }
+    case 'mode': return mode === 'bypass' ? { state: 'off', note: 'bypass permissions: no prompts at all; a press opens the mode menu' } : { state: 'pass', note: mode }
+    case 'sandbox': return g.sandbox ? { state: 'pass', note: 'on; a press opens /sandbox' } : { state: 'off', note: 'off: a press opens /sandbox to set it up' }
+  }
+  if (!row.key || !cfg[row.key]) return { state: 'off', note: row.what }
+  switch (row.id) {
     case 'egress': {
       const hosts = egressHosts()
       return hosts.length ? { state: 'pass', note: `${hosts.length} hosts allowed` } : { state: 'warn', note: 'no host allowed yet: every one asks' }
     }
     case 'budget': return { state: 'pass', note: `$${cfg.budgetUsd} or ${cfg.budgetMinutes} min a turn` }
-    default: return { state: 'pass', note: 'in force' }
+    default: return { state: 'pass', note: row.what }
   }
 }
 
-// The ◈ score: the guardrails switched on that pass, of those switched on
+// The ◈ score: the guardrails on, of them all; red while a core one is off
 export function guardScore(g: GuardInfo, mode: string) {
-  const on = GUARDRAILS.map(r => guardState(r, g, mode)).filter(s => s.state !== 'off')
-  const ok = on.filter(s => s.state === 'pass').length
-  return { ok, of: on.length, isAlert: on.some(s => s.state === 'fail') }
+  const states = GUARDRAILS.map(r => ({ row: r, ...guardState(r, g, mode) }))
+  const ok = states.filter(s => s.state === 'pass').length
+  return { ok, of: states.length, isAlert: states.some(s => s.row.isCore && s.state === 'off') }
 }
 
 // ---- the network allowlist -------------------------------------------------------------------
