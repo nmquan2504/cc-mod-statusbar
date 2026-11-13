@@ -75,6 +75,8 @@ export const rt = {
   // task-tool calls, its Bash commands, the calls since the list last changed, the one stop and the
   // one nudge it gave
   taskTools: null as string[] | null,
+  // the tasks menu: the tasks done in earlier turns, listed or folded into one line
+  isEarlierOpen: false,
   isTaskTouched: false,
   taskBash: 0,
   callsSinceTask: 0,

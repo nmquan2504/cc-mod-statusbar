@@ -7,7 +7,7 @@ import type { AskCount, McpRule } from '../../features/permissions'
 import { DENY_SETS, GUARDRAILS, egressHosts, guardScore, guardState, isDenySet } from '../../features/guardrails'
 import type { GuardRow } from '../../features/guardrails'
 import { groupHooks, groupRules } from '../../lib/guardclass'
-import { readTaskTools } from '../../features/tasklist'
+import { readTaskTools, syncTaskRule } from '../../features/tasklist'
 import { SCOPES, scopeFile, scopeNow } from '../../features/settingsfile'
 import type { RuleScope } from '../../features/settingsfile'
 import { cfg, saveSettings } from '../../state/config'
@@ -71,6 +71,8 @@ export async function drawGuardMenu($: any, els: any, _isTerminal: boolean, _ent
     if (r.key) await flip(r.key)
     // switched on: which task tools the session has, so the row can say when there are none
     if (r.id === 'taskList' && cfg.guardTaskList) await readTaskTools($).catch(() => undefined)
+    // the rule each prompt carries, on or off with the switch
+    if (r.id === 'taskList') await syncTaskRule($).catch(() => undefined)
   }
   // A scored check: a green check or a red cross. 'warn': a yellow mark for what is advised,
   // not scored. 'info': a dim dot for a figure that is neither.

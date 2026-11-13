@@ -1,4 +1,5 @@
 import { HEALTH_EVERY, checkServers, scanBackground } from '../features/work'
+import { syncTaskRule } from '../features/tasklist'
 import { atom, read } from 'claude-code'
 import { resetArena, stepArena, stepLinger } from '../features/arena'
 import { runAutomation } from '../features/automation'
@@ -38,6 +39,8 @@ export function registerSession(on: On) {
     rt.defaultMode = ({ default: 'manual', acceptEdits: 'acceptEdits', plan: 'plan', auto: 'auto', bypassPermissions: 'bypass', dontAsk: 'dontAsk' } as Record<string, string>)[perms?.defaultMode ?? 'default'] ?? 'manual'
     await refreshBar($)
     await readGuard($)
+    // the task-list rule where the prompt hook reads it, as the switch stands
+    void syncTaskRule($).catch(() => undefined)
     await vaultSessionStart($)
     await zeroTtsSessionStart($).catch(() => undefined)
     await readMcp($).catch(() => undefined)

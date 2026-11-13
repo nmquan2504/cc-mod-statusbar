@@ -4,6 +4,8 @@
 //                                        so the mod leaves the phone's questions to the hub
 //   node dialog-hook.mjs permission      PermissionRequest: the dialog is up; the hook asks the
 //                                        hub to show it on the phone and waits for the answer
+//   node dialog-hook.mjs prompt-submit   UserPromptSubmit: with the task-list guardrail on, its rule
+//                                        (task-rule.txt, which the mod writes) goes in as context
 //
 // Claude Code runs a PermissionRequest hook beside its dialog: the person answers at the computer
 // (the engine leaves this process running; the mod has the hub let it go) or on the phone (the hub
@@ -11,7 +13,7 @@
 // a session the remote is off in, the hub answers null and the hook prints nothing: the dialog alone
 // asks. The hook trusts the folder only when it is this user's own (owndir.mjs), and prints only an
 // allow or a deny it builds itself: never a rewritten command, a rule or a mode. Node 18 or newer.
-import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { request } from 'node:http'
 import { join } from 'node:path'
 import { isOwnDir } from './owndir.mjs'
@@ -83,11 +85,30 @@ function decisionOf(d, e) {
   return Object.keys(answers).length ? { behavior: 'allow', updatedInput: { ...e.tool_input, answers } } : null
 }
 
+// The task-list rule, when the mod wrote one: a plain file of this user's in a folder of this
+// user's own, never a link; empty while the guardrail is off
+function taskRule() {
+  if (!isOwnDir(DIR)) return ''
+  const path = join(DIR, 'task-rule.txt')
+  try {
+    const st = lstatSync(path)
+    if (!st.isFile() || st.uid !== process.getuid?.()) return ''
+    return readFileSync(path, 'utf8').trim().slice(0, 4000)
+  } catch {
+    return ''
+  }
+}
+
 async function main() {
   const e = JSON.parse((await stdin()) || '{}')
   const id = idOf(e)
   if (!id) return
   if (process.argv[2] === 'session-start') return markSession(id)
+  if (process.argv[2] === 'prompt-submit') {
+    const rule = taskRule()
+    if (rule) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: rule } }))
+    return
+  }
   if (process.argv[2] !== 'permission' || SKIP.has(e.tool_name) || !isOwnDir(DIR)) return
   const answer = await held(id, { tool: String(e.tool_name ?? ''), input: e.tool_input ?? {}, suggestions: e.permission_suggestions ?? null })
   const decision = decisionOf(answer, e)

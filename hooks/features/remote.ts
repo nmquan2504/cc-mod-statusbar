@@ -157,7 +157,7 @@ const sockOf = () => `${remote.dir}/hub.sock`
 // made now when missing (the hub's start).
 // `find -perm 700` matches the mode exactly, the same on macOS and Linux (stat's flags differ).
 const OWN_DIR = '[ -n "$2" ] && mkdir -m 700 "$1" 2>/dev/null; [ -d "$1" ] && [ ! -L "$1" ] && [ -O "$1" ] && [ -n "$(find "$1" -maxdepth 0 -perm 700 2>/dev/null)" ]'
-async function hubDir($: any, isMade = false) {
+export async function hubDir($: any, isMade = false) {
   if (remote.dir) return remote.dir
   const r = await $.process.run(['id', '-u']).catch(() => undefined)
   const uid = String(r?.stdout ?? '').trim()

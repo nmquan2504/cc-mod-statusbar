@@ -2562,28 +2562,46 @@ test('task list first: an edit with no list is stopped once; the band shows even
   await band.press({ key: 'gr:taskList' }) // off again, for the tests after
 })
 
-test('task list first puts its rule in the system prompt, for a request that offers a task tool', async ($, on) => {
-  engine(on)
+test('task list first writes its rule where the prompt hook reads it: the rule while on, nothing while off', async ($, on) => {
+  // the hub's folder: this user's id, and the folder check passing
+  engine(on, { run: argv => (argv[0] === 'id' ? { exitCode: 0, stdout: '501\n', stderr: '' } : argv[0] === '/bin/sh' && String(argv[2]).includes('mkdir -m 700') ? { exitCode: 0, stdout: '', stderr: '' } : undefined) })
   settingsStore(on)
-  on('prompt.compose', () => ({ sections: [{ id: 'intro', text: 'You are Claude.', scope: 'shared' }] }))
+  const written: Record<string, string> = {}
+  on('fs.write', (_: unknown, e: any) => ((written[e.path] = e.text), { value: undefined }))
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
-  const t = $ as any
-  // the facts a request is composed from, as the engine gives them
-  const facts = (tools: string[]) => ({ model: 'claude-opus-5-5', promptModel: 'claude-opus-5-5', surfaces: ['terminal'], tools, outputStyle: null, traits: [] })
-  const ids = async (tools: string[]) => (await t.prompt.compose(facts(tools))).sections.map((x: any) => x.id)
-  expect(await ids(['TaskCreate', 'Edit'])).toEqual(['intro']) // off: nothing added
   await band.press({ key: 'guard' })
   await band.press({ key: 'gr:taskList' })
-  const r = await t.prompt.compose(facts(['TaskCreate', 'Edit']))
-  expect(r.sections.map((x: any) => x.id)).toEqual(['intro', 'cc-mod-statusbar-task-list'])
-  const rule = r.sections[1]
-  expect(rule.scope).toBe('session')
-  expect(rule.text).toContain('make a task list')
-  expect(rule.text).toContain('Before you finish a turn, bring the task list up to date')
-  // claude-mem's work state counts as a task tool; a request with none gets no rule
-  expect(await ids(['mcp__plugin_claude-mem_mcp-search__work_state_write'])).toContain('cc-mod-statusbar-task-list')
-  expect(await ids(['Edit', 'Bash'])).toEqual(['intro'])
+  const rule = written['/tmp/qsb-remote-501/task-rule.txt']
+  expect(rule).toContain('make a task list')
+  expect(rule).toContain('Before you finish a turn, bring the task list up to date')
   await band.press({ key: 'gr:taskList' }) // off again, for the tests after
+  expect(written['/tmp/qsb-remote-501/task-rule.txt']).toBe('')
+})
+
+test('the tasks menu counts this run of work, as the band does; tasks done in earlier turns fold into one line', async ($, on) => {
+  engine(on)
+  settingsStore(on)
+  mock.clock(on)
+  let ids = 100
+  on('tool.call', { tool: 'TaskCreate' }, (_: unknown, e: any) => ({ result: { task: { id: String(++ids), subject: e.subject } } }))
+  on('tool.call', { tool: 'TaskUpdate' }, () => ({ result: { success: true } }))
+  on('turn.start', () => ({ turnId: 't1' }))
+  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  const t = $ as any
+  await t.turn.start({ text: 'first job', turnId: 't1', kind: 'engine' })
+  await t.tool.call({ tool: 'TaskCreate', subject: 'An old job', description: 'x' })
+  await t.tool.call({ tool: 'TaskUpdate', taskId: '101', status: 'completed' })
+  await t.turn.start({ text: 'next job', turnId: 't2', kind: 'engine' })
+  await t.tool.call({ tool: 'TaskCreate', subject: 'The new job', description: 'x' })
+  await band.press({ key: 'claude' })
+  const drawn = await textOf(band)
+  expect(drawn).toContain('0/1 done')
+  expect(drawn).toContain('The new job')
+  expect(drawn).not.toContain('An old job')
+  expect((await band.find({ key: 'tasks-earlier' }))?.text).toContain('▸ 1 done in earlier turns')
+  await band.press({ key: 'tasks-earlier' })
+  expect(await textOf(band)).toContain('An old job')
+  await band.press({ key: 'tasks-earlier' }) // folded again, for the tests after
 })
 
 test('task list first stands down with no task tool, and keeps claude-mem work state as tasks', async ($, on) => {
