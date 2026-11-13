@@ -108,7 +108,11 @@ export async function drawTasksMenu($: any, els: any, _isTerminal: boolean, _ent
     status === 'completed' ? <Text color="success">✓</Text>
       : status === 'in_progress' ? <Text color="claude" bold>▸</Text>
         : <Text dimColor>○</Text>
-  const done = list.filter(t => t.status === 'completed').length
+  // this run of work, as the band's task line and the phone show it: the tasks done before the turn
+  // started go in one line of their own, which a press opens
+  const earlier = list.filter(t => t.status === 'completed' && rt.doneBefore.has(t.id))
+  const now = list.filter(t => !(t.status === 'completed' && rt.doneBefore.has(t.id)))
+  const done = now.filter(t => t.status === 'completed').length
   const turn = await read($, lastTurn)
   return (
     <Box flexDirection="column">
@@ -128,13 +132,24 @@ export async function drawTasksMenu($: any, els: any, _isTerminal: boolean, _ent
       </Text>
       <Text>
         {'\n'}<Text color="claude" bold>◆ Tasks</Text>
-        <Text dimColor>{list.length ? `  ${done}/${list.length} done` : '  none: Claude has not made a task list this session'}</Text>
+        <Text dimColor>{now.length ? `  ${done}/${now.length} done` : list.length ? '  none open now' : '  none: Claude has not made a task list this session'}</Text>
       </Text>
-      {list.map(t => (
+      {now.map(t => (
         <Text key={`t:${t.id}`}>
           {'  '}{mark(t.status)} <Text bold={t.status === 'in_progress'} dimColor={t.status === 'completed'}>{oneLine(t.subject, 100)}</Text>
         </Text>
       ))}
+      {earlier.length ? (
+        <Button key="tasks-earlier" plain onPress={() => {
+          rt.isEarlierOpen = !rt.isEarlierOpen
+          $.ui.invalidate('ui.render')
+        }}>
+          <Text dimColor>{`  ${rt.isEarlierOpen ? '▾' : '▸'} ${earlier.length} done in earlier turns`}</Text>
+        </Button>
+      ) : null}
+      {rt.isEarlierOpen ? earlier.map(t => (
+        <Text key={`te:${t.id}`} dimColor>{'    ✓ '}{oneLine(t.subject, 100)}</Text>
+      )) : null}
       <Text>
         {'\n'}<Text color="subtle" bold>◇ Edited this turn</Text>
         <Text dimColor>{files.length ? `  ${files.length} file(s): a pick puts it in the prompt, o opens the last in your editor` : '  nothing yet'}</Text>

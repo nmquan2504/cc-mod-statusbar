@@ -1,5 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import { rt } from '../state/runtime'
+import { isOn } from './guardrails'
+import { hubDir } from './remote'
 
 // The atoms this file reads or writes (each file declares its own: the engine reads an atom only
 // where a const of the same file made it; the same plugin and key are the same value).
@@ -54,11 +56,22 @@ export async function keepWorkState($: any, e: any) {
 // What the guardrail tells Claude: at the stop, at the nudge, and at the end of a turn
 export const TASK_STOP = 'Stopped by the task-list guardrail: make a task list before you work, so the person can follow along (TaskCreate, TodoWrite, or work_state_write if that is the task tool here). One task is fine for a small job. Mark the first one in progress, then run this again.'
 export const TASK_NUDGE = 'Stopped once by the task-list guardrail: the task list has not changed for a while. Bring it up to date (mark what is done, add tasks that came up, mark the one in progress), then run this again.'
-// The rule the system prompt carries while the guardrail is on: asked up front, so the stop above
-// is a backstop that seldom fires; it ends with what the turn's end used to ask in a prompt of its own
+// The rule each prompt carries while the guardrail is on: asked up front, so the stops are a
+// backstop that seldom fires. Claude Code's built-in cc-plugin-sec-default plugin skips a plugin's
+// prompt.compose hook (Team and Enterprise organizations), so the rule goes in by a command hook
+// (remote/dialog-hook.mjs prompt-submit, UserPromptSubmit), which runs beneath every plugin.
 export const TASK_RULE = [
   "# Task list (the person's task-list guardrail is on)",
   'Before you edit a file or run more than two commands, make a task list with your task tool (TaskCreate, TodoWrite, or work_state_write if that is the one here) so the person can follow along. One task is enough for a small job.',
   'Keep one task in progress at a time, add tasks as they come up, and mark each one done as you finish it.',
   'Before you finish a turn, bring the task list up to date: mark what is done, and for each task still open say what is left.',
 ].join('\n')
+
+// The rule as the command hook reads it: /tmp/qsb-remote-<uid>/task-rule.txt, in the folder that is
+// this user's own (mode 700). Empty while the guardrail is off; written at a session's start and at
+// each switch, so it follows the switch every session shares.
+export async function syncTaskRule($: any) {
+  const dir = await hubDir($, true)
+  if (!dir) return
+  await $.fs.write(`${dir}/task-rule.txt`, isOn('taskList') ? `${TASK_RULE}\n` : '')
+}
