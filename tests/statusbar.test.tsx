@@ -212,8 +212,8 @@ test('with no deny rules the shield turns red and says so', async ($, on) => {
   // the sandbox is off here: a warning in Permissions, a red ✗ in Guardrails
   expect(drawn).toContain('off: advised')
   expect((await band.find({ key: 'gr:sandbox' }))?.text).toMatch(/\[off\] ! Sandbox/)
-  expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ 6/17 ')
-  // the menu says the same score the chip shows
+  // the chip counts the core guardrails off (both secret sets); the menu heads with the full score
+  expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ 2 ')
   expect(drawn).toContain('6/17 on')
 })
 
@@ -296,7 +296,8 @@ test('while a turn runs Claude stands in the arena, and stays a while after it e
 
 test('a narrow terminal gets the compact bar: short labels, no gauges, one row, the arena kept', async ($, on) => {
   engine(on)
-  for (const bodyColumns of [100, 120]) {
+  // 117: the shield's ◈ 2 is three cells shorter than the old ◈ 6/17, so at 120 the full bar fits
+  for (const bodyColumns of [100, 117]) {
     const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, isWorking: true, bodyColumns } } as never)
     await band.press({ key: 'model' }) // reads the model, the usage, the folder and the branch
     await band.press({ key: 'model' })
@@ -306,8 +307,8 @@ test('a narrow terminal gets the compact bar: short labels, no gauges, one row, 
     const root = JSON.parse(await textOf(band))
     const row = root.children[root.children.length - 1]
     expect(cells(row)).toBeLessThanOrEqual(bodyColumns - 4)
-    // at 120 the short labels leave the arena its room; at 100 it steps out and Claude moves right
-    if (bodyColumns === 120) expect(JSON.stringify(row)).toContain('"key":"arena"')
+    // at 117 the short labels leave the arena its room; at 100 it steps out and Claude moves right
+    if (bodyColumns === 117) expect(JSON.stringify(row)).toContain('"key":"arena"')
     expect(await band.find({ key: 'claude' })).toBeDefined()
     await band.unmount()
   }
@@ -1278,7 +1279,7 @@ test('a dangerous command asks the person even when the mode would allow it; a r
   expect(ran).toEqual([])
   // the shield chip counts it after its score, its menu lists it in red
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, bodyColumns: 160 } } as never)
-  expect((await band.find({ key: 'guard' }))?.text).toMatch(/^ ◈ (\d+\/\d+ )?⚠1 $/)
+  expect((await band.find({ key: 'guard' }))?.text).toMatch(/^ ◈ (\d+ )?⚠1 $/)
   // ⚠1 in yellow text on the shield's own background
   expect(await textOf(band)).toMatch(/\{"type":"Text","props":\{"backgroundColor":"(success|error)","color":"warning","bold":true\},"children":\["⚠1 "\]\}/)
   expect(await band.find({ key: 'danger' })).toBeUndefined()
@@ -1449,11 +1450,11 @@ test('the shield follows the settings with its menu shut, every 5 seconds', asyn
   await t.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true }) // starts the 1-second clock
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   const score = async () => (await band.find({ key: 'guard' }))?.text ?? ''
-  expect(await score()).toBe(' ◈ 6/17 ') // no deny rules
+  expect(await score()).toBe(' ◈ 2 ') // no deny rules: both core secret sets off
   // the project's deny set lands in a settings file: the 5-second read finds it
   live.settings = { permissions: { deny: DENY_SETS.denyProject } }
   for (let i = 0; i < 5; i++) await clock.advance(1000)
-  expect(await score()).toBe(' ◈ 7/17 ')
+  expect(await score()).toBe(' ◈ 1 ')
   // then the home folder's: the core guardrails on, the count goes
   live.settings = { permissions: { deny: [...DENY_SETS.denyProject, ...DENY_SETS.denyHome] } }
   for (let i = 0; i < 5; i++) await clock.advance(1000)
@@ -1664,7 +1665,7 @@ test('the shield chip shows its score only while a core guardrail is off', async
   expect((await band.find({ key: 'gr:denyLogins' }))?.text).toMatch(/^\[off\] ! /)
   expect((await band.find({ key: 'gr:redact' }))?.text).toMatch(/^\[off\] ! /)
   await band.press({ key: 'guard' })
-  expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ 6/17 ')
+  expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ 2 ')
 })
 
 test('in Claude Code for VS Code the bar draws nothing: the engine draws its own', async ($, on) => {
@@ -2681,10 +2682,12 @@ test('the shield menu: a guard switched on counts; the scope chip picks the file
   on('tool.list', () => ({ value: [{ name: 'mcp__notion__search', description: '', mcp: true }, { name: 'mcp__notion__create_page', description: '', mcp: true }] }))
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   await band.press({ key: 'guard' })
-  // no deny rules: the core sets off, six of the sixteen on
-  expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ 6/17 ')
+  // no deny rules: the two core sets off; a guardrail that is not core leaves the chip's count alone
+  expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ 2 ')
+  expect(await textOf(band)).toContain('6/17 on')
   await band.press({ key: 'gr:redact' })
-  expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ 7/17 ')
+  expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ 2 ')
+  expect(await textOf(band)).toContain('7/17 on')
   expect((await band.find({ key: 'gr:redact' }))?.text).toContain('[on]')
   await band.press({ key: 'gr:redact' })
   expect((await band.find({ key: 'gr:redact' }))?.text).toMatch(/\[off\] !/)

@@ -73,8 +73,6 @@ export async function drawBand($: any, e: any, next: any) {
   const g = await read($, guard)
   // the guardrails on, of them all; red while a core one is off (features/guardrails.ts)
   const score = scoreGuards(g, rt.drawnMode)
-  const checks = { length: score.of }
-  const ok = score.ok
   const isAlert = score.isAlert
 
   // A square button: the label on a full cell of `bg` (no glyph caps, so it fills the row
@@ -124,12 +122,12 @@ export async function drawBand($: any, e: any, next: any) {
   const folderMarkCells = 1
   // ⎇ branch, ✎ files changed, ⇡ commits to push, ⇣ commits to pull
   const gitMarks = !cfg.gitMarks ? '' : [b.dirty ? `✎${b.dirty}` : '', b.ahead ? `⇡${b.ahead}` : '', b.behind ? `⇣${b.behind}` : ''].filter(Boolean).join(' ')
-  // ◈ 2/3, then ⚠n once a dangerous command was caught this session: one chip, one menu
+  // ◈ (or ◈ 2), then ⚠n once a dangerous command was caught this session: one chip, one menu
   const dangerCount = await read($, dangers)
   // the ⚠n part: yellow text on the shield's own background (inverted with it while its menu is open)
-  // ◈ alone while the core guardrails are on (project and home secrets denied, a mode that asks);
-  // ◈ 7/16, red, while one of them is off: the guardrails on, of them all
-  const guardScore = isAlert ? ` ◈ ${ok}/${checks.length} ` : ' ◈ '
+  // ◈ alone, green, while the core guardrails are on (project and home secrets denied, a mode that
+  // asks); ◈ 2, red, while some of them are off: how many core ones are off
+  const guardScore = isAlert ? ` ◈ ${score.coreOff} ` : ' ◈ '
   const guardDanger = dangerCount ? `⚠${dangerCount} ` : ''
   const guardLabel = !cfg.barGuard ? '' : guardScore + guardDanger
   // ⌁ n: the MCP servers connected; red when the last check found one that failed
@@ -380,9 +378,8 @@ export async function drawBand($: any, e: any, next: any) {
       week: b.week,
       ctx,
       isCtxShown: !!ctxLabel,
-      guardOk: ok,
-      guardOf: checks.length,
       isGuardAlert: isAlert,
+      guardCoreOff: score.coreOff,
       dangers: dangerCount,
       mcpLive: liveMcp,
       mcpFailed,
