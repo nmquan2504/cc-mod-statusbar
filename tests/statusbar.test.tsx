@@ -2510,7 +2510,7 @@ test('stay in the project: a write outside it asks; a folder allowed for the ses
   expect(wrote).toEqual(['/work/shop/src/a.ts', '/tmp/scratch.txt', '/work/other/b.ts', '/work/other/c.ts'])
 })
 
-test('task list first: an edit with no list is stopped once; the band shows even one task; a stale list is nudged', async ($, on) => {
+test('task list first: an edit with no list runs with a reminder for Claude; the band shows even one task; a stale list is nudged', async ($, on) => {
   engine(on)
   settingsStore(on)
   mock.clock(on) // turn.start reads the clock before the guardrails' part of it
@@ -2532,19 +2532,25 @@ test('task list first: an edit with no list is stopped once; the band shows even
   const t = $ as any
   const edit = () => t.tool.call({ tool: 'Edit', file_path: '/work/shop/src/a.ts', old_string: 'a', new_string: 'b' })
   await t.turn.start({ text: 'fix it', turnId: 't1', kind: 'engine' })
-  // two commands to look around pass; the first edit with no list is stopped
-  expect((await t.tool.call({ tool: 'Bash', command: 'ls' })).deny).toBeUndefined()
-  expect((await t.tool.call({ tool: 'Bash', command: 'cat a.ts' })).deny).toBeUndefined()
-  expect((await edit()).deny).toContain('make a task list')
+  // two commands to look around pass; the first edit with no list runs, and Claude reads a reminder
+  // after its result (context, which the person never sees): nothing is refused
+  expect((await t.tool.call({ tool: 'Bash', command: 'ls' })).context).toBeUndefined()
+  expect((await t.tool.call({ tool: 'Bash', command: 'cat a.ts' })).context).toBeUndefined()
+  const first = await edit()
+  expect(first.deny).toBeUndefined()
+  expect(first.context?.[0]).toContain('no task list yet')
+  expect((await edit()).context).toBeUndefined() // once a turn
   // a list of one task: the edit goes through, and the band shows the task
   await t.tool.call({ tool: 'TaskCreate', subject: 'Fix the parser', description: 'x' })
   await t.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'in_progress' })
-  expect((await edit()).deny).toBeUndefined()
+  expect((await edit()).context).toBeUndefined()
   expect((await band.find({ key: 'taskline' }))?.text).toContain('▸ 1/1 Fix the parser')
-  // the eighth call with the list as it was is stopped once
-  for (let i = 0; i < 6; i++) expect((await t.tool.call({ tool: 'Bash', command: `echo ${i}` })).deny).toBeUndefined()
-  expect((await t.tool.call({ tool: 'Bash', command: 'echo 6' })).deny).toContain('has not changed')
-  expect((await t.tool.call({ tool: 'Bash', command: 'echo 7' })).deny).toBeUndefined()
+  // the eighth call with the list as it was runs and carries one reminder
+  for (let i = 0; i < 6; i++) expect((await t.tool.call({ tool: 'Bash', command: `echo ${i}` })).context).toBeUndefined()
+  const stale = await t.tool.call({ tool: 'Bash', command: 'echo 6' })
+  expect(stale.deny).toBeUndefined()
+  expect(stale.context?.[0]).toContain('has not changed')
+  expect((await t.tool.call({ tool: 'Bash', command: 'echo 7' })).context).toBeUndefined()
   // the turn ends with the task open and the edit unchecked: prove done asks; the task list asks
   // nothing here (its rule in the system prompt does)
   await t.turn.complete({ text: 'ok', reason: 'answer', answer: 'Fixed.' })
@@ -2621,16 +2627,16 @@ test('task list first stands down with no task tool, and keeps claude-mem work s
   const t = $ as any
   const edit = () => t.tool.call({ tool: 'Edit', file_path: '/work/shop/src/a.ts', old_string: 'a', new_string: 'b' })
   await t.turn.start({ text: 'fix it', turnId: 't1', kind: 'engine' })
-  expect((await edit()).deny).toBeUndefined() // no task tool: nothing to ask for
+  expect((await edit()).context).toBeUndefined() // no task tool: nothing to ask for
   await band.press({ key: 'close-menu' })
   await band.press({ key: 'guard' })
   expect((await band.find({ key: 'gr:taskList' }))?.text).toMatch(/^\[on\]  ! Task list first  no task tool in this session/)
   // claude-mem's work state counts as the list, and shows on the band
   tools = [{ name: WS, description: '', mcp: true }]
   await t.turn.start({ text: 'next', turnId: 't2', kind: 'engine' })
-  expect((await edit()).deny).toContain('make a task list')
+  expect((await edit()).context?.[0]).toContain('no task list yet')
   await t.tool.call({ tool: WS, list: 'parser', fields: { task: 'Fix the parser', status: 'doing' } })
-  expect((await edit()).deny).toBeUndefined()
+  expect((await edit()).context).toBeUndefined()
   await band.press({ key: 'close-menu' })
   expect((await band.find({ key: 'taskline' }))?.text).toContain('▸ 1/1 Fix the parser')
   await t.tool.call({ tool: WS, list: 'parser', fields: { task: 'Fix the parser', status: 'dropped' } })

@@ -53,10 +53,11 @@ export async function keepWorkState($: any, e: any) {
   })
 }
 
-// What the guardrail tells Claude: at the stop, at the nudge, and at the end of a turn
-export const TASK_STOP = 'Stopped by the task-list guardrail: make a task list before you work, so the person can follow along (TaskCreate, TodoWrite, or work_state_write if that is the task tool here). One task is fine for a small job. Mark the first one in progress, then run this again.'
-export const TASK_NUDGE = 'Stopped once by the task-list guardrail: the task list has not changed for a while. Bring it up to date (mark what is done, add tasks that came up, mark the one in progress), then run this again.'
-// The rule each prompt carries while the guardrail is on: asked up front, so the stops are a
+// What the guardrail tells Claude, after a call's result where the person never sees it (the
+// call runs): with no list yet, and with a list left unchanged for a while
+export const TASK_STOP = 'Task-list guardrail: there is no task list yet. Make one now with your task tool (TaskCreate, TodoWrite, or work_state_write if that is the one here) so the person can follow along; one task is enough for a small job. Mark the first one in progress.'
+export const TASK_NUDGE = 'Task-list guardrail: the task list has not changed for a while. Bring it up to date now: mark what is done, add tasks that came up, mark the one in progress.'
+// The rule each prompt carries while the guardrail is on: asked up front, so the reminders are a
 // backstop that seldom fires. Claude Code's built-in cc-plugin-sec-default plugin skips a plugin's
 // prompt.compose hook (Team and Enterprise organizations), so the rule goes in by a command hook
 // (remote/dialog-hook.mjs prompt-submit, UserPromptSubmit), which runs beneath every plugin.
