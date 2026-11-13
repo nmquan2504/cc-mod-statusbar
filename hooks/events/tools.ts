@@ -1,13 +1,14 @@
 import { atom, update } from 'claude-code'
 import { arena, arenaEvents } from '../features/arena'
 import { logAudit } from '../features/audit'
-import { taskListAfter, taskListGate } from './guards'
+import { taskListAfter, taskListNote } from './guards'
 import { keepEdit, lineCount } from '../features/edits'
 import { hostsOf, keepEgress } from '../features/egress'
 import { isOn } from '../features/guardrails'
 import { keepMcpCall } from '../features/mcp'
 import { releaseHeld } from '../features/remote'
 import { IN_TEXT, KEYCHAIN_READ, SERVICE, cache, scrubDeep } from '../features/vault'
+import { TASK_STOP } from '../features/tasklist'
 import { describeCall } from '../features/work'
 import { dangerOf } from '../lib/danger'
 import { oneLine } from '../lib/format'
@@ -71,9 +72,9 @@ export function registerTools(on: On) {
   }).catch(($, e, next) => (next.called ? next(e) : { deny: 'The dangerous-command check failed, so the command was refused.' }))
 
   on('tool.call', async ($, e, next) => {
-    // the task-list guardrail, here since the engine takes one unmatched tool.call hook
-    const stop = await taskListGate($, e).catch(() => undefined)
-    if (stop) return stop
+    // the task-list guardrail, here since the engine takes one unmatched tool.call hook: a note for
+    // Claude after the call's result, which the person never sees
+    const taskNote = await taskListNote($, e).catch(() => undefined)
     const isMain = !e.agentId && e.tool !== 'TaskList'
     const hosts = hostsOf(e)
     if (isMain) {
@@ -110,7 +111,8 @@ export function registerTools(on: On) {
         await keepEgress($, hosts, e.agentId ? `${via} (agent)` : via, Boolean(r?.deny)).catch(() => undefined)
       }
       // the redact guardrail: what any tool gives Claude, its strings masked (the mod's own tools aside)
-      return isOn('redact') && !e.tool.startsWith('mcp__cc-mod-statusbar__') ? redactDeep(r) : r
+      const out = isOn('redact') && !e.tool.startsWith('mcp__cc-mod-statusbar__') ? redactDeep(r) : r
+      return withTaskNote(out, taskNote)
     } finally {
       if (isMain) rt.nowTool = ''
       // a dialog the phone was shown, answered at the computer: the phone drops it (an agent's too:
@@ -118,6 +120,18 @@ export function registerTools(on: On) {
       if (rt.isHooked) void releaseHeld($, e.tool, e as Record<string, unknown>).catch(() => undefined)
     }
   })
+
+  // the task-list note, after the result in the context Claude reads; a call another hook refused has
+  // no context, so the note waits for the next call
+  function withTaskNote(r: any, note: string | undefined) {
+    if (!note) return r
+    if (!r || r.deny) {
+      if (note === TASK_STOP) rt.isTaskGated = false
+      else rt.isTaskNudged = false
+      return r
+    }
+    return { ...r, context: [...(r.context ?? []), note] }
+  }
 
   // the files the main loop writes, for "Edited this turn"
   on('tool.call', { tool: 'Edit' }, async ($, e, next) => {

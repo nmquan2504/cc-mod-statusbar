@@ -117,7 +117,9 @@ export function registerGuards(on: On) {
 // stopped once a turn; a list left as it was for TASK_STALE calls is nudged once until it changes.
 // Called from events/tools.ts's one unmatched tool.call hook: before the call, the refusal or
 // nothing; after it, what a task tool changed.
-export async function taskListGate($: any, e: any): Promise<{ deny: string } | undefined> {
+// The note a call carries back to Claude, or none: the call itself always runs, so the person sees no
+// refusal in the transcript
+export async function taskListNote($: any, e: any): Promise<string | undefined> {
   if (e.agentId || !isOn('taskList') || isTaskTool(e.tool)) return undefined
   // a session with no task tool has no list to make: the guardrail stands down
   if (!(rt.taskTools ?? (await readTaskTools($))).length) return undefined
@@ -126,14 +128,14 @@ export async function taskListGate($: any, e: any): Promise<{ deny: string } | u
   const hasList = rt.isTaskTouched || (await openTasks($)).length > 0
   if (isWork && !hasList && !rt.isTaskGated) {
     rt.isTaskGated = true
-    await logAudit($, `◈ task list: ${e.tool} stopped, no task list yet; Claude is asked to make one`, true)
-    return { deny: TASK_STOP }
+    await logAudit($, `◈ task list: ${e.tool} ran with no task list yet; Claude is reminded to make one`)
+    return TASK_STOP
   }
   if (hasList && rt.callsSinceTask >= TASK_STALE && !rt.isTaskNudged) {
     rt.isTaskNudged = true
     rt.callsSinceTask = 0
-    await logAudit($, `◈ task list: ${TASK_STALE} calls with the list unchanged; Claude is asked to update it`, true)
-    return { deny: TASK_NUDGE }
+    await logAudit($, `◈ task list: ${TASK_STALE} calls with the list unchanged; Claude is reminded to update it`)
+    return TASK_NUDGE
   }
   return undefined
 }
