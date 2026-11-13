@@ -13,6 +13,7 @@ import { cfg } from '../state/config'
 import { ME, rt } from '../state/runtime'
 import { projectDir } from '../lib/project'
 import { checkServers, frameworkOf, readServers } from './work'
+import { isOn } from './guardrails'
 
 // The atoms this file reads (each file declares its own: the engine reads an atom only where a
 // const of the same file made it; the same plugin and key are the same value).
@@ -794,6 +795,8 @@ async function snapshotOf($: any) {
     tools: rt.turnTools.slice(-30).map(hide),
     // the task list without what earlier turns completed
     tasks: (await read($, tasks)).filter(t => !(t.status === 'completed' && rt.doneBefore.has(t.id))).map(t => ({ subject: hide(t.subject), status: t.status })),
+    // the task-list guardrail on: the phone shows the list between turns too
+    isTaskList: isOn('taskList'),
     summary: turn ? { did: hide(turn.did), result: hide(turn.result), took: turn.took, cost: turn.cost } : null,
     edited: await read($, edited),
     changes: await read($, changes),

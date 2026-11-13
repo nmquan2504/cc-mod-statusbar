@@ -200,7 +200,7 @@ test('the shield reads the guardrails from the settings', async ($, on) => {
   expect(drawn).toContain('on PreToolUse')
   // the core guardrails on: the chip is the shield alone; the menu counts what is on of them all
   expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ ')
-  expect(drawn).toContain('9/16 on')
+  expect(drawn).toContain('9/17 on')
 })
 
 test('with no deny rules the shield turns red and says so', async ($, on) => {
@@ -212,9 +212,9 @@ test('with no deny rules the shield turns red and says so', async ($, on) => {
   // the sandbox is off here: a warning in Permissions, a red ✗ in Guardrails
   expect(drawn).toContain('off: advised')
   expect((await band.find({ key: 'gr:sandbox' }))?.text).toMatch(/\[off\] ! Sandbox/)
-  expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ 6/16 ')
+  expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ 6/17 ')
   // the menu says the same score the chip shows
-  expect(drawn).toContain('6/16 on')
+  expect(drawn).toContain('6/17 on')
 })
 
 test('[/] groups commands with this mod first; a pick fills the prompt', async ($, on) => {
@@ -1449,11 +1449,11 @@ test('the shield follows the settings with its menu shut, every 5 seconds', asyn
   await t.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true }) // starts the 1-second clock
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   const score = async () => (await band.find({ key: 'guard' }))?.text ?? ''
-  expect(await score()).toBe(' ◈ 6/16 ') // no deny rules
+  expect(await score()).toBe(' ◈ 6/17 ') // no deny rules
   // the project's deny set lands in a settings file: the 5-second read finds it
   live.settings = { permissions: { deny: DENY_SETS.denyProject } }
   for (let i = 0; i < 5; i++) await clock.advance(1000)
-  expect(await score()).toBe(' ◈ 7/16 ')
+  expect(await score()).toBe(' ◈ 7/17 ')
   // then the home folder's: the core guardrails on, the count goes
   live.settings = { permissions: { deny: [...DENY_SETS.denyProject, ...DENY_SETS.denyHome] } }
   for (let i = 0; i < 5; i++) await clock.advance(1000)
@@ -1664,7 +1664,7 @@ test('the shield chip shows its score only while a core guardrail is off', async
   expect((await band.find({ key: 'gr:denyLogins' }))?.text).toMatch(/^\[off\] ! /)
   expect((await band.find({ key: 'gr:redact' }))?.text).toMatch(/^\[off\] ! /)
   await band.press({ key: 'guard' })
-  expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ 6/16 ')
+  expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ 6/17 ')
 })
 
 test('in Claude Code for VS Code the bar draws nothing: the engine draws its own', async ($, on) => {
@@ -2509,6 +2509,91 @@ test('stay in the project: a write outside it asks; a folder allowed for the ses
   expect(wrote).toEqual(['/work/shop/src/a.ts', '/tmp/scratch.txt', '/work/other/b.ts', '/work/other/c.ts'])
 })
 
+test('task list first: an edit with no list is stopped once; the band shows even one task; a stale list is nudged; open tasks at the end are asked about once', async ($, on) => {
+  engine(on)
+  settingsStore(on)
+  mock.clock(on) // turn.start reads the clock before the guardrails' part of it
+  on('tool.list', () => ({ value: [{ name: 'TaskCreate', description: '', mcp: false }, { name: 'TaskUpdate', description: '', mcp: false }] }))
+  const submitted: string[] = []
+  on('prompt.submit', (_: unknown, e: any) => (submitted.push(e.text), { text: e.text }))
+  on('tool.call', { tool: 'Edit' }, () => ({ result: {} }))
+  on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: '', stderr: '', exitCode: 0 } }))
+  let ids = 0
+  on('tool.call', { tool: 'TaskCreate' }, (_: unknown, e: any) => ({ result: { task: { id: String(++ids), subject: e.subject } } }))
+  on('tool.call', { tool: 'TaskUpdate' }, () => ({ result: { success: true } }))
+  on('turn.start', () => ({ turnId: 't1' }))
+  on('turn.complete', () => ({ text: 'ok' }))
+  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await band.press({ key: 'guard' })
+  await band.press({ key: 'gr:taskList' })
+  expect((await band.find({ key: 'gr:taskList' }))?.text).toMatch(/^\[on\]  ✓ Task list first/)
+  await band.press({ key: 'close-menu' })
+  const t = $ as any
+  const edit = () => t.tool.call({ tool: 'Edit', file_path: '/work/shop/src/a.ts', old_string: 'a', new_string: 'b' })
+  await t.turn.start({ text: 'fix it', turnId: 't1', kind: 'engine' })
+  // two commands to look around pass; the first edit with no list is stopped
+  expect((await t.tool.call({ tool: 'Bash', command: 'ls' })).deny).toBeUndefined()
+  expect((await t.tool.call({ tool: 'Bash', command: 'cat a.ts' })).deny).toBeUndefined()
+  expect((await edit()).deny).toContain('make a task list')
+  // a list of one task: the edit goes through, and the band shows the task
+  await t.tool.call({ tool: 'TaskCreate', subject: 'Fix the parser', description: 'x' })
+  await t.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'in_progress' })
+  expect((await edit()).deny).toBeUndefined()
+  expect((await band.find({ key: 'taskline' }))?.text).toContain('▸ 1/1 Fix the parser')
+  // the eighth call with the list as it was is stopped once
+  for (let i = 0; i < 6; i++) expect((await t.tool.call({ tool: 'Bash', command: `echo ${i}` })).deny).toBeUndefined()
+  expect((await t.tool.call({ tool: 'Bash', command: 'echo 6' })).deny).toContain('has not changed')
+  expect((await t.tool.call({ tool: 'Bash', command: 'echo 7' })).deny).toBeUndefined()
+  // the turn ends with the task open and the edit unchecked: one prompt asks both
+  await t.turn.complete({ text: 'ok', reason: 'answer', answer: 'Fixed.' })
+  expect(submitted.length).toBe(1)
+  expect(submitted[0]).toContain('bring the task list up to date')
+  expect(submitted[0]).toContain('Before you call this done')
+  // the asked turn: nothing asked again, and a new turn with the list open is not stopped
+  await t.turn.start({ text: submitted[0], turnId: 't2', kind: 'engine' })
+  expect((await edit()).deny).toBeUndefined()
+  await t.tool.call({ tool: 'Bash', command: 'npm test' })
+  await t.turn.complete({ text: 'ok', reason: 'answer', answer: 'Still on it.' })
+  expect(submitted.length).toBe(1)
+  // done: the band says so while Claude lingers
+  await t.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'completed' })
+  await band.press({ key: 'guard' })
+  await band.press({ key: 'gr:taskList' }) // off again, for the tests after
+})
+
+test('task list first stands down with no task tool, and keeps claude-mem work state as tasks', async ($, on) => {
+  engine(on)
+  settingsStore(on)
+  mock.clock(on) // turn.start reads the clock before the guardrails' part of it
+  let tools: { name: string; description: string; mcp: boolean }[] = []
+  on('tool.list', () => ({ value: tools }))
+  on('tool.call', { tool: 'Edit' }, () => ({ result: {} }))
+  const WS = 'mcp__plugin_claude-mem_mcp-search__work_state_write'
+  on('tool.call', { tool: WS }, () => ({ result: { text: 'Saved' } }))
+  on('turn.start', () => ({ turnId: 't1' }))
+  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await band.press({ key: 'guard' })
+  await band.press({ key: 'gr:taskList' })
+  const t = $ as any
+  const edit = () => t.tool.call({ tool: 'Edit', file_path: '/work/shop/src/a.ts', old_string: 'a', new_string: 'b' })
+  await t.turn.start({ text: 'fix it', turnId: 't1', kind: 'engine' })
+  expect((await edit()).deny).toBeUndefined() // no task tool: nothing to ask for
+  await band.press({ key: 'close-menu' })
+  await band.press({ key: 'guard' })
+  expect((await band.find({ key: 'gr:taskList' }))?.text).toMatch(/^\[on\]  ! Task list first  no task tool in this session/)
+  // claude-mem's work state counts as the list, and shows on the band
+  tools = [{ name: WS, description: '', mcp: true }]
+  await t.turn.start({ text: 'next', turnId: 't2', kind: 'engine' })
+  expect((await edit()).deny).toContain('make a task list')
+  await t.tool.call({ tool: WS, list: 'parser', fields: { task: 'Fix the parser', status: 'doing' } })
+  expect((await edit()).deny).toBeUndefined()
+  await band.press({ key: 'close-menu' })
+  expect((await band.find({ key: 'taskline' }))?.text).toContain('▸ 1/1 Fix the parser')
+  await t.tool.call({ tool: WS, list: 'parser', fields: { task: 'Fix the parser', status: 'dropped' } })
+  await band.press({ key: 'guard' })
+  await band.press({ key: 'gr:taskList' }) // off again, for the tests after
+})
+
 test('prove done: an edit with nothing run to check it asks Claude once; a test run after it asks nothing', async ($, on) => {
   const toasts: string[] = []
   engine(on, { toasts })
@@ -2554,9 +2639,9 @@ test('the shield menu: a guard switched on counts; the scope chip picks the file
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   await band.press({ key: 'guard' })
   // no deny rules: the core sets off, six of the sixteen on
-  expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ 6/16 ')
+  expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ 6/17 ')
   await band.press({ key: 'gr:redact' })
-  expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ 7/16 ')
+  expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ 7/17 ')
   expect((await band.find({ key: 'gr:redact' }))?.text).toContain('[on]')
   await band.press({ key: 'gr:redact' })
   expect((await band.find({ key: 'gr:redact' }))?.text).toMatch(/\[off\] !/)

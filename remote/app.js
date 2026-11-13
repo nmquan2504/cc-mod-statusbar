@@ -715,14 +715,20 @@ function renderChat() {
     if (p.reason) b.append(el('div', 'meta', p.reason))
     b.append(el('div', 'go', tx('Answer it at the computer')))
   }
-  if (snap.busy) {
-    // the task list first, the Working line last: it stays just above the box (the tool running is
-    // the chat's own last tool line, drawn brighter)
-    const w = root.appendChild(el('div', 'working'))
+  // the task list's rows, a box each, ticked once done
+  const taskRows = w => {
     for (const t of snap.tasks || []) {
       const row = w.appendChild(el('div', `task ${t.status === 'completed' ? 'done' : t.status === 'in_progress' ? 'doing' : ''}`))
       row.append(icon(t.status === 'completed' ? 'boxChecked' : 'box'), el('span', '', t.subject))
     }
+  }
+  // between turns, with the task-list guardrail on: the tasks still open stay in sight
+  if (!snap.busy && snap.isTaskList && (snap.tasks || []).some(t => t.status !== 'completed')) taskRows(root.appendChild(el('div', 'working')))
+  if (snap.busy) {
+    // the task list first, the Working line last: it stays just above the box (the tool running is
+    // the chat's own last tool line, drawn brighter)
+    const w = root.appendChild(el('div', 'working'))
+    taskRows(w)
     const head = w.appendChild(el('div', 'head'))
     head.appendChild(el('span', 'spin')).append(icon('spark'))
     head.append(el('span', '', `${workingWord(snap.turnStartedAt)}…`), el('span', 'elapsed', ''))
