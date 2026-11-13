@@ -54,12 +54,9 @@ export const cfg = {
   paneColumns: 0,
   // rm -rf, git push --force and the like always ask the person, whatever the mode
   dangerConfirm: true,
-  // The guardrails the shield menu lists, each on or off: one off is left out of the ◈ score and,
-  // for those the mod enforces, not enforced (features/guardrails.ts). dangerConfirm above is one.
-  guardDeny: true,
-  guardHooks: true,
-  guardMode: true,
-  guardSandbox: false,
+  // The guards the mod enforces, each on or off in the shield menu (features/guardrails.ts); the
+  // deny sets, the audit hook, the mode and the sandbox there are read from the settings instead.
+  // dangerConfirm above is one.
   guardVault: true,
   guardRedact: false,
   guardProveDone: true,

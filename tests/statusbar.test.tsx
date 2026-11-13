@@ -1,5 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 import { ASK_KEY, rulesFor } from '../hooks/features/permissions'
+import { DENY_SETS } from '../hooks/features/guardrails'
 import { SENSITIVE } from '../hooks/lib/catalog'
 import { suggestPrompt, suggestionChips, suggestionsFrom } from '../hooks/lib/suggest'
 import { keyRows, rowsOf } from '../hooks/lib/rows'
@@ -45,7 +46,7 @@ function engine(on: any, opts: { filled?: string[]; settings?: object; toasts?: 
   }))
   on('settings.read', () => ({
     value: opts.settings ?? {
-      permissions: { deny: ['Read(./.env)', 'Read(./secrets/**)'], ask: ['Bash(curl *)'], allow: [] },
+      permissions: { deny: [...DENY_SETS.denyProject, ...DENY_SETS.denyHome], ask: ['Bash(curl *)'], allow: [] },
       sandbox: { enabled: true },
       hooks: { PreToolUse: [] },
       enabledPlugins: { 'a@b': true },
@@ -194,12 +195,12 @@ test('the shield reads the guardrails from the settings', async ($, on) => {
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   await band.press({ key: 'guard' })
   const drawn = await textOf(band)
-  expect(drawn).toContain('2: Read(./.env), Read(./secrets/**)')
+  expect(drawn).toContain('16: Read(./.env), Edit(./.env)')
   expect(drawn).toContain('on: Bash runs sandboxed')
   expect(drawn).toContain('on PreToolUse')
-  // every check passes: the chip shows the shield alone; the menu still says 3/3
+  // the core guardrails on: the chip is the shield alone; the menu counts what is on of them all
   expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ ')
-  expect(drawn).toContain('8/8 on and passing')
+  expect(drawn).toContain('9/16 on')
 })
 
 test('with no deny rules the shield turns red and says so', async ($, on) => {
@@ -208,11 +209,12 @@ test('with no deny rules the shield turns red and says so', async ($, on) => {
   await band.press({ key: 'guard' })
   const drawn = await textOf(band)
   expect(drawn).toContain('none: Claude may read any file')
-  // the sandbox is off here: a warning, left out of the score
+  // the sandbox is off here: a warning in Permissions, a red ✗ in Guardrails
   expect(drawn).toContain('off: advised')
-  expect((await band.find({ key: 'guard' }))?.text).toContain('6/8')
+  expect((await band.find({ key: 'gr:sandbox' }))?.text).toMatch(/\[off\] ✗ Sandbox/)
+  expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ 6/16 ')
   // the menu says the same score the chip shows
-  expect(drawn).toContain('6/8 on and passing')
+  expect(drawn).toContain('6/16 on')
 })
 
 test('[/] groups commands with this mod first; a pick fills the prompt', async ($, on) => {
@@ -1366,10 +1368,11 @@ test('with Confirm dangerous commands off, nothing asks', async ($, on) => {
   await band.press({ key: 'set:dangerConfirm' })
 })
 
-test('a check that fails gets its fix in the shield menu; a fix that writes the settings takes two presses', async ($, on) => {
-  engine(on, { settings: {} })
-  // a file system that keeps what is written, so a second fix builds on the first
+test('a deny set or the audit hook switches from its guardrail row: on writes it, off takes it out', async ($, on) => {
+  const path = '/work/shop/.claude/settings.json'
+  // a file system that keeps what is written, and settings read back from it
   const written: Record<string, string> = {}
+  engine(on, { get settings() { return JSON.parse(written[path] ?? '{}') } } as never)
   on('fs.exists', (_: unknown, e: any) => ({ value: e.path in written }))
   on('fs.read', (_: unknown, e: any) => ({ value: written[e.path] ?? '' }))
   on('fs.write', (_: unknown, e: any) => ((written[e.path] = e.text), { value: undefined }))
@@ -1377,38 +1380,58 @@ test('a check that fails gets its fix in the shield menu; a fix that writes the 
   on('command.run', (_: unknown, e: any) => (ran.push(e.command), { text: '' }))
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   await band.press({ key: 'guard' })
-  const menu = await textOf(band)
-  expect(menu).toContain('◆ To fix')
-  for (const key of ['fix:deny', 'fix:hook', 'fix:hooks', 'fix:sandbox']) expect(await band.find({ key })).toBeDefined()
-  expect(await band.find({ key: 'fix:mode' })).toBeUndefined() // manual is not bypass
-  const path = '/work/shop/.claude/settings.json'
-  await band.press({ key: 'fix:deny' })
-  expect(written[path]).toBeUndefined() // the first press only arms it
-  await band.press({ key: 'fix:deny' })
-  expect(JSON.parse(written[path]!).permissions.deny).toEqual(expect.arrayContaining(['Read(./.env)', 'Read(./secrets/**)', 'Read(~/.ssh/**)']))
-  await band.press({ key: 'fix:hook' })
-  await band.press({ key: 'fix:hook' })
+  expect(await textOf(band)).not.toContain('To fix')
+  const rowText = async (id: string) => (await band.find({ key: `gr:${id}` }))?.text ?? ''
+  expect(await rowText('denyProject')).toMatch(/\[off\] ✗ Deny project secrets and keys/)
+  // one press writes the set, Read and Edit of each path
+  await band.press({ key: 'gr:denyProject' })
+  const deny = () => JSON.parse(written[path]!).permissions?.deny
+  expect(deny()).toEqual(DENY_SETS.denyProject)
+  expect(deny()).toEqual(expect.arrayContaining(['Read(./.env)', 'Edit(./.env)', 'Read(./**/*.key)']))
+  expect(await rowText('denyProject')).toMatch(/\[on\]  ✓ Deny project secrets and keys/)
+  await band.press({ key: 'gr:denyHome' })
+  expect(deny()).toEqual([...DENY_SETS.denyProject, ...DENY_SETS.denyHome])
+  expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ ') // the core ones on: the chip is the shield alone
+  // a press on one that is on takes it out; the other set stays
+  await band.press({ key: 'gr:denyProject' })
+  expect(deny()).toEqual(DENY_SETS.denyHome)
+  expect(await rowText('denyProject')).toContain('[off]')
+  // the audit hook, on and off: the hooks key goes with the last hook
+  await band.press({ key: 'gr:hooks' })
   const json = JSON.parse(written[path]!)
-  expect(json.permissions.deny.length).toBe(8) // kept
   expect(json.hooks.PreToolUse[0]).toMatchObject({ matcher: 'Bash' })
   expect(json.hooks.PreToolUse[0].hooks[0].command).toContain('$CLAUDE_PROJECT_DIR/.claude/audit.jsonl')
+  expect(await rowText('hooks')).toContain('[on]')
+  await band.press({ key: 'gr:hooks' })
+  expect(JSON.parse(written[path]!).hooks).toBeUndefined()
+  expect(deny()).toEqual(DENY_SETS.denyHome) // kept
   // the sandbox opens Claude Code's own setup
-  await band.press({ key: 'fix:sandbox' })
+  await band.press({ key: 'gr:sandbox' })
   expect(ran).toContain('sandbox')
 })
 
-test('with every check passing and the sandbox on, the shield menu has nothing to fix', async ($, on) => {
-  engine(on)
+test('a deny set switched off leaves the files that never had it alone', async ($, on) => {
+  const written: Record<string, string> = {
+    '/work/shop/.claude/settings.local.json': JSON.stringify({ permissions: { deny: [...DENY_SETS.denyHome, 'Bash(rm -rf:*)'] } }),
+  }
+  engine(on, { settings: { permissions: { deny: [...DENY_SETS.denyHome, 'Bash(rm -rf:*)'] } } })
+  on('fs.exists', (_: unknown, e: any) => ({ value: e.path in written }))
+  on('fs.read', (_: unknown, e: any) => ({ value: written[e.path] ?? '' }))
+  on('fs.write', (_: unknown, e: any) => ((written[e.path] = e.text), { value: undefined }))
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   await band.press({ key: 'guard' })
-  expect(await textOf(band)).not.toContain('◆ To fix')
+  await band.press({ key: 'gr:denyHome' })
+  // taken out of the local file where it was; the project's file is not made
+  expect(JSON.parse(written['/work/shop/.claude/settings.local.json']!).permissions.deny).toEqual(['Bash(rm -rf:*)'])
+  expect('/work/shop/.claude/settings.json' in written).toBe(false)
 })
 
-test('in bypass mode the fix opens the mode menu', async ($, on) => {
+test('in bypass mode the mode row is off, and a press on it opens the mode menu', async ($, on) => {
   await probedEngine($, on, () => ({ decision: 'allow' })) // Edit and Bash both allowed: bypass
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   await band.press({ key: 'guard' })
-  await band.press({ key: 'fix:mode' })
+  expect((await band.find({ key: 'gr:mode' }))?.text).toContain('[off]')
+  await band.press({ key: 'gr:mode' })
   expect(await textOf(band)).toContain('Permission mode')
 })
 
@@ -1426,15 +1449,15 @@ test('the shield follows the settings with its menu shut, every 5 seconds', asyn
   await t.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true }) // starts the 1-second clock
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   const score = async () => (await band.find({ key: 'guard' }))?.text ?? ''
-  expect(await score()).toContain('6/8') // no deny rules, no hooks
-  // a deny rule lands in a settings file: the 5-second read finds it
-  live.settings = { permissions: { deny: ['Read(./.env)'] } }
+  expect(await score()).toBe(' ◈ 6/16 ') // no deny rules
+  // the project's deny set lands in a settings file: the 5-second read finds it
+  live.settings = { permissions: { deny: DENY_SETS.denyProject } }
   for (let i = 0; i < 5; i++) await clock.advance(1000)
-  expect(await score()).toContain('7/8')
-  // then a hook
-  live.settings = { permissions: { deny: ['Read(./.env)'] }, hooks: { PreToolUse: [] } }
+  expect(await score()).toBe(' ◈ 7/16 ')
+  // then the home folder's: the core guardrails on, the count goes
+  live.settings = { permissions: { deny: [...DENY_SETS.denyProject, ...DENY_SETS.denyHome] } }
   for (let i = 0; i < 5; i++) await clock.advance(1000)
-  expect(await score()).toBe(' ◈ ') // all three pass: the score goes
+  expect(await score()).toBe(' ◈ ')
 })
 
 // What the 1-second clock needs to start, and a prompt box that records what a plugin submits.
@@ -1628,12 +1651,13 @@ test('bar presets: Minimal keeps the model, usage and shield; Focus drops the ar
   expect(store.get('settings')).toMatchObject({ barMcp: true, arcade: true }) // Full again, for the tests after
 })
 
-test('the shield chip shows its score only while a check fails', async ($, on) => {
-  engine(on, { settings: { permissions: { deny: ['Read(./.env)'] } } }) // no hooks: 2 of 3
+test('the shield chip shows its score only while a core guardrail is off', async ($, on) => {
+  engine(on, { settings: { permissions: { deny: ['Read(./.env)'] } } }) // the project's set not whole
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   await band.press({ key: 'guard' })
+  expect((await band.find({ key: 'gr:denyProject' }))?.text).toContain('1 of 12 rules: a press adds the rest')
   await band.press({ key: 'guard' })
-  expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ 7/8 ')
+  expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ 6/16 ')
 })
 
 test('in Claude Code for VS Code the bar draws nothing: the engine draws its own', async ($, on) => {
@@ -1660,7 +1684,7 @@ test('the + menu indents its entries two cells under their group headings', asyn
 })
 
 test('a blank line parts the groups in Settings, /, usage, MCP and the shield menus', async ($, on) => {
-  engine(on, { settings: {} }) // no deny rules: the shield menu has its To fix group
+  engine(on, { settings: {} })
   settingsStore(on)
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   const menuOf = async (key: string) => {
@@ -1686,14 +1710,14 @@ test('a blank line parts the groups in Settings, /, usage, MCP and the shield me
   expect(usage).toContain('"key":"automation","flexDirection":"column","marginTop":1')
   const guard = await menuOf('guard')
   // each group's heading follows a blank line: a "\\n" child right before it
-  for (const heading of ['◆ To fix', '◆ Guardrails', '◆ MCP access', '◆ Permissions', '◇ This session', '◇ Network']) {
+  for (const heading of ['◆ Guardrails', '◆ MCP access', '◆ Permissions', '◇ This session', '◇ Network']) {
     const at = guard.indexOf(heading)
     expect(at).toBeGreaterThan(-1)
     expect(guard.slice(Math.max(0, at - 90), at)).toContain('"\\n"')
   }
 })
 
-test('the shield menu indents its fixes and its asked rules by the row, so a highlight starts at the hotkey', async ($, on) => {
+test('the shield menu indents its guardrails and its asked rules by the row, so a highlight starts at the hotkey', async ($, on) => {
   engine(on, { settings: {} })
   const store = new Map<string, unknown>([['permission-asks', { 'Bash(npm test:*)': { n: 2, last: 1 } }]])
   on('store.get', (_: unknown, e: any) => ({ value: store.get(e.key) }))
@@ -1702,7 +1726,7 @@ test('the shield menu indents its fixes and its asked rules by the row, so a hig
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   await band.press({ key: 'guard' })
   const drawn = await textOf(band)
-  expect(drawn).toContain('"key":"row:fix:deny","paddingLeft":2')
+  expect(drawn).toContain('"key":"row:gr:denyProject","flexDirection":"column","paddingLeft":2')
   expect(drawn).toContain('"key":"row:allow:Bash(npm test:*)","paddingLeft":2')
   expect(drawn).not.toMatch(/"children":\["  ",\{"type":"Text","props":\{"color":"(warning|suggestion)"/)
 })
@@ -2512,7 +2536,7 @@ test('prove done: an edit with nothing run to check it asks Claude once; a test 
   expect(submitted.length).toBe(1)
 })
 
-test('the shield menu: a guardrail switched off leaves the score; the scope chip picks the file; MCP access steps a rule', async ($, on) => {
+test('the shield menu: a guard switched on counts; the scope chip picks the file; MCP access steps a rule', async ($, on) => {
   const written: Record<string, string> = {}
   engine(on, { settings: { permissions: { deny: [], allow: [] }, hooks: {} } })
   settingsStore(on)
@@ -2522,11 +2546,13 @@ test('the shield menu: a guardrail switched off leaves the score; the scope chip
   on('tool.list', () => ({ value: [{ name: 'mcp__notion__search', description: '', mcp: true }, { name: 'mcp__notion__create_page', description: '', mcp: true }] }))
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   await band.press({ key: 'guard' })
-  // no deny rules, no hooks: two of the eight switched on fail
-  expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ 6/8 ')
-  await band.press({ key: 'gr:deny' })
-  await band.press({ key: 'gr:hooks' })
-  expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ ')
+  // no deny rules: the core sets off, six of the sixteen on
+  expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ 6/16 ')
+  await band.press({ key: 'gr:redact' })
+  expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ 7/16 ')
+  expect((await band.find({ key: 'gr:redact' }))?.text).toContain('[on]')
+  await band.press({ key: 'gr:redact' })
+  expect((await band.find({ key: 'gr:redact' }))?.text).toMatch(/\[off\] ✗/)
   // MCP access: a server's rule steps ask → allow → deny, in the project's shared settings by default
   await band.press({ key: 'mcprule:mcp__notion' })
   expect(JSON.parse(written['/work/shop/.claude/settings.json']!).permissions.allow).toEqual(['mcp__notion'])
@@ -2586,7 +2612,7 @@ test('the shield sorts deny rules and hooks by what they are for', async ($, on)
   })
   expect(hooks.map(hookPurpose)).toEqual(['audit', 'block', 'phone', 'format', 'notify'])
   expect(groupHooks(hooks).map(g => g.purpose)).toEqual(['block', 'audit', 'phone', 'notify', 'format'])
-  // and the menu draws a line a kind under each guardrail
+  // and the menu draws a line a kind under the deny rules and the audit hook
   engine(on, { settings: { permissions: { deny: ['Read(./.env)', 'Read(~/.ssh/**)', 'Bash(rm -rf:*)'] }, hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'cat >> audit.jsonl' }] }] } } })
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   await band.press({ key: 'guard' })
