@@ -211,7 +211,7 @@ test('with no deny rules the shield turns red and says so', async ($, on) => {
   expect(drawn).toContain('none: Claude may read any file')
   // the sandbox is off here: a warning in Permissions, a red ✗ in Guardrails
   expect(drawn).toContain('off: advised')
-  expect((await band.find({ key: 'gr:sandbox' }))?.text).toMatch(/\[off\] ✗ Sandbox/)
+  expect((await band.find({ key: 'gr:sandbox' }))?.text).toMatch(/\[off\] ! Sandbox/)
   expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ 6/16 ')
   // the menu says the same score the chip shows
   expect(drawn).toContain('6/16 on')
@@ -1656,6 +1656,13 @@ test('the shield chip shows its score only while a core guardrail is off', async
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   await band.press({ key: 'guard' })
   expect((await band.find({ key: 'gr:denyProject' }))?.text).toContain('1 of 12 rules: a press adds the rest')
+  // the rows that turn the chip red say so; the others do not
+  for (const id of ['denyProject', 'denyHome', 'mode']) expect((await band.find({ key: `gr:${id}` }))?.text).toContain(' core ')
+  for (const id of ['denyLogins', 'sandbox', 'git']) expect((await band.find({ key: `gr:${id}` }))?.text).not.toContain(' core ')
+  // off: a core one has a red ✗, another a yellow !
+  expect((await band.find({ key: 'gr:denyProject' }))?.text).toMatch(/^\[off\] ✗ /)
+  expect((await band.find({ key: 'gr:denyLogins' }))?.text).toMatch(/^\[off\] ! /)
+  expect((await band.find({ key: 'gr:redact' }))?.text).toMatch(/^\[off\] ! /)
   await band.press({ key: 'guard' })
   expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ 6/16 ')
 })
@@ -2552,7 +2559,7 @@ test('the shield menu: a guard switched on counts; the scope chip picks the file
   expect((await band.find({ key: 'guard' }))?.text).toBe(' ◈ 7/16 ')
   expect((await band.find({ key: 'gr:redact' }))?.text).toContain('[on]')
   await band.press({ key: 'gr:redact' })
-  expect((await band.find({ key: 'gr:redact' }))?.text).toMatch(/\[off\] ✗/)
+  expect((await band.find({ key: 'gr:redact' }))?.text).toMatch(/\[off\] !/)
   // MCP access: a server's rule steps ask → allow → deny, in the project's shared settings by default
   await band.press({ key: 'mcprule:mcp__notion' })
   expect(JSON.parse(written['/work/shop/.claude/settings.json']!).permissions.allow).toEqual(['mcp__notion'])
