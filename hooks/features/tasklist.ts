@@ -54,4 +54,11 @@ export async function keepWorkState($: any, e: any) {
 // What the guardrail tells Claude: at the stop, at the nudge, and at the end of a turn
 export const TASK_STOP = 'Stopped by the task-list guardrail: make a task list before you work, so the person can follow along (TaskCreate, TodoWrite, or work_state_write if that is the task tool here). One task is fine for a small job. Mark the first one in progress, then run this again.'
 export const TASK_NUDGE = 'Stopped once by the task-list guardrail: the task list has not changed for a while. Bring it up to date (mark what is done, add tasks that came up, mark the one in progress), then run this again.'
-export const TASKS_TEXT = 'Before you finish: bring the task list up to date. Mark what is done, and for each task still open say what is left.'
+// The rule the system prompt carries while the guardrail is on: asked up front, so the stop above
+// is a backstop that seldom fires; it ends with what the turn's end used to ask in a prompt of its own
+export const TASK_RULE = [
+  "# Task list (the person's task-list guardrail is on)",
+  'Before you edit a file or run more than two commands, make a task list with your task tool (TaskCreate, TodoWrite, or work_state_write if that is the one here) so the person can follow along. One task is enough for a small job.',
+  'Keep one task in progress at a time, add tasks as they come up, and mark each one done as you finish it.',
+  'Before you finish a turn, bring the task list up to date: mark what is done, and for each task still open say what is left.',
+].join('\n')

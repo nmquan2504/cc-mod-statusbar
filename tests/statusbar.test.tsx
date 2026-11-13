@@ -2509,7 +2509,7 @@ test('stay in the project: a write outside it asks; a folder allowed for the ses
   expect(wrote).toEqual(['/work/shop/src/a.ts', '/tmp/scratch.txt', '/work/other/b.ts', '/work/other/c.ts'])
 })
 
-test('task list first: an edit with no list is stopped once; the band shows even one task; a stale list is nudged; open tasks at the end are asked about once', async ($, on) => {
+test('task list first: an edit with no list is stopped once; the band shows even one task; a stale list is nudged', async ($, on) => {
   engine(on)
   settingsStore(on)
   mock.clock(on) // turn.start reads the clock before the guardrails' part of it
@@ -2544,11 +2544,12 @@ test('task list first: an edit with no list is stopped once; the band shows even
   for (let i = 0; i < 6; i++) expect((await t.tool.call({ tool: 'Bash', command: `echo ${i}` })).deny).toBeUndefined()
   expect((await t.tool.call({ tool: 'Bash', command: 'echo 6' })).deny).toContain('has not changed')
   expect((await t.tool.call({ tool: 'Bash', command: 'echo 7' })).deny).toBeUndefined()
-  // the turn ends with the task open and the edit unchecked: one prompt asks both
+  // the turn ends with the task open and the edit unchecked: prove done asks; the task list asks
+  // nothing here (its rule in the system prompt does)
   await t.turn.complete({ text: 'ok', reason: 'answer', answer: 'Fixed.' })
   expect(submitted.length).toBe(1)
-  expect(submitted[0]).toContain('bring the task list up to date')
   expect(submitted[0]).toContain('Before you call this done')
+  expect(submitted[0]).not.toContain('task list')
   // the asked turn: nothing asked again, and a new turn with the list open is not stopped
   await t.turn.start({ text: submitted[0], turnId: 't2', kind: 'engine' })
   expect((await edit()).deny).toBeUndefined()
@@ -2558,6 +2559,30 @@ test('task list first: an edit with no list is stopped once; the band shows even
   // done: the band says so while Claude lingers
   await t.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'completed' })
   await band.press({ key: 'guard' })
+  await band.press({ key: 'gr:taskList' }) // off again, for the tests after
+})
+
+test('task list first puts its rule in the system prompt, for a request that offers a task tool', async ($, on) => {
+  engine(on)
+  settingsStore(on)
+  on('prompt.compose', () => ({ sections: [{ id: 'intro', text: 'You are Claude.', scope: 'shared' }] }))
+  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  const t = $ as any
+  // the facts a request is composed from, as the engine gives them
+  const facts = (tools: string[]) => ({ model: 'claude-opus-5-5', promptModel: 'claude-opus-5-5', surfaces: ['terminal'], tools, outputStyle: null, traits: [] })
+  const ids = async (tools: string[]) => (await t.prompt.compose(facts(tools))).sections.map((x: any) => x.id)
+  expect(await ids(['TaskCreate', 'Edit'])).toEqual(['intro']) // off: nothing added
+  await band.press({ key: 'guard' })
+  await band.press({ key: 'gr:taskList' })
+  const r = await t.prompt.compose(facts(['TaskCreate', 'Edit']))
+  expect(r.sections.map((x: any) => x.id)).toEqual(['intro', 'cc-mod-statusbar-task-list'])
+  const rule = r.sections[1]
+  expect(rule.scope).toBe('session')
+  expect(rule.text).toContain('make a task list')
+  expect(rule.text).toContain('Before you finish a turn, bring the task list up to date')
+  // claude-mem's work state counts as a task tool; a request with none gets no rule
+  expect(await ids(['mcp__plugin_claude-mem_mcp-search__work_state_write'])).toContain('cc-mod-statusbar-task-list')
+  expect(await ids(['Edit', 'Bash'])).toEqual(['intro'])
   await band.press({ key: 'gr:taskList' }) // off again, for the tests after
 })
 

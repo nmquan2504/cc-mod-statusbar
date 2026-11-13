@@ -73,14 +73,13 @@ export const rt = {
   isBudgetTimer: false,
   // the task-list guardrail: the task tools this session has (null: not read yet); this turn's
   // task-tool calls, its Bash commands, the calls since the list last changed, the one stop and the
-  // one nudge it gave; whether this run of turns was asked to bring the list up to date
+  // one nudge it gave
   taskTools: null as string[] | null,
   isTaskTouched: false,
   taskBash: 0,
   callsSinceTask: 0,
   isTaskGated: false,
   isTaskNudged: false,
-  isTasksAsked: false,
   // the shield menu's MCP access: the servers opened to list their tools
   mcpOpen: new Set<string>(),
   // the shield menu opened on its MCP access (from the mcp menu)
