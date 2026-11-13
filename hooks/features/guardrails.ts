@@ -1,5 +1,6 @@
 import type { GuardInfo } from '../../types'
 import { cfg } from '../state/config'
+import { rt } from '../state/runtime'
 import type { CfgKey } from '../state/config'
 
 // The guardrails the shield menu lists. Each is on (a green ✓) or off (a red ✗), and a press on
@@ -11,7 +12,7 @@ import type { CfgKey } from '../state/config'
 //     /sandbox.
 //   guard: a check this mod makes on every tool call or turn, on while its switch is on.
 export type DenySetId = 'denyProject' | 'denyHome' | 'denyLogins' | 'denyClaude'
-export type GuardId = DenySetId | 'hooks' | 'mode' | 'sandbox' | 'danger' | 'vault' | 'redact' | 'proveDone' | 'git' | 'outside' | 'egress' | 'budget' | 'deps'
+export type GuardId = DenySetId | 'hooks' | 'mode' | 'sandbox' | 'danger' | 'vault' | 'redact' | 'proveDone' | 'taskList' | 'git' | 'outside' | 'egress' | 'budget' | 'deps'
 // core: off, it turns the bar's ◈ red (secrets open to Claude, or no prompts at all)
 export type GuardRow = { id: GuardId; key?: CfgKey; kind: 'setting' | 'guard'; title: string; what: string; isCore?: boolean }
 
@@ -39,6 +40,7 @@ export const GUARDRAILS: GuardRow[] = [
   { id: 'vault', key: 'guardVault', kind: 'guard', title: 'Secret vault', what: "Bash never reads the vault; its values are masked in what Bash prints" },
   { id: 'redact', key: 'guardRedact', kind: 'guard', title: 'Redact PII and secrets', what: 'emails, phone numbers, ID and card numbers, keys masked in what tools give Claude' },
   { id: 'proveDone', key: 'guardProveDone', kind: 'guard', title: 'Prove done', what: 'files changed and nothing run to check them: Claude is asked once to show it works' },
+  { id: 'taskList', key: 'guardTaskList', kind: 'guard', title: 'Task list first', what: 'an edit or a 3rd command with no task list is stopped once; the list kept current; the band shows the task in progress' },
   { id: 'git', key: 'guardGit', kind: 'guard', title: 'Protect git', what: 'no push to main or master, no force push; reset --hard of a pushed branch asks' },
   { id: 'outside', key: 'guardOutside', kind: 'guard', title: 'Stay in the project', what: 'Edit or Write outside the project and its added folders asks you' },
   { id: 'egress', key: 'guardEgress', kind: 'guard', title: 'Network allowlist', what: 'a host off the list asks you before WebFetch or a command reaches it' },
@@ -76,6 +78,8 @@ export function guardState(row: GuardRow, g: GuardInfo, mode: string): { state: 
       return hosts.length ? { state: 'pass', note: `${hosts.length} hosts allowed` } : { state: 'warn', note: 'no host allowed yet: every one asks' }
     }
     case 'budget': return { state: 'pass', note: `$${cfg.budgetUsd} or ${cfg.budgetMinutes} min a turn` }
+    // with no task tool in the session there is no list to ask for: it stands down
+    case 'taskList': return rt.taskTools && !rt.taskTools.length ? { state: 'warn', note: 'no task tool in this session: nothing to ask for' } : { state: 'pass', note: row.what }
     default: return { state: 'pass', note: row.what }
   }
 }

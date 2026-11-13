@@ -1,6 +1,7 @@
 import { atom, update } from 'claude-code'
 import { arena, arenaEvents } from '../features/arena'
 import { logAudit } from '../features/audit'
+import { taskListAfter, taskListGate } from './guards'
 import { keepEdit, lineCount } from '../features/edits'
 import { hostsOf, keepEgress } from '../features/egress'
 import { isOn } from '../features/guardrails'
@@ -70,6 +71,9 @@ export function registerTools(on: On) {
   }).catch(($, e, next) => (next.called ? next(e) : { deny: 'The dangerous-command check failed, so the command was refused.' }))
 
   on('tool.call', async ($, e, next) => {
+    // the task-list guardrail, here since the engine takes one unmatched tool.call hook
+    const stop = await taskListGate($, e).catch(() => undefined)
+    if (stop) return stop
     const isMain = !e.agentId && e.tool !== 'TaskList'
     const hosts = hostsOf(e)
     if (isMain) {
@@ -89,6 +93,7 @@ export function registerTools(on: On) {
     }
     try {
       const r: any = await next(e)
+      await taskListAfter($, e, r).catch(() => undefined)
       // a command left running in the background: its log is the session's tasks/<id>.output
       const bgId = e.tool === 'Bash' ? r?.result?.backgroundTaskId : undefined
       if (typeof bgId === 'string' && /^[\w-]+$/.test(bgId))

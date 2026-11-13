@@ -13,7 +13,8 @@ import { barOrder, cfg } from '../state/config'
 import type { CfgKey } from '../state/config'
 import { rt } from '../state/runtime'
 import { drawMenu } from './menus/index'
-import { guardScore as scoreGuards } from '../features/guardrails'
+import { guardScore as scoreGuards, isOn } from '../features/guardrails'
+import { taskLine } from '../features/tasklist'
 import { keyRows, rowsOf } from '../lib/rows'
 import { desktopBar } from './desktopBar'
 import { chipsNow, dismissChips, sendChip } from '../features/chips'
@@ -355,6 +356,10 @@ export async function drawBand($: any, e: any, next: any) {
   }
 
   const chips = chipsNow()
+  // the task-list guardrail on: the task in progress, a line above the bar, even with one task; once
+  // all are done it stays while the turn runs and Claude lingers
+  const tl = isOn('taskList') ? await taskLine($) : null
+  const isTaskShown = Boolean(tl) && (rt.isBusy || rt.lingerUntil > 0 || !tl!.isAllDone)
   // A surface that draws native buttons gets a bar of its own: words, not the terminal's glyphs.
   if (e.surface !== 'terminal') {
     return desktopBar($, els, {
@@ -439,6 +444,22 @@ export async function drawBand($: any, e: any, next: any) {
             : menuTree}
         </Box>
       )}
+      {/* the task list: ▸ 2/5 the task in progress (1 done); a press opens Claude's tasks menu */}
+      {open === null && tl && isTaskShown ? (
+        <Box key="taskline" flexDirection="row">
+          <Button key="taskline" plain hover={{ scope: 'qsb-claude', bold: true }} onPress={() => openMenu($, 'tasks')}>
+            {tl.isAllDone
+              ? <Text><Text color="success" bold>{`✓ ${tl.of}/${tl.of}`}</Text><Text dimColor> all done</Text></Text>
+              : (
+                <Text>
+                  <Text color="claude" bold>{`▸ ${tl.at}/${tl.of} `}</Text>
+                  <Text>{oneLine(tl.subject, Math.max(20, e.props.bodyColumns - 30))}</Text>
+                  {tl.done ? <Text dimColor>{`  (${tl.done} done)`}</Text> : null}
+                </Text>
+              )}
+          </Button>
+        </Box>
+      ) : null}
       {/* what Claude's last answer suggests sending next: a press sends it */}
       {open === null && chips.length ? (
         <Box flexDirection="row" gap={1}>

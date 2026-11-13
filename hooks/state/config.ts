@@ -65,6 +65,7 @@ export const cfg = {
   guardEgress: false,
   guardBudget: false,
   guardDeps: false,
+  guardTaskList: false,
   // the per-turn budget: a toast at it, the turn stopped at twice it
   budgetUsd: 5,
   budgetMinutes: 30,
