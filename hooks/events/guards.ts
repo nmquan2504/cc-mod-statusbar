@@ -1,7 +1,7 @@
 import { logAudit } from '../features/audit'
 import { hostsOf } from '../features/egress'
 import { isHostAllowed, isOn } from '../features/guardrails'
-import { TASKS_TEXT, TASK_NUDGE, TASK_STOP, isTaskTool, keepWorkState, openTasks, readTaskTools } from '../features/tasklist'
+import { TASK_NUDGE, TASK_STOP, isTaskTool, keepWorkState, openTasks, readTaskTools } from '../features/tasklist'
 import { rootsOf } from '../features/remote'
 import { VERIFY_RE, gitRisk, newPackage } from '../lib/gitguard'
 import { oneLine } from '../lib/format'
@@ -20,8 +20,6 @@ async function asked($: any, question: string, header: string, options: string[]
 const WRITE_TOOLS = ['Edit', 'Write', 'NotebookEdit', 'MultiEdit']
 // the calls in a row with the task list unchanged before the guardrail nudges
 export const TASK_STALE = 8
-// a prompt the guardrails sent (prove done, the task list), not the person's own
-const isGuardPrompt = (text: string) => text.includes(PROVE_TEXT) || text.includes(TASKS_TEXT)
 
 export const PROVE_TEXT = 'Before you call this done: run the tests, the build or the type check that show these changes work, and show what they printed. If nothing here can check them, say so plainly and say how to check them by hand.'
 
@@ -161,43 +159,30 @@ export function guardsOnTurnStart($: any, e: any) {
   rt.callsSinceTask = 0
   rt.isTaskGated = false
   rt.isTaskNudged = false
-  if (!isGuardPrompt(String(e.text ?? ''))) {
-    rt.isProveAsked = false
-    rt.isTasksAsked = false
-  }
+  if (String(e.text ?? '') !== PROVE_TEXT) rt.isProveAsked = false
   // which task tools the session has, read again each turn (an MCP server may have come or gone)
   if (isOn('taskList')) void readTaskTools($).catch(() => undefined)
   // the budget's timer starts with the first turn that has the guardrail on
   if (isOn('budget')) startBudgetTimer($)
 }
 
-// At a main-loop answer (called from events/turn.ts's turn.complete), one prompt for what the
-// guardrails still want, both asks in it when both want something:
-//   prove done: files changed and nothing run since to check them asks Claude once to show it
-//     works; a second time, a toast.
-//   task list: tasks left open after a turn that worked asks Claude once to bring the list up to
-//     date and say what is left.
+// Prove done, at a main-loop answer (called from events/turn.ts's turn.complete): files changed and
+// nothing run since to check them asks Claude once to show it works; a second time, a toast.
+// (The task list asks nothing here: its rule in the system prompt asks for the list up to date.)
 export async function guardsOnTurnComplete($: any, e: any) {
-  if (e.agentId || e.reason !== 'answer') return
-  const asks: string[] = []
+  if (e.agentId || e.reason !== 'answer' || !isOn('proveDone')) return
   const calls = rt.turnCalls
   const lastEdit = calls.map(c => WRITE_TOOLS.includes(c.tool) && !/\.(md|mdx|txt|rst|adoc)$/i.test(c.path ?? '')).lastIndexOf(true)
-  if (isOn('proveDone') && lastEdit >= 0 && !calls.slice(lastEdit + 1).some(c => c.tool === 'Bash' && VERIFY_RE.test(c.command ?? ''))) {
-    if (!rt.isProveAsked) {
-      rt.isProveAsked = true
-      await logAudit($, '◈ prove done: files changed and nothing checked them; Claude is asked to show it')
-      asks.push(PROVE_TEXT)
-    } else {
-      await logAudit($, '◈ prove done: still nothing checked the changes', true)
-      $.ui.toast('statusbar: ◈ prove done: the changes were not checked (no test, build or type check ran after the last edit)')
-    }
+  if (lastEdit < 0) return
+  if (calls.slice(lastEdit + 1).some(c => c.tool === 'Bash' && VERIFY_RE.test(c.command ?? ''))) return
+  if (!rt.isProveAsked) {
+    rt.isProveAsked = true
+    await logAudit($, '◈ prove done: files changed and nothing checked them; Claude is asked to show it')
+    void $.prompt.submit({ text: PROVE_TEXT, asUser: true }).catch(() => undefined)
+  } else {
+    await logAudit($, '◈ prove done: still nothing checked the changes', true)
+    $.ui.toast('statusbar: ◈ prove done: the changes were not checked (no test, build or type check ran after the last edit)')
   }
-  if (isOn('taskList') && !rt.isTasksAsked && rt.taskTools?.length && (rt.isTaskTouched || calls.length > 0) && (await openTasks($)).length) {
-    rt.isTasksAsked = true
-    await logAudit($, '◈ task list: the turn ended with tasks open; Claude is asked to bring the list up to date')
-    asks.push(TASKS_TEXT)
-  }
-  if (asks.length) void $.prompt.submit({ text: asks.join('\n\n'), asUser: true }).catch(() => undefined)
 }
 
 // ---- the network allowlist: a host off it asks before a call reaches it ---------------------------
