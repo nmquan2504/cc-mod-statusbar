@@ -65,23 +65,23 @@ export function desktopBar($: any, els: any, d: BarData) {
     switch (key) {
       case 'barModel':
         return cfg.barModel && cfg.desktopSessionItems ? (
-          <Button key="model" plain onPress={go('model')}>{`✦ ${shortModel(d.model)}`}</Button>
+          area('model', go('model'), [[`✦ ${shortModel(d.model)}`, d.modelColor]])
         ) : null
       case 'barEffort':
         return cfg.barEffort && cfg.desktopSessionItems && d.effort ? (
-          <Button key="effort" plain onPress={go('effort')}>{`◔ ${d.effort}`}</Button>
+          area('effort', go('effort'), [[`◔ ${d.effort}`, d.effortColor]])
         ) : null
       case 'barFolder':
         return cfg.barFolder ? (
-          <Button key={d.isGitJoined ? 'git' : 'folder'} plain onPress={go('git')}>
-            {`▤ ${oneLine(d.folder, 32)}`}
-            {d.isGitJoined && d.branch ? `  ⎇ ${oneLine(d.branch, 32)}` : ''}
-            {d.isGitJoined && d.branch && d.gitMarks ? ` ${d.gitMarks}` : ''}
-          </Button>
+          area(d.isGitJoined ? 'git' : 'folder', go('git'), [
+            [`▤ ${oneLine(d.folder, 32)}`],
+            [d.isGitJoined && d.branch ? `  ⎇ ${oneLine(d.branch, 32)}` : '', 'suggestion'],
+            [d.isGitJoined && d.branch && d.gitMarks ? ` ${d.gitMarks}` : '', 'warning'],
+          ])
         ) : null
       case 'barGit':
         return !d.isGitJoined && cfg.barGit && d.branch ? (
-          <Button key="git" plain onPress={go('git')}>{`⎇ ${oneLine(d.branch, 32)}${d.gitMarks ? ` ${d.gitMarks}` : ''}`}</Button>
+          area('git', go('git'), [[`⎇ ${oneLine(d.branch, 32)}`, 'suggestion'], [d.gitMarks ? ` ${d.gitMarks}` : '', 'warning']])
         ) : null
       case 'barUsage':
         return cfg.barUsage ? (
@@ -100,7 +100,7 @@ export function desktopBar($: any, els: any, d: BarData) {
         ) : null
       case 'barImages':
         return cfg.barImages && d.images ? (
-          <Button key="images" plain onPress={go('images')}>{`▣ ${d.images}`}</Button>
+          area('images', go('images'), [[`▣ ${d.images}`]])
         ) : null
       case 'barGuard':
         return cfg.barGuard ? (
@@ -147,7 +147,7 @@ export function desktopBar($: any, els: any, d: BarData) {
       {/* a cell of room at the right end: the last chip's hover box ran into the band's edge */}
       <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={1} flexWrap="wrap" paddingRight={1}>
         <Box flexDirection="row" gap={2} alignItems="center" flexWrap="wrap">
-          <Button key="add" plain onPress={go('add')}>✻</Button>
+          {area('add', go('add'), [['✻', 'claude']])}
           {d.order.slice(0, d.split).map(itemOf)}
         </Box>
         <Box flexDirection="row" gap={2} alignItems="center" flexWrap="wrap">
@@ -156,7 +156,7 @@ export function desktopBar($: any, els: any, d: BarData) {
             area('bgerr', d.broken.press, [['✘'], [` ${d.broken.count}`, 'error']])
           ) : null}
           {d.continueAt ? (
-            <Button key="continue" plain onPress={go('usage')}>{`⏵ ${d.continueAt}`}</Button>
+            area('continue', go('usage'), [[`⏵ ${d.continueAt}`, 'claude']])
           ) : null}
           {d.isModBehind ? (
             <Button key="update" variant="primary" onPress={() => updateNow($)}>↑ Update mod</Button>
