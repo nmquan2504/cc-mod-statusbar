@@ -56,6 +56,22 @@ export function desktopBar($: any, els: any, d: BarData) {
   const { Box, Button, Text } = els
   const go = (kind: MenuKind) => () => openMenu($, kind)
   const meterText = (n: number | null) => ` ${cfg.usageGauge ? `${meter(n, 4)} ` : ''}${pct(n)}`
+  // Labels and figures all as Text, each in its color, under one blank Button laid over the whole
+  // group: a press anywhere on it opens the menu. Two figure spaces more than the characters, since a
+  // letter (the w of wk) is wider than a digit.
+  const area = (key: string, onPress: () => unknown, parts: [string, string?][]) => {
+    const shown = parts.filter(([t]) => t)
+    const width = shown.reduce((n, [t]) => n + [...t].length, 0) + 2
+    return (
+      <Box key={`chipbox:${key}`} flexDirection="row" alignItems="center">
+        {shown.map(([t, color], i) => <Text key={`${key}:${i}`} color={color} bold={Boolean(color)}>{t}</Text>)}
+        <Box position="absolute" top={0} left={0}>
+          <Button key={key} plain onPress={onPress}>{FIGURE_SPACE.repeat(width)}</Button>
+        </Box>
+      </Box>
+    )
+  }
+
   // A Button for the icon, then the figures as Text, each in its color (none: the text's own). A
   // blank Button laid over the figures (Desktop honours position="absolute", as the menus' switches
   // do) makes them a press too: one figure space a character, so it covers them.
@@ -102,11 +118,10 @@ export function desktopBar($: any, els: any, d: BarData) {
         ) : null
       case 'barUsage':
         return cfg.barUsage ? (
-          <Box key="usagebox" flexDirection="row" alignItems="center" gap={2}>
-            {d.isCtxShown ? chip('ctx', go('usage'), 'ctx', [[` ${pct(d.ctx)}`, d.ctx !== null && d.ctx >= cfg.ctxToastAt ? 'error' : 'warning']]) : null}
-            {chip('usage', go('usage'), '5h', [[meterText(d.five), level(d.five)]])}
-            {chip('usage:wk', go('usage'), 'wk', [[meterText(d.week), level(d.week)]])}
-          </Box>
+          area('usage', go('usage'), [
+            ...(d.isCtxShown ? [['ctx'], [` ${pct(d.ctx)}`, d.ctx !== null && d.ctx >= cfg.ctxToastAt ? 'error' : 'warning'], ['   ']] as [string, string?][] : []),
+            ['5h'], [meterText(d.five), level(d.five)], ['   wk'], [meterText(d.week), level(d.week)],
+          ])
         ) : null
       case 'barRemote':
         return cfg.selfRemote && cfg.barRemote ? (
