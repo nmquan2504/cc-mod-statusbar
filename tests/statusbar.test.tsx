@@ -7,6 +7,7 @@ import { keyRows, rowsOf } from '../hooks/lib/rows'
 import { gitRisk, newPackage } from '../hooks/lib/gitguard'
 import { hostsOf } from '../hooks/features/egress'
 import { redactText } from '../hooks/lib/pii'
+import { toggleHref } from '../hooks/ui/menus/toggle'
 import { groupHooks, groupRules, hookEntries, hookPurpose, ruleKind } from '../hooks/lib/guardclass'
 import { SHOW_MS, WAIT_MS, clearPrompts, duePrompts, noteCheck, noteSpinner, prompts, waitingPrompts } from '../hooks/features/prompts'
 
@@ -75,9 +76,34 @@ function engine(on: any, opts: { filled?: string[]; settings?: object; toasts?: 
 
 const textOf = async (ui: any) => JSON.stringify(await ui.drawn())
 
+// The mode as the guardrails read it: the bar has no mode chip, the shield's mode row names it.
+const modeOf = async (band: any) => {
+  await band.press({ key: 'guard' })
+  const text = (await band.find({ key: 'gr:mode' }))?.text ?? ''
+  await band.press({ key: 'close-menu' })
+  return text
+}
+
 // The band, where the bar and its menus draw.
+// On the desktop a switch row is a Markdown whose switch image links to toggleHref(key): a press on
+// a set:, gr: or auto: key with no Button of that key presses that link instead.
 async function mountBand($: any, target: any) {
-  return $.ui.mount(target)
+  const ui = await $.ui.mount(target)
+  const press = async (t: any) => {
+    try {
+      return await ui.press(t)
+    } catch (err) {
+      if (t.link || !/^(set|gr|auto):/.test(t.key)) throw err
+      return ui.press({ ...t, link: { href: toggleHref(t.key) } })
+    }
+  }
+  // the mounted drawing is frozen: a copy of it, each method bound to it, with press wrapped
+  const out: any = {}
+  for (const k of new Set([...Object.keys(ui), ...Object.getOwnPropertyNames(Object.getPrototypeOf(ui) ?? {})])) {
+    if (k === 'constructor') continue
+    Object.defineProperty(out, k, { get: () => (k === 'press' ? press : typeof ui[k] === 'function' ? ui[k].bind(ui) : ui[k]) })
+  }
+  return out
 }
 
 // git status --porcelain=v2 --branch: on feat/login, 2 to push, 1 to pull, one file changed, one new
@@ -91,7 +117,7 @@ const GIT_STATUS = [
   '',
 ].join('\n')
 
-test('the bar: +, /, model, folder and branch, two gauges, mode and the shield', async ($, on) => {
+test('the bar: ✻, model, folder and branch, two gauges and the shield', async ($, on) => {
   engine(on)
   for (const surface of SURFACES) {
     // wide enough for the full labels and the arena (the compact bar has its own test)
@@ -100,7 +126,9 @@ test('the bar: +, /, model, folder and branch, two gauges, mode and the shield',
     await band.press({ key: surface === 'terminal' ? 'model' : 'usage' })
     if (surface !== 'terminal') await band.press({ key: 'close-menu' })
     const bar = await textOf(band)
-    expect((await band.find({ key: 'add' }))?.text).toContain('+')
+    expect((await band.find({ key: 'add' }))?.text).toContain('✻')
+    expect(await band.find({ key: 'commands' })).toBeUndefined()
+    expect(await band.find({ key: 'mode' })).toBeUndefined()
     expect(bar).toContain('23%')
     expect(bar).toContain('41%')
     expect(bar).not.toContain('ctx')
@@ -112,24 +140,23 @@ test('the bar: +, /, model, folder and branch, two gauges, mode and the shield',
       expect(bar).toContain('#4ade80')
       expect(bar).not.toContain('#fbbf24')
       expect(bar).not.toContain('#f87171')
-      expect((await band.find({ key: 'add' }))?.text).toContain(' + ')
+      expect((await band.find({ key: 'add' }))?.text).toContain(' ✻ ')
       expect((await band.find({ key: 'git' }))?.text).toMatch(/^\/shop ⎇ /) // the folder after a slash, no icon
       expect((await band.find({ key: 'model' }))?.text).toContain('Sonnet 5.5')
-      expect((await band.find({ key: 'mode' }))?.text).toContain('manual')
     } else {
       // Desktop shows the model, the effort and the mode by its own prompt box: the bar leaves them out
       expect(await band.find({ key: 'model' })).toBeFalsy()
       expect(await band.find({ key: 'effort' })).toBeFalsy()
-      expect(await band.find({ key: 'mode' })).toBeFalsy()
       // the desktop's own bar: words and native buttons, the gauges an SVG, none of the terminal's glyphs
       // plain buttons, a character for each icon: no terminal pills, no arcade
       expect((await band.find({ key: 'git' }))?.text).toBe('▤ shop  ⎇ feat/login ✎2 ⇡2 ⇣1')
-      expect((await band.find({ key: 'usage' }))?.text).toBe('5h ▰▱▱▱ 23%   wk ▰▰▱▱ 41%')
+      // the desktop's one-color buttons carry a state's color in an emoji dot
+      expect((await band.find({ key: 'usage' }))?.text).toBe('5h 🟢 ▰▱▱▱ 23%   wk 🟢 ▰▰▱▱ 41%')
       expect(bar).not.toContain('backgroundColor')
       expect(bar).not.toContain('¬✻')
       expect(bar).not.toContain('‹ ')
       expect((await band.find({ key: 'guard' }))?.text).toMatch(/^◈ /)
-      expect((await band.find({ key: 'claude' }))?.text).toContain('Tasks')
+      expect((await band.find({ key: 'claude' }))?.text).toContain('☰ 0')
     }
     await band.unmount()
   }
@@ -153,7 +180,7 @@ async function probedEngine($: any, on: any, check: (e: { tool: string }) => obj
 test('the mode comes from the permission checks', async ($, on) => {
   await probedEngine($, on, e => e.tool === 'Edit' ? { decision: 'deny', reason: 'Claude Code is in plan mode' } : { decision: 'ask' })
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
-  expect((await band.find({ key: 'mode' }))?.text).toContain('plan')
+  expect(await modeOf(band)).toContain('plan')
 })
 
 test('manual and auto, which the checks cannot tell apart, follow the hint line, shells and agents in it or not', async ($, on) => {
@@ -163,14 +190,14 @@ test('manual and auto, which the checks cannot tell apart, follow the hint line,
     await clock.advance(1000)
   }
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
-  const mode = async () => (await band.find({ key: 'mode' }))?.text ?? ''
+  const mode = () => modeOf(band)
   // the hints Claude Code 2.1.322 drew as shift+tab walked the cycle (watched live): each switch names
   // the mode it left, then draws the new one's hint unnamed
   await hint('? for shortcuts · ← 1 agent')
   expect(await mode()).toContain('manual')
   await hint('manual mode on · ? for shortcuts · ← 1 agent')
   await hint('(shift+tab to cycle) · ← 1 agent')
-  expect(await mode()).toContain('»') // accept edits
+  expect(await mode()).toContain('acceptEdits')
   await hint('accept edits on (shift+tab to cycle) · ← 1 agent')
   await hint('(shift+tab to cycle) · ← 1 agent')
   expect(await mode()).toContain('plan')
@@ -221,6 +248,7 @@ test('[/] groups commands with this mod first; a pick fills the prompt', async (
   const filled: string[] = []
   engine(on, { filled })
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await band.press({ key: 'add' })
   await band.press({ key: 'commands' })
   const drawn = await textOf(band)
   expect(drawn).toContain('skills & your commands')
@@ -296,19 +324,18 @@ test('while a turn runs Claude stands in the arena, and stays a while after it e
 
 test('a narrow terminal gets the compact bar: short labels, no gauges, one row, the arena kept', async ($, on) => {
   engine(on)
-  // 117: the shield's ◈ 2 is three cells shorter than the old ◈ 6/17, so at 120 the full bar fits
-  for (const bodyColumns of [100, 117]) {
+  // 102: with no ⁄ and no mode chip the bar is 15 cells shorter than it was, so at 105 the full bar fits
+  for (const bodyColumns of [85, 102]) {
     const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, isWorking: true, bodyColumns } } as never)
     await band.press({ key: 'model' }) // reads the model, the usage, the folder and the branch
     await band.press({ key: 'model' })
     expect((await band.find({ key: 'model' }))?.text).toContain('● S5.5')
-    expect((await band.find({ key: 'mode' }))?.text).toBe(' ‖ ')
     expect((await band.find({ key: 'usage' }))?.text).toContain('5h 23%')
     const root = JSON.parse(await textOf(band))
     const row = root.children[root.children.length - 1]
     expect(cells(row)).toBeLessThanOrEqual(bodyColumns - 4)
-    // at 117 the short labels leave the arena its room; at 100 it steps out and Claude moves right
-    if (bodyColumns === 117) expect(JSON.stringify(row)).toContain('"key":"arena"')
+    // at 102 the short labels leave the arena its room; at 85 it steps out and Claude moves right
+    if (bodyColumns === 102) expect(JSON.stringify(row)).toContain('"key":"arena"')
     expect(await band.find({ key: 'claude' })).toBeDefined()
     await band.unmount()
   }
@@ -317,7 +344,6 @@ test('a narrow terminal gets the compact bar: short labels, no gauges, one row, 
   await wide.press({ key: 'model' })
   await wide.press({ key: 'model' })
   expect((await wide.find({ key: 'model' }))?.text).toContain('Sonnet 5.5')
-  expect((await wide.find({ key: 'mode' }))?.text).toContain('manual')
 })
 
 test("Claude's badge counts the agents and servers running, with the tasks menu shut", async ($, on) => {
@@ -471,6 +497,7 @@ test('the commands you type most head the commands menu', async ($, on) => {
     await t.command.run({ command: c, args: '', origin: typed })
   await new Promise(r => setTimeout(r, 20)) // the counts are written behind the command
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await band.press({ key: 'add' })
   await band.press({ key: 'commands' })
   const menu = await textOf(band)
   expect(menu).toContain('most used')
@@ -514,9 +541,10 @@ test('settings: the most used commands run from 5 to 10, 5 by default', async ($
   store.set('command-use', Object.fromEntries(commands.map((c, i) => [c.name, { n: 12 - i, last: i }])))
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   const topShown = async () => {
+    await band.press({ key: 'add' })
     await band.press({ key: 'commands' })
     const tree = await textOf(band)
-    await band.press({ key: 'commands' })
+    await band.press({ key: 'close-menu' })
     return commands.filter(c => tree.includes(`"key":"top:${c.name}"`)).length
   }
   expect(await topShown()).toBe(5)
@@ -662,6 +690,7 @@ test('a group heading folds its commands away; the fold is kept in the store', a
   const store = settingsStore(on)
   on('ui.scroll', () => ({}))
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await band.press({ key: 'add' })
   await band.press({ key: 'commands' })
   expect(await textOf(band)).toContain('/help')
   await band.press({ key: 'g:5 · built-in' })
@@ -679,6 +708,7 @@ test('typing in the commands menu narrows the list; Enter puts the first match i
   engine(on, { filled })
   on('ui.scroll', () => ({}))
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await band.press({ key: 'add' })
   await band.press({ key: 'commands' })
   await band.input({ key: 'cmd-search', text: 'knowledge', kind: 'change' })
   const narrowed = await textOf(band)
@@ -719,8 +749,9 @@ test('settings: usage gauges off leaves the figures alone on the bar', async ($,
   await band.press({ key: 'settings' })
   await band.press({ key: 'set:usageGauge' })
   const usage = (await band.find({ key: 'usage' }))?.text ?? ''
-  expect(usage).toContain('5h 23%')
-  expect(usage).toContain('wk 41%')
+  expect(usage).toContain('5h 🟢 23%')
+  expect(usage).toContain('wk 🟢 41%')
+  expect(usage).not.toContain('▰')
 })
 
 // Cells a drawn node takes on one row: Text and Buttons by their characters (every glyph on the
@@ -1037,9 +1068,10 @@ test('arena: a monster that reaches Claude counts as a hit, ✗ beside the kills
   on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
   const t = $ as any
   await t.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
-  // a narrow arena that stays full width once the kills reach three digits (119 columns), and Edit
-  // monsters, two hits each: some get through
-  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, isWorking: true, bodyColumns: 119 } } as never)
+  // a narrow arena that stays full width once the kills reach three digits (104 columns: the bar
+  // without ⁄ and the mode chip is 15 cells shorter than at 119 before), and Edit monsters, two hits
+  // each: some get through
+  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, isWorking: true, bodyColumns: 104 } } as never)
   // the door never empty: two Edit calls a tick. Claude stops most of them, so a hit is a
   // matter of chance; when one lands, ✗ joins the kills and Claude shows red in the same frame
   let sawHit = false
@@ -1186,13 +1218,15 @@ test('settings, On the bar: a press hides an item and the next shows it again', 
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
   await band.press({ key: 'add' })
   await band.press({ key: 'settings' })
-  for (const key of ['barModel', 'barMcp', 'barMode', 'barGuard', 'barUsage']) await band.press({ key: `bar:${key}` })
-  expect(store.get('settings')).toMatchObject({ barModel: false, barMcp: false, barMode: false, barGuard: false, barUsage: false })
-  for (const key of ['model', 'mcp', 'mode', 'guard', 'usage']) expect(await band.find({ key })).toBeUndefined()
+  // the mode has no chip any more: Settings lists no switch for it
+  expect(await band.find({ key: 'bar:barMode' })).toBeUndefined()
+  for (const key of ['barModel', 'barMcp', 'barGuard', 'barUsage']) await band.press({ key: `bar:${key}` })
+  expect(store.get('settings')).toMatchObject({ barModel: false, barMcp: false, barGuard: false, barUsage: false })
+  for (const key of ['model', 'mcp', 'guard', 'usage']) expect(await band.find({ key })).toBeUndefined()
   expect(await band.find({ key: 'git' })).toBeDefined()
   await band.press({ key: 'bar:barModel' })
   expect((await band.find({ key: 'model' }))?.text).not.toContain('▾')
-  for (const key of ['barMcp', 'barMode', 'barGuard', 'barUsage']) await band.press({ key: `bar:${key}` })
+  for (const key of ['barMcp', 'barGuard', 'barUsage']) await band.press({ key: `bar:${key}` })
 })
 
 test('settings, On the bar: ‹ › move an item, past the arena to the other group; the bar still fits', async ($, on) => {
@@ -1211,7 +1245,7 @@ test('settings, On the bar: ‹ › move an item, past the arena to the other gr
   await band.press({ key: 'right:barFolder' })
   // ⇄ moves as any item does: one place right, past the images
   await band.press({ key: 'right:barRemote' })
-  expect((store.get('settings') as { barOrder: string }).barOrder).toBe('barModel,barEffort,barMode,barGit,barFolder,barGuard,arcade,barUsage,barImages,barRemote,barMcp')
+  expect((store.get('settings') as { barOrder: string }).barOrder).toBe('barModel,barEffort,barGit,barFolder,barGuard,arcade,barUsage,barImages,barRemote,barMcp')
   const menu = await textOf(band)
   expect(menu.indexOf('◈ guardrails')).toBeLessThan(menu.indexOf('¬✻ arena'))
   await band.press({ key: 'close-menu' })
@@ -1691,7 +1725,7 @@ test('the + menu indents its entries two cells under their group headings', asyn
   await band.press({ key: 'upload' }) // a row still presses as before
 })
 
-test('a blank line parts the groups in Settings, /, usage, MCP and the shield menus', async ($, on) => {
+test('a blank line parts the groups in Settings, the commands, usage, MCP and the shield menus', async ($, on) => {
   engine(on, { settings: {} })
   settingsStore(on)
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
@@ -1707,6 +1741,7 @@ test('a blank line parts the groups in Settings, /, usage, MCP and the shield me
   // and a line between the styles and Back to the defaults
   expect(await textOf(band)).toContain('"key":"styles","flexDirection":"row","gap":1,"flexWrap":"wrap","marginBottom":1')
   await band.press({ key: 'close-menu' })
+  await band.press({ key: 'add' }) // the commands open from the ✻ menu
   const commands = await menuOf('commands')
   // every group a line below what is above it, the search field included
   expect(commands.match(/"key":"box:[^"]+","flexDirection":"column","marginTop":1/g)?.length).toBe(commands.match(/"key":"box:/g)?.length)
@@ -1904,7 +1939,7 @@ test('two failed background commands: the chip counts them, ✘ 2, on the termin
   for (const id of ['bf1', 'bf2']) await t.prompt.submit({ text: `<task-notification><task-id>${id}</task-id><status>failed</status></task-notification>`, wait: false })
   for (const surface of SURFACES) {
     const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface, ...BAND, props: { ...BAND.props, bodyColumns: 160 } } as never)
-    expect((await band.find({ key: 'bgerr' }))?.text?.trim()).toBe('✘ 2')
+    expect((await band.find({ key: 'bgerr' }))?.text?.trim()).toBe(surface === 'terminal' ? '✘ 2' : '🔴 ✘ 2')
     await band.unmount()
   }
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, bodyColumns: 160 } } as never)
@@ -2296,26 +2331,28 @@ test('after an answer the chips are Claude Code\'s suggestion, else Haiku\'s thr
   expect(await band.find({ key: 'chip:0' })).toBeUndefined()
 })
 
-test('an order saved as the old default puts the mode after the effort', async ($, on) => {
-  const store = settingsStore(on)
-  store.set('settings', { barOrder: 'barModel,barEffort,barFolder,barGit,arcade,barUsage,barRemote,barImages,barMcp,barMode,barGuard' })
-  await probedEngine($, on, () => ({ decision: 'ask' }))
-  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, bodyColumns: 160 } } as never)
-  const bar = await textOf(band)
-  expect(bar.indexOf('manual')).toBeGreaterThan(-1)
-  expect(bar.indexOf('manual')).toBeLessThan(bar.indexOf('shop'))
-})
+for (const barOrder of ['barModel,barEffort,barFolder,barGit,arcade,barUsage,barRemote,barImages,barMcp,barMode,barGuard', 'barModel,barEffort,barMode,barFolder,barGit,arcade,barUsage,barRemote,barImages,barMcp,barGuard']) {
+  test(`an order an earlier version saved, the mode in it, draws no mode chip: ${barOrder.split(',').indexOf('barMode')}`, async ($, on) => {
+    const store = settingsStore(on)
+    store.set('settings', { barOrder })
+    await probedEngine($, on, () => ({ decision: 'ask' }))
+    const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, bodyColumns: 160 } } as never)
+    expect(await band.find({ key: 'mode' })).toBeUndefined()
+    expect(await band.find({ key: 'guard' })).toBeDefined()
+  })
+}
 
 test('an order moved by hand is kept as saved', async ($, on) => {
   const store = settingsStore(on)
-  store.set('settings', { barOrder: 'barModel,barEffort,barFolder,barGit,arcade,barUsage,barRemote,barImages,barMcp,barGuard,barMode' })
+  store.set('settings', { barOrder: 'barGuard,barModel,barEffort,barFolder,barGit,arcade,barUsage,barRemote,barImages,barMcp' })
   await probedEngine($, on, () => ({ decision: 'ask' }))
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, bodyColumns: 160 } } as never)
   const bar = await textOf(band)
-  expect(bar.indexOf('manual')).toBeGreaterThan(bar.indexOf('shop'))
+  expect(bar.indexOf('"key":"guard"')).toBeGreaterThan(-1)
+  expect(bar.indexOf('"key":"guard"')).toBeLessThan(bar.indexOf('shop'))
 })
 
-test('desktop: model, effort and mode stay off the bar until Settings turns them on', async ($, on) => {
+test('desktop: model and effort stay off the bar until Settings turns them on', async ($, on) => {
   engine(on)
   settingsStore(on)
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'desktop', ...BAND } as never)
@@ -2326,7 +2363,7 @@ test('desktop: model, effort and mode stay off the bar until Settings turns them
   await band.press({ key: 'set:desktopSessionItems' })
   await band.press({ key: 'close-menu' })
   expect((await band.find({ key: 'model' }))?.text).toContain('Sonnet 5.5')
-  expect((await band.find({ key: 'mode' }))?.text).toContain('manual')
+  expect(await band.find({ key: 'mode' })).toBeUndefined()
 })
 
 test('the usage menu asks Anthropic for the usage at once; it stands until a newer response moves the figures', async ($, on) => {
@@ -2780,7 +2817,7 @@ test('the bar stays inside the frame on a narrow terminal: tight labels, then th
     // inside the frame: its borders and its padding take 4
     expect(cells(root.children[root.children.length - 1])).toBeLessThanOrEqual(bodyColumns - 4)
     // what always stays
-    for (const key of ['add', 'commands', 'model', 'mode', 'guard']) expect(await band.find({ key })).toBeDefined()
+    for (const key of ['add', 'model', 'guard']) expect(await band.find({ key })).toBeDefined()
   }
 })
 
@@ -2798,4 +2835,35 @@ test('a menu in its pane opens at the size Settings give it', async ($, on) => {
   await band.press({ key: 'close-menu' })
   await band.press({ key: 'add' })
   expect(opened.at(-1)).toMatchObject({ id: 'qsb-menu', rows: 12, columns: 60 })
+})
+
+test('the usage is asked of Anthropic when a session starts, and again when /resume brings another', async ($, on) => {
+  engine(on)
+  const asked: string[] = []
+  let sessionId = 'first'
+  on('session.id', () => ({ value: sessionId }))
+  on('session.authorize', () => ({ value: { handle: 'h1', kind: 'bearer' } }))
+  on('http.fetch', (_: unknown, e: any) => {
+    asked.push(e.url)
+    const text = JSON.stringify({ five_hour: { utilization: 61 }, seven_day: { utilization: 44 } })
+    return { value: { status: 200, ok: true, headers: {}, text } }
+  })
+  const clock = mock.clock(on)
+  on('agent.list', () => ({ value: [] }))
+  on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
+  on('ui.status', () => ({ value: undefined }))
+  on('tool.register', (_: unknown, e: { name: string }) => ({ value: { tool: e.name } }))
+  on('command.register', (_: unknown, e: { name: string }) => ({ value: { command: e.name } }))
+  await ($ as any).session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+  await clock.advance(10)
+  expect(asked).toEqual(['https://api.anthropic.com/api/oauth/usage'])
+  // the same session: the 5-second tick asks nothing more
+  await clock.advance(10_000)
+  expect(asked).toHaveLength(1)
+  // /resume: another session under the same process, asked once on the next tick
+  sessionId = 'resumed'
+  await clock.advance(5_000)
+  expect(asked).toHaveLength(2)
+  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, bodyColumns: 160 } } as never)
+  expect((await band.find({ key: 'usage' }))?.text).toContain('61%')
 })

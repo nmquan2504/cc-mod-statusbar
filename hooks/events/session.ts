@@ -10,6 +10,7 @@ import { probeMode } from '../features/mode'
 import { tickPrompts } from '../features/prompts'
 import { isRemoteWaiting, pendingPairs, tickRemote } from '../features/remote'
 import { refreshBar } from '../features/status'
+import { fetchUsageForSession } from '../features/usage'
 import { UPDATE_EVERY, checkModUpdate, readModVersion } from '../features/update'
 import { cache, vaultSessionStart } from '../features/vault'
 import { zeroTtsSessionStart } from '../features/zerotts'
@@ -38,6 +39,8 @@ export function registerSession(on: On) {
     const perms = (await $.settings.read({ key: 'permissions' }).catch(() => undefined)) as { defaultMode?: string } | undefined
     rt.defaultMode = ({ default: 'manual', acceptEdits: 'acceptEdits', plan: 'plan', auto: 'auto', bypassPermissions: 'bypass', dontAsk: 'dontAsk' } as Record<string, string>)[perms?.defaultMode ?? 'default'] ?? 'manual'
     await refreshBar($)
+    // the usage asked of Anthropic at once, not left to the first answer's headers
+    void fetchUsageForSession($).then(ok => (ok ? refreshBar($) : undefined)).catch(() => undefined)
     await readGuard($)
     // the task-list rule where the prompt hook reads it, as the switch stands
     void syncTaskRule($).catch(() => undefined)
@@ -63,6 +66,8 @@ export function registerSession(on: On) {
       })
       // usage moves with every API response, a turn's end is too late for a long turn
       if (++ticks % 5 === 0) void refreshBar($).catch(() => undefined)
+      // /resume or /clear brought another session in: its usage asked of Anthropic again
+      if (ticks % 5 === 0) void fetchUsageForSession($).then(ok => (ok ? refreshBar($) : undefined)).catch(() => undefined)
       // the shield's score follows the settings with its menu shut: a settings file edited by hand,
       // by Claude or by /permissions
       if (ticks % 5 === 0) void readGuard($).catch(() => undefined)

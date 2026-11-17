@@ -40,7 +40,7 @@ export async function summarizeTurn($: any, took: number, cost: number | null) {
 }
 
 // Polish rewrites the prompt box's draft clear and specific; Translate puts it in English.
-// The draft is kept, so + then "Put back the draft" undoes either.
+// The draft is kept, so ✻ then "Put back the draft" undoes either.
 export async function rewritePrompt($: any, how: 'polish' | 'translate') {
   const box = await $.prompt.read().catch(() => undefined)
   const draft = String(box?.text ?? '').trim()

@@ -31,7 +31,7 @@ export async function drawUsageMenu($: any, els: any, isTerminal: boolean, _entr
     isTerminal && Raster
       ? <Raster key={`ug-${key}`} columns={20} rows={1} cells={gauge(n, 20)} />
       : <Text color={level(n)}>{meter(n, 20)}</Text>
-  const automation = await drawAutomation($, els)
+  const automation = await drawAutomation($, els, isTerminal)
   if (!u) {
     return (
       <Box flexDirection="column">

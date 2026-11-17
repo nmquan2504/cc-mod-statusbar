@@ -11,7 +11,7 @@ export function registerUi(on: On) {
   // comes after a quiet spell, so it is refused and the ring starts on nothing; a Tab right
   // after it is let through, so the keyboard still walks the bar.
   let lastFocusAt = 0
-  // the first Button drawn: [+] with the menus shut, the menu's close button with one open
+  // the first Button drawn: [✻] with the menus shut, the menu's close button with one open
   const FIRST = new Set(['add', 'close-menu'])
   on('ui.focus', { component: 'AbovePrompt' }, ($, e, next) => {
     const now = Date.now()
@@ -52,7 +52,7 @@ export function registerUi(on: On) {
 
   // ---- the bar ---------------------------------------------------------------
   //  ╭───────────────────────────────────────────────────────────────────────────╮
-  //  │ [ + ][ ⁄ ][ ● Opus 5.5 ][ ‖ manual ]  guardrails-hands-on ⎇ main  …  5h █▍   12% wk ██▍  33% [ ◈ 2/4 ] │
+  //  │ [ ✻ ][ ● Opus 5.5 ]  guardrails-hands-on ⎇ main  …  5h █▍   12% wk ██▍  33% [ ◈ 2/4 ] │
   //  ╰───────────────────────────────────────────────────────────────────────────╯
   // Chips are square buttons (a label on a colored cell background) and stay Buttons; the gauges
   // are truecolor cells in one color by the percentage, where the surface draws them.

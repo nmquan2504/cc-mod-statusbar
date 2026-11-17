@@ -6,9 +6,10 @@ import { hhmm, spanText } from '../../lib/format'
 import { rt } from '../../state/runtime'
 import type { CfgKey, SettingsSnapshot } from '../../state/config'
 import type { Entry } from './entry'
+import { drawToggle } from './toggle'
 
 // The settings menu.
-export async function drawSettingsMenu($: any, els: any, _isTerminal: boolean, _entry: Entry) {
+export async function drawSettingsMenu($: any, els: any, isTerminal: boolean, _entry: Entry) {
   const { Box, Button, Text } = els
   const history = ((await $.store.get(HISTORY_KEY).catch(() => undefined)) ?? []) as SettingsSnapshot[]
   const styles = await outputStyles($)
@@ -22,12 +23,7 @@ export async function drawSettingsMenu($: any, els: any, _isTerminal: boolean, _
     const i = SETTINGS.indexOf(r)
     if (r.kind === 'switch') {
       const isOn = cfg[r.key] as boolean
-      return (
-        <Button key={`set:${r.key}`} plain hotkey={i < 9 ? String(i + 1) : undefined} onPress={() => set(r.key, !isOn)}>
-          <Text color={isOn ? 'success' : 'inactive'} bold>{isOn ? '[on] ' : '[off]'}</Text>
-          {' '}<Text bold>{r.label}</Text><Text dimColor>{`  ${r.note}`}</Text>
-        </Button>
-      )
+      return drawToggle(els, isTerminal, { key: `set:${r.key}`, isOn, label: r.label, note: r.note, hotkey: i < 9 ? String(i + 1) : undefined, onPress: () => set(r.key, !isOn) })
     }
     const n = cfg[r.key] as number
     return (
@@ -62,7 +58,7 @@ export async function drawSettingsMenu($: any, els: any, _isTerminal: boolean, _
       </Box>
       <Text>
         <Text bold>On the bar</Text>
-        <Text dimColor>  a press shows or hides the item, ‹ › move it; left of the arena, the left group; + ⁄ and Claude's ✻ always stay</Text>
+        <Text dimColor>  a press shows or hides the item, ‹ › move it; left of the arena, the left group; ✻ and Claude's ¬✻ always stay</Text>
       </Text>
       <Box key="bar-items" flexDirection="row" gap={1} flexWrap="wrap" marginBottom={1}>
         {barOrder().map((key, i, order) => {
