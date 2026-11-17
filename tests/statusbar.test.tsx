@@ -136,12 +136,12 @@ test('the bar: ✻, model, folder and branch, two gauges and the shield', async 
       // plain buttons, a character for each icon: no terminal pills, no arcade
       expect((await band.find({ key: 'git' }))?.text).toBe('▤ shop  ⎇ feat/login ✎2 ⇡2 ⇣1')
       // the desktop's buttons draw one color: the icon is the Button, the figure colored Text beside it
-      expect((await band.find({ key: 'usage' }))?.text).toBe('5h')
-      expect((await chipText(band, 'usage'))).toBe('5h ▰▱▱▱ 23%')
-      expect((await chipText(band, 'usage:wk'))).toBe('wk ▰▰▱▱ 41%')
+      // the usage group: its labels and colored figures under one blank Button, one press area
+      expect((await chipText(band, 'usage'))).toBe('5h ▰▱▱▱ 23%   wk ▰▰▱▱ 41%')
+      expect((await band.find({ key: 'usage' }))?.text?.trim()).toBe('')
       expect(bar).toMatch(/"color":"success"[^}]*\},"children":\[" ▰▱▱▱ 23%"\]/)
       // the figure is a press too: the blank Button over it opens the same menu
-      await band.press({ key: 'usage:figures' })
+      await band.press({ key: 'usage' })
       expect(await band.find({ key: 'close-menu' })).toBeDefined()
       await band.press({ key: 'close-menu' })
       expect(bar).not.toMatch(/[🟢🟡🔴🟠]/u)
@@ -741,8 +741,7 @@ test('settings: usage gauges off leaves the figures alone on the bar', async ($,
   await band.press({ key: 'add' })
   await band.press({ key: 'settings' })
   await band.press({ key: 'set:usageGauge' })
-  expect((await chipText(band, 'usage'))).toBe('5h 23%')
-  expect((await chipText(band, 'usage:wk'))).toBe('wk 41%')
+  expect((await chipText(band, 'usage'))).toBe('5h 23%   wk 41%')
   // the desktop's switch: an Svg on the label's row, itself a press through the blank Button over it
   const row = JSON.stringify(await band.find({ key: 'toggle:set:usageGauge' }))
   expect(row).toContain('"type":"Svg"')
