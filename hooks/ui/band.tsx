@@ -7,7 +7,7 @@ import { isRemoteWaiting, pendingPairs, remote, secondsToPair, spinnerFrame } fr
 import { updateNow } from '../features/update'
 import { TITLES, effortColor, effortIcon, modelStyle } from '../lib/catalog'
 import { clockOf, level, meter, oneLine, pct, shortModel } from '../lib/format'
-import { GAUGE_CELLS, TRACK, gaugeColors, hex, inGauge } from '../lib/graphics'
+import { GAUGE_CELLS, TRACK, gaugeColors, hex, inGauge, paceOf } from '../lib/graphics'
 import { vnClock } from '../lib/schedule'
 import { barOrder, cfg } from '../state/config'
 import type { CfgKey } from '../state/config'
@@ -365,6 +365,8 @@ export async function drawBand($: any, e: any, next: any) {
       isGitJoined,
       five: b.five,
       week: b.week,
+      fivePace: paceOf('five_hour', u?.rateLimits.find(r => r.kind === 'five_hour')?.resetsAt, Date.now()),
+      weekPace: paceOf('seven_day', u?.rateLimits.find(r => r.kind === 'seven_day')?.resetsAt, Date.now()),
       ctx,
       isCtxShown: !!ctxLabel,
       isGuardAlert: isAlert,

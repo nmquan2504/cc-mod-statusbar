@@ -76,6 +76,9 @@ function engine(on: any, opts: { filled?: string[]; settings?: object; toasts?: 
 
 const textOf = async (ui: any) => JSON.stringify(await ui.drawn())
 
+// The Svg gauges in the desktop's usage chip
+const gaugesOn = async (ui: any) => (JSON.stringify(await ui.find({ key: 'chipbox:usage' })).match(/"type":"Svg"/g) ?? []).length
+
 // A desktop chip's text: its icon and figures, without the figure spaces of the blank Button over them
 const chipText = async (ui: any, key: string) => ((await ui.find({ key: `chipbox:${key}` }))?.text ?? '').replace(/[\u2000-\u200a]/g, '').trim()
 
@@ -151,9 +154,11 @@ test('the bar: ✻, model, folder and branch, two gauges and the shield', async 
       expect((await chipText(band, 'git'))).toBe('▤ shop  ⎇ feat/login ✎2 ⇡2 ⇣1')
       // the desktop's buttons draw one color: the icon is the Button, the figure colored Text beside it
       // the usage group: its labels and colored figures under one blank Button, one press area
-      expect((await chipText(band, 'usage'))).toBe('5h ▰▱▱▱ 23%   wk ▰▰▱▱ 41%')
+      // each window's gauge a short Svg bar, the figure beside it
+      expect((await chipText(band, 'usage')).replace(/\s+/g, ' ')).toBe('5h 23% wk 41%')
+      expect(await gaugesOn(band)).toBe(2)
       expect((await band.find({ key: 'usage' }))?.text?.trim()).toBe('')
-      expect(bar).toMatch(/"color":"success"[^}]*\},"children":\[" ▰▱▱▱ 23%"\]/)
+      expect(bar).toMatch(/"color":"success"[^}]*\},"children":\[" 23%"\]/)
       // the figure is a press too: the blank Button over it opens the same menu
       await band.press({ key: 'usage' })
       expect(await band.find({ key: 'close-menu' })).toBeDefined()
@@ -751,17 +756,18 @@ test('settings: usage gauges off leaves the figures alone on the bar', async ($,
   settingsStore(on)
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'desktop', ...BAND, props: { ...BAND.props, bodyColumns: 180 } } as never)
   await band.press({ key: 'usage' }) // reads the usage
-  expect((await chipText(band, 'usage'))).toContain('▰')
+  expect(await gaugesOn(band)).toBe(2)
   await band.press({ key: 'add' })
   await band.press({ key: 'settings' })
   await band.press({ key: 'set:usageGauge' })
   expect((await chipText(band, 'usage'))).toBe('5h 23%   wk 41%')
+  expect(await gaugesOn(band)).toBe(0)
   // the desktop's switch: an Svg on the label's row, itself a press through the blank Button over it
   const row = JSON.stringify(await band.find({ key: 'toggle:set:usageGauge' }))
   expect(row).toContain('"type":"Svg"')
   expect(row).toContain('"key":"set:usageGauge"')
   await band.press({ key: 'set:usageGauge:switch' })
-  expect((await chipText(band, 'usage'))).toContain('▰')
+  expect(await gaugesOn(band)).toBe(2)
 })
 
 // Cells a drawn node takes on one row: Text and Buttons by their characters (every glyph on the

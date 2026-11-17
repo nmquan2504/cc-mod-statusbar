@@ -4,7 +4,8 @@ import type { Part } from './pressArea'
 import { updateNow } from '../features/update'
 import { dismissChips, sendChip } from '../features/chips'
 import { TITLES } from '../lib/catalog'
-import { level, meter, oneLine, pct, shortModel } from '../lib/format'
+import { level, oneLine, pct, shortModel } from '../lib/format'
+import { gaugeSvg } from '../lib/graphics'
 import { cfg } from '../state/config'
 import type { CfgKey } from '../state/config'
 import type { MenuKind } from '../../types'
@@ -24,6 +25,9 @@ export type BarData = {
   isGitJoined: boolean
   five: number | null
   week: number | null
+  // the share of each window's time already gone (paceOf), for the gauges' tick
+  fivePace?: number
+  weekPace?: number
   ctx: number | null
   isCtxShown: boolean
   isGuardAlert: boolean
@@ -53,10 +57,17 @@ export type BarData = {
 // blank Button (pressArea).
 export { PAD, blankOf } from './pressArea'
 
+// the bar's usage gauges, in px: shorter than the usage menu's 200
+const CHIP_GAUGE_PX = 44
+
 export function desktopBar($: any, els: any, d: BarData) {
   const { Box, Button, Text } = els
   const go = (kind: MenuKind) => () => openMenu($, kind)
-  const meterText = (n: number | null) => ` ${cfg.usageGauge ? `${meter(n, 4)} ` : ''}${pct(n)}`
+  // the gauge: a short Svg bar with the pace tick, as the usage menu draws it (▰▱ came out as thin
+  // dashes); with usageGauge off, the figure alone
+  const gaugeOf = (n: number | null, pace: number | undefined): Part[] => cfg.usageGauge
+    ? [[' '], { svg: gaugeSvg(n, { width: CHIP_GAUGE_PX, height: 6, pace }), width: CHIP_GAUGE_PX, height: 10, alt: `${pct(n)} used` }, [` ${pct(n)}`, level(n)]]
+    : [[` ${pct(n)}`, level(n)]]
   // a chip whose state has a color: colored Text under one blank Button (pressArea)
   const area = (key: string, onPress: () => unknown, parts: Part[]) => pressArea(els, key, onPress, parts)
 
@@ -86,8 +97,8 @@ export function desktopBar($: any, els: any, d: BarData) {
       case 'barUsage':
         return cfg.barUsage ? (
           area('usage', go('usage'), [
-            ...(d.isCtxShown ? [['ctx'], [` ${pct(d.ctx)}`, d.ctx !== null && d.ctx >= cfg.ctxToastAt ? 'error' : 'warning'], ['   ']] as [string, string?][] : []),
-            ['5h'], [meterText(d.five), level(d.five)], ['   wk'], [meterText(d.week), level(d.week)],
+            ...(d.isCtxShown ? [['ctx'], [` ${pct(d.ctx)}`, d.ctx !== null && d.ctx >= cfg.ctxToastAt ? 'error' : 'warning'], ['   ']] as Part[] : []),
+            ['5h'], ...gaugeOf(d.five, d.fivePace), ['   wk'], ...gaugeOf(d.week, d.weekPace),
           ])
         ) : null
       case 'barRemote':
