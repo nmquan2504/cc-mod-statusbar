@@ -34,7 +34,7 @@ export const glyphEm = (ch: string) => {
   if (ch === '-') return 0.42
   if (/[_/()[\]{}·•]/.test(ch)) return 0.36
   if (/[\u2190-\u21ff]/.test(ch)) return 0.9 // arrows: ⇄ ⇡ ⇣
-  return 0.78 // other symbols: ☰ ⌁ ◈ ✘ ✻ ▤ ⎇ ✎ ▣ ✦ ◔ ⏵
+  return 0.78 // other symbols: ☰ ⌁ ◈ ✘ ✻ ⎇ ✎ ▣ ✦ ◔ ⏵
 }
 export const textEm = (text: string) => [...text].reduce((n, ch) => n + glyphEm(ch), 0)
 
