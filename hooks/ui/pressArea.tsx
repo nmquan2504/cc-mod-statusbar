@@ -16,7 +16,10 @@ export const BUTTON_PAD_EM = 1.3
 // a colored part is bold, a little wider than regular
 const BOLD = 1.06
 
-const NARROW = new Set([...'iljtfrI.,:;!|\'`'])
+const NARROW = new Set([...'ijlI.,:;!|\'`'])
+// r, t and f sit between the narrow letters and the rest; the folder chip (scratch-2026-11-16-85a929)
+// lost its right pad in 0.24.1 with them counted narrow and the hyphen at 0.36
+const SLIM = new Set([...'rtf'])
 const WIDE = new Set([...'mwMW%@'])
 // one glyph's width in em: approximate, for a proportional sans
 export const glyphEm = (ch: string) => {
@@ -24,10 +27,12 @@ export const glyphEm = (ch: string) => {
   if (ch === PAD) return 1 / 3
   if (/[0-9]/.test(ch)) return 0.6
   if (NARROW.has(ch)) return 0.28
+  if (SLIM.has(ch)) return 0.38
   if (WIDE.has(ch)) return 0.85
   if (/[A-Z]/.test(ch)) return 0.68
-  if (/[a-z]/.test(ch)) return 0.54
-  if (/[-_/()[\]{}·•]/.test(ch)) return 0.36
+  if (/[a-z]/.test(ch)) return 0.56
+  if (ch === '-') return 0.42
+  if (/[_/()[\]{}·•]/.test(ch)) return 0.36
   if (/[\u2190-\u21ff]/.test(ch)) return 0.9 // arrows: ⇄ ⇡ ⇣
   return 0.78 // other symbols: ☰ ⌁ ◈ ✘ ✻ ▤ ⎇ ✎ ▣ ✦ ◔ ⏵
 }
