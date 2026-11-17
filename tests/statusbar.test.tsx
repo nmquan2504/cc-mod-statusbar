@@ -75,6 +75,9 @@ function engine(on: any, opts: { filled?: string[]; settings?: object; toasts?: 
 
 const textOf = async (ui: any) => JSON.stringify(await ui.drawn())
 
+// A desktop chip's text: its icon and figures, without the figure spaces of the blank Button over them
+const chipText = async (ui: any, key: string) => ((await ui.find({ key: `chipbox:${key}` }))?.text ?? '').replace(/\u2007/g, '').trim()
+
 // The mode as the guardrails read it: the bar has no mode chip, the shield's mode row names it.
 const modeOf = async (band: any) => {
   await band.press({ key: 'guard' })
@@ -134,15 +137,19 @@ test('the bar: ✻, model, folder and branch, two gauges and the shield', async 
       expect((await band.find({ key: 'git' }))?.text).toBe('▤ shop  ⎇ feat/login ✎2 ⇡2 ⇣1')
       // the desktop's buttons draw one color: the icon is the Button, the figure colored Text beside it
       expect((await band.find({ key: 'usage' }))?.text).toBe('5h')
-      expect((await band.find({ key: 'chipbox:usage' }))?.text).toBe('5h ▰▱▱▱ 23%')
-      expect((await band.find({ key: 'chipbox:usage:wk' }))?.text).toBe('wk ▰▰▱▱ 41%')
+      expect((await chipText(band, 'usage'))).toBe('5h ▰▱▱▱ 23%')
+      expect((await chipText(band, 'usage:wk'))).toBe('wk ▰▰▱▱ 41%')
       expect(bar).toMatch(/"color":"success"[^}]*\},"children":\[" ▰▱▱▱ 23%"\]/)
+      // the figure is a press too: the blank Button over it opens the same menu
+      await band.press({ key: 'usage:figures' })
+      expect(await band.find({ key: 'close-menu' })).toBeDefined()
+      await band.press({ key: 'close-menu' })
       expect(bar).not.toMatch(/[🟢🟡🔴🟠]/u)
       expect(bar).not.toContain('backgroundColor')
       expect(bar).not.toContain('¬✻')
       expect(bar).not.toContain('‹ ')
-      expect((await band.find({ key: 'chipbox:guard' }))?.text).toMatch(/^◈ /)
-      expect((await band.find({ key: 'chipbox:claude' }))?.text).toBe('☰ 0')
+      expect((await chipText(band, 'guard'))).toMatch(/^◈ /)
+      expect((await chipText(band, 'claude'))).toBe('☰ 0')
     }
     await band.unmount()
   }
@@ -730,18 +737,18 @@ test('settings: usage gauges off leaves the figures alone on the bar', async ($,
   settingsStore(on)
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'desktop', ...BAND, props: { ...BAND.props, bodyColumns: 180 } } as never)
   await band.press({ key: 'usage' }) // reads the usage
-  expect((await band.find({ key: 'chipbox:usage' }))?.text).toContain('▰')
+  expect((await chipText(band, 'usage'))).toContain('▰')
   await band.press({ key: 'add' })
   await band.press({ key: 'settings' })
   await band.press({ key: 'set:usageGauge' })
-  expect((await band.find({ key: 'chipbox:usage' }))?.text).toBe('5h 23%')
-  expect((await band.find({ key: 'chipbox:usage:wk' }))?.text).toBe('wk 41%')
+  expect((await chipText(band, 'usage'))).toBe('5h 23%')
+  expect((await chipText(band, 'usage:wk'))).toBe('wk 41%')
   // the desktop's switch: an Svg on the label's row, itself a press through the blank Button over it
   const row = JSON.stringify(await band.find({ key: 'toggle:set:usageGauge' }))
   expect(row).toContain('"type":"Svg"')
   expect(row).toContain('"key":"set:usageGauge"')
   await band.press({ key: 'set:usageGauge:switch' })
-  expect((await band.find({ key: 'chipbox:usage' }))?.text).toContain('▰')
+  expect((await chipText(band, 'usage'))).toContain('▰')
 })
 
 // Cells a drawn node takes on one row: Text and Buttons by their characters (every glyph on the
@@ -1929,7 +1936,7 @@ test('two failed background commands: the chip counts them, ✘ 2, on the termin
   for (const id of ['bf1', 'bf2']) await t.prompt.submit({ text: `<task-notification><task-id>${id}</task-id><status>failed</status></task-notification>`, wait: false })
   for (const surface of SURFACES) {
     const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface, ...BAND, props: { ...BAND.props, bodyColumns: 160 } } as never)
-    expect((await band.find({ key: surface === 'terminal' ? 'bgerr' : 'chipbox:bgerr' }))?.text?.trim()).toBe('✘ 2')
+    expect((surface === 'terminal' ? (await band.find({ key: 'bgerr' }))?.text?.trim() : await chipText(band, 'bgerr'))).toBe('✘ 2')
     await band.unmount()
   }
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, bodyColumns: 160 } } as never)
