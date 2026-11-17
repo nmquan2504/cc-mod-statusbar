@@ -47,16 +47,18 @@ export type BarData = {
 // The bar for a surface that draws native buttons (Claude Code Desktop). Every item is a plain
 // button, drawn as text with no chrome: a character for its icon and a few words, none of the
 // terminal's filled pills; no frame of its own (the host draws one) and no arcade. The desktop
-// draws a button's text in one color, so a chip whose state has a color is its icon as a Button
-// with the figure beside it as colored Text: a press on the icon opens the menu.
+// draws a button's text in one color, so a chip whose state has a color is colored Text under one
+// blank Button (area, below).
 // The blank text of a Button laid over `text`, as wide as it: a figure space (a digit's width) for
 // each character, a four-per-em space for each space (a space is about a quarter em in the
-// desktop's font, a figure space twice that), less one figure space for the Button's own padding.
-// 0.23.3 counted every character as a figure space and added two, which ran over the next chip.
+// desktop's font, a figure space twice that), a pad as itself, less one figure space for the
+// Button's own padding. Measured on Desktop: with these the usage group's area fits its text.
 const FIGURE_SPACE = '\u2007'
 const SPACE = '\u2005'
+// the small room each press area keeps left and right of its text: a three-per-em space
+export const PAD = '\u2004'
 export const blankOf = (text: string) => {
-  const blank = [...text].map(ch => (ch === ' ' ? SPACE : FIGURE_SPACE)).join('')
+  const blank = [...text].map(ch => (ch === ' ' ? SPACE : ch === PAD ? PAD : FIGURE_SPACE)).join('')
   const at = blank.lastIndexOf(FIGURE_SPACE)
   return at > 0 ? blank.slice(0, at) + blank.slice(at + 1) : blank
 }
@@ -65,36 +67,17 @@ export function desktopBar($: any, els: any, d: BarData) {
   const { Box, Button, Text } = els
   const go = (kind: MenuKind) => () => openMenu($, kind)
   const meterText = (n: number | null) => ` ${cfg.usageGauge ? `${meter(n, 4)} ` : ''}${pct(n)}`
-  // Labels and figures all as Text, each in its color, under one blank Button laid over the whole
-  // group: a press anywhere on it opens the menu.
+  // A chip whose state has a color: its icon, labels and figures all as Text, each in its color,
+  // with a pad at each end, under one blank Button laid over the whole of it (Desktop honours
+  // position="absolute"): a press anywhere on it opens the menu.
   const area = (key: string, onPress: () => unknown, parts: [string, string?][]) => {
-    const shown = parts.filter(([t]) => t)
+    const shown: [string, string?][] = [[PAD], ...parts.filter(([t]) => t), [PAD]]
     return (
       <Box key={`chipbox:${key}`} flexDirection="row" alignItems="center">
         {shown.map(([t, color], i) => <Text key={`${key}:${i}`} color={color} bold={Boolean(color)}>{t}</Text>)}
         <Box position="absolute" top={0} left={0}>
           <Button key={key} plain onPress={onPress}>{blankOf(shown.map(([t]) => t).join(''))}</Button>
         </Box>
-      </Box>
-    )
-  }
-
-  // A Button for the icon, then the figures as Text, each in its color (none: the text's own). A
-  // blank Button laid over the figures (Desktop honours position="absolute", as the menus' switches
-  // do) makes them a press too, as wide as they are (blankOf).
-  const chip = (key: string, onPress: () => unknown, label: string, parts: [string, string?][]) => {
-    const shown = parts.filter(([t]) => t)
-    return (
-      <Box key={`chipbox:${key}`} flexDirection="row" alignItems="center">
-        <Button key={key} plain onPress={onPress}>{label}</Button>
-        {shown.length ? (
-          <Box key={`figures:${key}`} flexDirection="row" alignItems="center">
-            {shown.map(([t, color], i) => <Text key={`${key}:${i}`} color={color} bold={Boolean(color)}>{t}</Text>)}
-            <Box position="absolute" top={0} left={0}>
-              <Button key={`${key}:figures`} plain onPress={onPress}>{blankOf(shown.map(([t]) => t).join(''))}</Button>
-            </Box>
-          </Box>
-        ) : null}
       </Box>
     )
   }
@@ -131,7 +114,7 @@ export function desktopBar($: any, els: any, d: BarData) {
         ) : null
       case 'barRemote':
         return cfg.selfRemote && cfg.barRemote ? (
-          chip('remote', go('remote'), '⇄', [[d.remoteText.replace(/^⇄/, ''), d.remoteColor]])
+          area('remote', go('remote'), [['⇄'], [d.remoteText.replace(/^⇄/, ''), d.remoteColor]])
         ) : null
       case 'barMcp':
         return cfg.barMcp ? (
@@ -191,7 +174,7 @@ export function desktopBar($: any, els: any, d: BarData) {
         <Box flexDirection="row" gap={2} alignItems="center" flexWrap="wrap">
           {tasks}
           {d.broken ? (
-            chip('bgerr', d.broken.press, '✘', [[` ${d.broken.count}`, 'error']])
+            area('bgerr', d.broken.press, [['✘'], [` ${d.broken.count}`, 'error']])
           ) : null}
           {d.continueAt ? (
             <Button key="continue" plain onPress={go('usage')}>{`⏵ ${d.continueAt}`}</Button>

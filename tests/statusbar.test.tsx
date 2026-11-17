@@ -7,7 +7,7 @@ import { keyRows, rowsOf } from '../hooks/lib/rows'
 import { gitRisk, newPackage } from '../hooks/lib/gitguard'
 import { hostsOf } from '../hooks/features/egress'
 import { redactText } from '../hooks/lib/pii'
-import { blankOf } from '../hooks/ui/desktopBar'
+import { PAD, blankOf } from '../hooks/ui/desktopBar'
 import { groupHooks, groupRules, hookEntries, hookPurpose, ruleKind } from '../hooks/lib/guardclass'
 import { SHOW_MS, WAIT_MS, clearPrompts, duePrompts, noteCheck, noteSpinner, prompts, waitingPrompts } from '../hooks/features/prompts'
 
@@ -77,7 +77,7 @@ function engine(on: any, opts: { filled?: string[]; settings?: object; toasts?: 
 const textOf = async (ui: any) => JSON.stringify(await ui.drawn())
 
 // A desktop chip's text: its icon and figures, without the figure spaces of the blank Button over them
-const chipText = async (ui: any, key: string) => ((await ui.find({ key: `chipbox:${key}` }))?.text ?? '').replace(/[\u2005\u2007]/g, '').trim()
+const chipText = async (ui: any, key: string) => ((await ui.find({ key: `chipbox:${key}` }))?.text ?? '').replace(/[\u2004\u2005\u2007]/g, '').trim()
 
 // The mode as the guardrails read it: the bar has no mode chip, the shield's mode row names it.
 const modeOf = async (band: any) => {
@@ -108,6 +108,9 @@ test('a blank overlay is as wide as its text: a narrow space for a space, less o
   const blank = blankOf('5h 9%   wk 74%')
   expect([...blank].filter(c => c === '\u2007')).toHaveLength(8)
   expect([...blank].filter(c => c === '\u2005')).toHaveLength(5)
+  // a press area's pads stay pads, so the area keeps a little room at each end
+  const padded = blankOf(`${PAD}5h 9%${PAD}`)
+  expect(padded.startsWith(PAD) && padded.endsWith(PAD)).toBe(true)
 })
 
 test('the bar: ✻, model, folder and branch, two gauges and the shield', async ($, on) => {
