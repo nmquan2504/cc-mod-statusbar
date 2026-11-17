@@ -58,7 +58,7 @@ export async function drawSettingsMenu($: any, els: any, isTerminal: boolean, _e
       </Box>
       <Text>
         <Text bold>On the bar</Text>
-        <Text dimColor>  a press shows or hides the item, ‹ › move it; left of the arena, the left group; ✻ and Claude's ━╤✻ always stay</Text>
+        <Text dimColor>  a press shows or hides the item, ‹ › move it; left of the arena, the left group; ✻ and Claude's ─━╦✻ always stay</Text>
       </Text>
       <Box key="bar-items" flexDirection="row" gap={1} flexWrap="wrap" marginBottom={1}>
         {barOrder().map((key, i, order) => {
