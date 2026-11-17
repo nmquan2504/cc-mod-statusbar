@@ -661,7 +661,7 @@ function settingsStore(on: any) {
   return store
 }
 
-test('settings: arcade and git marks off, from + then Settings, leave Claude and the branch', async ($, on) => {
+test('settings: arcade and git marks off, from ✻ then Settings, leave the tasks chip and the branch', async ($, on) => {
   engine(on)
   const store = settingsStore(on)
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, isWorking: true } } as never)
@@ -674,7 +674,9 @@ test('settings: arcade and git marks off, from + then Settings, leave Claude and
   await band.press({ key: 'model' }) // reads the bar's figures
   const bar = await textOf(band)
   expect(bar).not.toContain(' ✝ ')
-  expect(await band.find({ key: 'claude' })).toBeDefined()
+  // with the arena off, Claude's place holds the tasks chip, as on the desktop
+  expect((await band.find({ key: 'claude' }))?.text).toBe(' ☰ 0 ')
+  expect(bar).not.toContain('¬✻')
   expect(bar).toContain(' ⎇ feat/login')
   expect(bar).not.toContain('✎2')
 })
