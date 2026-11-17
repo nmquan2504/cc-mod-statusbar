@@ -49,24 +49,31 @@ export type BarData = {
 // terminal's filled pills; no frame of its own (the host draws one) and no arcade. The desktop
 // draws a button's text in one color, so a chip whose state has a color is its icon as a Button
 // with the figure beside it as colored Text: a press on the icon opens the menu.
-// a space as wide as a digit, so a blank Button of them covers a figure
+// The blank text of a Button laid over `text`, as wide as it: a figure space (a digit's width) for
+// each character, a four-per-em space for each space (a space is about a quarter em in the
+// desktop's font, a figure space twice that), less one figure space for the Button's own padding.
+// 0.23.3 counted every character as a figure space and added two, which ran over the next chip.
 const FIGURE_SPACE = '\u2007'
+const SPACE = '\u2005'
+export const blankOf = (text: string) => {
+  const blank = [...text].map(ch => (ch === ' ' ? SPACE : FIGURE_SPACE)).join('')
+  const at = blank.lastIndexOf(FIGURE_SPACE)
+  return at > 0 ? blank.slice(0, at) + blank.slice(at + 1) : blank
+}
 
 export function desktopBar($: any, els: any, d: BarData) {
   const { Box, Button, Text } = els
   const go = (kind: MenuKind) => () => openMenu($, kind)
   const meterText = (n: number | null) => ` ${cfg.usageGauge ? `${meter(n, 4)} ` : ''}${pct(n)}`
   // Labels and figures all as Text, each in its color, under one blank Button laid over the whole
-  // group: a press anywhere on it opens the menu. Two figure spaces more than the characters, since a
-  // letter (the w of wk) is wider than a digit.
+  // group: a press anywhere on it opens the menu.
   const area = (key: string, onPress: () => unknown, parts: [string, string?][]) => {
     const shown = parts.filter(([t]) => t)
-    const width = shown.reduce((n, [t]) => n + [...t].length, 0) + 2
     return (
       <Box key={`chipbox:${key}`} flexDirection="row" alignItems="center">
         {shown.map(([t, color], i) => <Text key={`${key}:${i}`} color={color} bold={Boolean(color)}>{t}</Text>)}
         <Box position="absolute" top={0} left={0}>
-          <Button key={key} plain onPress={onPress}>{FIGURE_SPACE.repeat(width)}</Button>
+          <Button key={key} plain onPress={onPress}>{blankOf(shown.map(([t]) => t).join(''))}</Button>
         </Box>
       </Box>
     )
@@ -74,10 +81,9 @@ export function desktopBar($: any, els: any, d: BarData) {
 
   // A Button for the icon, then the figures as Text, each in its color (none: the text's own). A
   // blank Button laid over the figures (Desktop honours position="absolute", as the menus' switches
-  // do) makes them a press too: one figure space a character, so it covers them.
+  // do) makes them a press too, as wide as they are (blankOf).
   const chip = (key: string, onPress: () => unknown, label: string, parts: [string, string?][]) => {
     const shown = parts.filter(([t]) => t)
-    const width = shown.reduce((n, [t]) => n + [...t].length, 0)
     return (
       <Box key={`chipbox:${key}`} flexDirection="row" alignItems="center">
         <Button key={key} plain onPress={onPress}>{label}</Button>
@@ -85,7 +91,7 @@ export function desktopBar($: any, els: any, d: BarData) {
           <Box key={`figures:${key}`} flexDirection="row" alignItems="center">
             {shown.map(([t, color], i) => <Text key={`${key}:${i}`} color={color} bold={Boolean(color)}>{t}</Text>)}
             <Box position="absolute" top={0} left={0}>
-              <Button key={`${key}:figures`} plain onPress={onPress}>{FIGURE_SPACE.repeat(width)}</Button>
+              <Button key={`${key}:figures`} plain onPress={onPress}>{blankOf(shown.map(([t]) => t).join(''))}</Button>
             </Box>
           </Box>
         ) : null}
