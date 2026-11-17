@@ -1,7 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 import { cmdsKept, contextOf, midTurnsIn, pairChoices, phoneCommand, phoneMayRun, sessionTitleIn, transcriptOf } from '../hooks/features/remote'
 import { qrMatrix, qrRows, qrSvg } from '../hooks/lib/qr'
-import { toggleHref } from '../hooks/ui/menus/toggle'
 
 // Self remote: the ⇄ chip and its menu. The hooks registered here stand for the engine; the hub
 // (remote/server.mjs) is answered by http.fetch on its Unix socket.
@@ -70,8 +69,7 @@ async function switchOn(band: any) {
   expect(drawn.indexOf('Confirm dangerous commands')).toBeLessThan(drawn.indexOf('every session on this machine on your phone'))
   expect(drawn.indexOf('every session on this machine on your phone')).toBeLessThan(drawn.indexOf('Remote stops after'))
   expect(drawn.indexOf('Remote stops after')).toBeLessThan(drawn.indexOf('Output style'))
-  // the desktop draws a switch as a Markdown whose image links to toggleHref: pressed by its link
-  await band.press({ key: 'set:selfRemote' }).catch(() => band.press({ key: 'set:selfRemote', link: { href: toggleHref('set:selfRemote') } }))
+  await band.press({ key: 'set:selfRemote' })
   await band.press({ key: 'close-menu' })
 }
 
