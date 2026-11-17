@@ -53,10 +53,11 @@ export const spacesFor = (em: number) => {
 }
 export const blankOf = (text: string) => spacesFor(textEm(text) - BUTTON_PAD_EM)
 // One part of a press area: its text and its color (none: the text's own), bold when colored; or an
-// Svg drawn `width` px wide, counted at EM_PX px to the em (the desktop bar's text size).
+// Svg drawn `width` px wide, counted at EM_PX px to the em (the desktop bar's text size). At 13 the
+// usage chip's two 44 px gauges came out about 7 px too wide on the right (0.25.0): the text is 14.
 export type SvgPart = { svg: string; width: number; height: number; alt: string }
 export type Part = [string, string?] | SvgPart
-export const EM_PX = 13
+export const EM_PX = 14
 const isSvg = (p: Part): p is SvgPart => !Array.isArray(p)
 const partsEm = (parts: Part[]) => parts.reduce((n, p) => n + (isSvg(p) ? p.width / EM_PX : textEm(p[0]) * (p[1] ? BOLD : 1)), 0)
 
