@@ -224,13 +224,18 @@ export async function drawBand($: any, e: any, next: any) {
   const running = (await read($, agents)).filter(a => ['pending', 'running', 'waiting'].includes(a.status)).length
     + (await read($, servers)).length
   const badge = running ? String(running) : ''
+  // With the arena off, Claude's place holds a tasks chip, as the desktop's: ☰ 2/5, Claude's tasks
+  // done of all this run of work (☰ 0 with none), then · 3 while agents or servers run
+  const tasksNow = await taskLine($)
+  const tasksLabel = ` ☰ ${tasksNow ? `${tasksNow.done}/${tasksNow.of}` : '0'}${running ? ` · ${running}` : ''} `
+  const claudeCells = cfg.arcade ? 2 + badge.length : tasksLabel.length
   const full = layout(false)
   // the arena wants ARENA_MIN cells besides its margins, the kill count, the clock, the ctx chip and Claude's badge
   const extras = killsText.length + (ctxLabel ? ctxLabel.length + 1 : 0) + (turnText ? turnText.length + 1 : 0) + badge.length
   const isCompact = e.props.bodyColumns - 4 - full.left - full.right - 2 * ARENA_GAP - 1 - extras < ARENA_MIN
   // With no room to play, Claude stands at the head of the right group with the turn's clock: what
   // is left of the row must hold both groups, or the bar runs past the frame
-  const restCells = 1 + 2 + badge.length + 1 + (turnText ? turnText.length + 1 : 0) + (ctxLabel ? ctxLabel.length : 0)
+  const restCells = 1 + claudeCells + 1 + (turnText ? turnText.length + 1 : 0) + (ctxLabel ? ctxLabel.length : 0)
   const fits = (l: { left: number; right: number }) => e.props.bodyColumns - 4 - l.left - l.right - restCells >= 0
   let chosen = isCompact ? layout(true) : full
   let isTightNow = false
@@ -267,6 +272,12 @@ export async function drawBand($: any, e: any, next: any) {
     <Button key="claude" plain hover={{ scope: 'qsb-claude', bold: true }} onPress={() => openMenu($, 'tasks')}>
       <Text color={isTasksOpen ? 'inverseText' : isHurt ? 'error' : isPlaying ? 'claude' : 'inactive'} backgroundColor={isTasksOpen ? 'claude' : undefined} bold={isPlaying || isTasksOpen}>¬✻</Text>
       {badge ? <Text color="suggestion" bold>{badge}</Text> : null}
+    </Button>
+  )
+  // the arena off: a tasks chip in Claude's place, on Claude's color while a turn runs
+  const tasksChip = (
+    <Button key="claude" plain hover={{ scope: 'qsb-claude', bold: true }} onPress={() => openMenu($, 'tasks')}>
+      <Text backgroundColor={isTasksOpen ? 'inverseText' : rt.isBusy ? 'claude' : 'subtle'} color={isTasksOpen ? (rt.isBusy ? 'claude' : 'subtle') : 'inverseText'} bold>{tasksLabel}</Text>
     </Button>
   )
 
@@ -487,7 +498,7 @@ export async function drawBand($: any, e: any, next: any) {
         ) : null}
         <Box flexDirection="row" gap={1} flexShrink={0}>
           {/* too narrow to play: Claude stands at the head of the right group */}
-          {!cfg.arcade || arena.width < ARENA_MIN ? claudeButton : null}
+          {!cfg.arcade ? tasksChip : arena.width < ARENA_MIN ? claudeButton : null}
           {/* the turn's clock and cost: ◷ 0:42 $0.24 */}
           {turnClock}
           {/* the context chip rides in the usage button, which opens the same menu; alone only with the gauges hidden */}
