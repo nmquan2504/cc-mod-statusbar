@@ -166,7 +166,8 @@ export function desktopBar($: any, els: any, d: BarData) {
           <Button key="chips-dismiss" plain onPress={() => dismissChips($)}>✕</Button>
         </Box>
       ) : null}
-      <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={1} flexWrap="wrap">
+      {/* a cell of room at the right end: the last chip's hover box ran into the band's edge */}
+      <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={1} flexWrap="wrap" paddingRight={1}>
         <Box flexDirection="row" gap={2} alignItems="center" flexWrap="wrap">
           <Button key="add" plain onPress={go('add')}>✻</Button>
           {d.order.slice(0, d.split).map(itemOf)}
