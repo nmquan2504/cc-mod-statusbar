@@ -52,3 +52,29 @@ export const inGauge = (n: number | null) => {
 }
 
 export const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`
+
+// ---- the desktop's usage gauge: an Svg ----------------------------------------
+// A rounded bar `width` by `height` px filled to n% in fillColor on the track, for a surface that
+// draws Svg (the desktop draws ▰▱ text as thin dashes). With `pace`, the share of the window's time
+// already gone (0 to 1), a white tick stands there: a fill past the tick spends faster than the
+// window runs.
+export const WINDOW_MS: Record<string, number> = { five_hour: 5 * 3600_000, seven_day: 7 * 24 * 3600_000 }
+
+export const paceOf = (kind: string, resetsAt: string | undefined, now: number) => {
+  const span = WINDOW_MS[kind]
+  const at = resetsAt ? Date.parse(resetsAt) : NaN
+  if (!span || Number.isNaN(at)) return undefined
+  return Math.max(0, Math.min(1, 1 - (at - now) / span))
+}
+
+export function gaugeSvg(n: number | null, opts: { width?: number; height?: number; pace?: number } = {}) {
+  const w = opts.width ?? 200
+  const h = opts.height ?? 10
+  const r = h / 2
+  const share = n === null ? 0 : Math.max(0, Math.min(1, n / 100))
+  const fillW = share > 0 ? Math.max(h, share * w) : 0
+  const fill = fillW ? `<rect x="0" y="0" width="${fillW.toFixed(1)}" height="${h}" rx="${r}" fill="${hex(fillColor(n ?? 0))}"/>` : ''
+  const tickX = opts.pace === undefined ? null : Math.max(1, Math.min(w - 1, opts.pace * w))
+  const tick = tickX === null ? '' : `<rect x="${(tickX - 1).toFixed(1)}" y="-2" width="2" height="${h + 4}" rx="1" fill="#ffffff" opacity="0.85"/>`
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h + 4}" viewBox="0 -2 ${w} ${h + 4}"><rect x="0" y="0" width="${w}" height="${h}" rx="${r}" fill="${hex(TRACK)}"/>${fill}${tick}</svg>`
+}

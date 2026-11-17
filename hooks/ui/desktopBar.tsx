@@ -1,4 +1,6 @@
 import { closeMenu, openMenu } from '../features/menu'
+import { pressArea } from './pressArea'
+import type { Part } from './pressArea'
 import { updateNow } from '../features/update'
 import { dismissChips, sendChip } from '../features/chips'
 import { TITLES } from '../lib/catalog'
@@ -48,39 +50,15 @@ export type BarData = {
 // button, drawn as text with no chrome: a character for its icon and a few words, none of the
 // terminal's filled pills; no frame of its own (the host draws one) and no arcade. The desktop
 // draws a button's text in one color, so a chip whose state has a color is colored Text under one
-// blank Button (area, below).
-// The blank text of a Button laid over `text`, as wide as it: a figure space (a digit's width) for
-// each character, a four-per-em space for each space (a space is about a quarter em in the
-// desktop's font, a figure space twice that), a pad as itself, less one figure space for the
-// Button's own padding. Measured on Desktop: with these the usage group's area fits its text.
-const FIGURE_SPACE = '\u2007'
-const SPACE = '\u2005'
-// the small room each press area keeps left and right of its text: a three-per-em space
-export const PAD = '\u2004'
-export const blankOf = (text: string) => {
-  const blank = [...text].map(ch => (ch === ' ' ? SPACE : ch === PAD ? PAD : FIGURE_SPACE)).join('')
-  const at = blank.lastIndexOf(FIGURE_SPACE)
-  return at > 0 ? blank.slice(0, at) + blank.slice(at + 1) : blank
-}
+// blank Button (pressArea).
+export { PAD, blankOf } from './pressArea'
 
 export function desktopBar($: any, els: any, d: BarData) {
   const { Box, Button, Text } = els
   const go = (kind: MenuKind) => () => openMenu($, kind)
   const meterText = (n: number | null) => ` ${cfg.usageGauge ? `${meter(n, 4)} ` : ''}${pct(n)}`
-  // A chip whose state has a color: its icon, labels and figures all as Text, each in its color,
-  // with a pad at each end, under one blank Button laid over the whole of it (Desktop honours
-  // position="absolute"): a press anywhere on it opens the menu.
-  const area = (key: string, onPress: () => unknown, parts: [string, string?][]) => {
-    const shown: [string, string?][] = [[PAD], ...parts.filter(([t]) => t), [PAD]]
-    return (
-      <Box key={`chipbox:${key}`} flexDirection="row" alignItems="center">
-        {shown.map(([t, color], i) => <Text key={`${key}:${i}`} color={color} bold={Boolean(color)}>{t}</Text>)}
-        <Box position="absolute" top={0} left={0}>
-          <Button key={key} plain onPress={onPress}>{blankOf(shown.map(([t]) => t).join(''))}</Button>
-        </Box>
-      </Box>
-    )
-  }
+  // a chip whose state has a color: colored Text under one blank Button (pressArea)
+  const area = (key: string, onPress: () => unknown, parts: Part[]) => pressArea(els, key, onPress, parts)
 
   // The model and the effort stay off unless Settings asks for them: Desktop shows its own.
   const itemOf = (key: CfgKey) => {

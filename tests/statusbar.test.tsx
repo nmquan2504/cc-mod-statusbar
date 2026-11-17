@@ -28,7 +28,7 @@ const USAGE = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, c
 // the environment has the web timers; the engine's declarations leave them out
 declare function setTimeout(callback: (...args: never[]) => void, ms: number): unknown
 type Cmd = { name: string; description: string; source: string; plugin?: string }
-function engine(on: any, opts: { filled?: string[]; settings?: object; toasts?: string[]; run?: (argv: string[]) => Run | undefined; commands?: Cmd[]; breakdown?: (detail: string) => object } = {}) {
+function engine(on: any, opts: { filled?: string[]; settings?: object; toasts?: string[]; run?: (argv: string[]) => Run | undefined; commands?: Cmd[]; breakdown?: (detail: string) => object; limits?: object[] } = {}) {
   on('session.model', () => ({ value: 'claude-sonnet-5-5' }))
   on('session.cwd', () => ({ value: '/work/shop' }))
   on('process.run', (_: unknown, e: { argv: string[] }) => ({
@@ -39,7 +39,7 @@ function engine(on: any, opts: { filled?: string[]; settings?: object; toasts?: 
     value: {
       startedAt: 0,
       context: { window: 200000, percent: 4, ...(e?.breakdown && opts.breakdown ? { breakdown: opts.breakdown(e.breakdown) } : {}) },
-      rateLimits: [
+      rateLimits: opts.limits ?? [
         { kind: 'five_hour', percentUsed: 23 },
         { kind: 'seven_day', percentUsed: 41.4 },
       ],
@@ -2873,4 +2873,43 @@ test('the usage is asked of Anthropic when a session starts, and again when /res
   expect(asked).toHaveLength(2)
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, bodyColumns: 160 } } as never)
   expect((await band.find({ key: 'usage' }))?.text).toContain('61%')
+})
+
+test('the desktop usage menu draws each window as an Svg bar, a tick where its time stands', async ($, on) => {
+  const inTwoAndHalfHours = new Date(Date.now() + 2.5 * 3600_000).toISOString()
+  engine(on, { limits: [{ kind: 'five_hour', percentUsed: 15, resetsAt: inTwoAndHalfHours }, { kind: 'seven_day', percentUsed: 75 }] })
+  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'desktop', ...BAND } as never)
+  await band.press({ key: 'usage' })
+  // an Svg carries no key once drawn: each window's bar is read from the drawing, by its row
+  const drawn = JSON.stringify(await band.drawn())
+  const five = drawn.match(/5-hour[^{]*\{"type":"Svg","props":\{"source":"(.*?)","alt"/)?.[1] ?? ''
+  const week = drawn.match(/weekly[^{]*\{"type":"Svg","props":\{"source":"(.*?)","alt"/)?.[1] ?? ''
+  // 15% green; half the 5-hour window gone, the tick at 100 of 200 px
+  expect(five).toContain('fill=\\"#4ade80\\"')
+  expect(five).toMatch(/<rect x=\\"99\.\d\\" y=\\"-2\\" width=\\"2\\"/)
+  // the weekly window has no reset time here: amber, no tick
+  expect(week).toContain('fill=\\"#fbbf24\\"')
+  expect(week).not.toContain('y=\\"-2\\" width=\\"2\\"')
+  // the terminal keeps its Raster (the menu is shared: shut on the desktop first)
+  await band.press({ key: 'close-menu' })
+  const term = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await term.press({ key: 'usage' })
+  const termDrawn = JSON.stringify(await term.drawn())
+  expect(termDrawn).toContain('"type":"Raster"')
+  expect(termDrawn).not.toContain('"type":"Svg"')
+})
+
+test('the desktop shield marks the scope picked with ●, and a press on another picks it', async ($, on) => {
+  engine(on)
+  settingsStore(on)
+  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'desktop', ...BAND } as never)
+  await band.press({ key: 'guard' })
+  const picked = async () => {
+    const all = await Promise.all(['project', 'local', 'user'].map(sc => chipText(band, `scope:${sc}`)))
+    return all.filter(t => t.startsWith('●'))
+  }
+  expect(await picked()).toHaveLength(1)
+  await band.press({ key: 'scope:user' })
+  expect(await picked()).toEqual(['● user'])
+  expect(await chipText(band, 'scope:project')).toBe('○ project')
 })

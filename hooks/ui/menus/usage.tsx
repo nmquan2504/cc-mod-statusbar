@@ -3,7 +3,7 @@ import { closeMenu } from '../../features/menu'
 import { readBreakdown } from '../../features/usage'
 
 import { WINDOW_NAMES, hhmm, kTok, level, meter, oneLine, pct, span, thousands } from '../../lib/format'
-import { gauge } from '../../lib/graphics'
+import { gauge, gaugeSvg, paceOf } from '../../lib/graphics'
 import { cfg } from '../../state/config'
 import { rt } from '../../state/runtime'
 import { drawAutomation } from './automation'
@@ -25,12 +25,16 @@ export async function drawUsageMenu($: any, els: any, isTerminal: boolean, _entr
   const home: string = (await $.env.get('HOME').catch(() => '')) ?? ''
   const cwd: string = await projectDir($).catch(() => '')
   const rel = (path: string) => (cwd && path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : home && path.startsWith(home) ? `~${path.slice(home.length)}` : path)
-  const { Raster } = els
+  const { Raster, Svg } = els
   const now = Date.now()
-  const gaugeOf = (key: string, n: number | null) =>
+  // the terminal paints Raster cells; the desktop draws ▰▱ as thin dashes, so it gets an Svg bar,
+  // with a tick where the window's time stands (paceOf)
+  const gaugeOf = (key: string, n: number | null, pace?: number) =>
     isTerminal && Raster
       ? <Raster key={`ug-${key}`} columns={20} rows={1} cells={gauge(n, 20)} />
-      : <Text color={level(n)}>{meter(n, 20)}</Text>
+      : !isTerminal && Svg
+        ? <Svg key={`ug-${key}`} source={gaugeSvg(n, { pace })} alt={`${pct(n)} used${pace === undefined ? '' : `, ${Math.round(pace * 100)}% of the window gone`}`} width={200} height={14} />
+        : <Text color={level(n)}>{meter(n, 20)}</Text>
   const automation = await drawAutomation($, els, isTerminal)
   if (!u) {
     return (
@@ -55,7 +59,7 @@ export async function drawUsageMenu($: any, els: any, isTerminal: boolean, _entr
         return (
           <Box key={`rl-${r.kind}`} flexDirection="row" gap={1}>
             <Text>{`  ${(WINDOW_NAMES[r.kind] ?? r.kind).padEnd(11)}`}</Text>
-            {gaugeOf(r.kind, r.percentUsed)}
+            {gaugeOf(r.kind, r.percentUsed, paceOf(r.kind, r.resetsAt, now))}
             <Text color={level(r.percentUsed)} bold>{pct(r.percentUsed).padStart(4)}</Text>
             <Text dimColor>{`  ${when}`}</Text>
           </Box>
