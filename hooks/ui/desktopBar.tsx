@@ -49,17 +49,33 @@ export type BarData = {
 // terminal's filled pills; no frame of its own (the host draws one) and no arcade. The desktop
 // draws a button's text in one color, so a chip whose state has a color is its icon as a Button
 // with the figure beside it as colored Text: a press on the icon opens the menu.
+// a space as wide as a digit, so a blank Button of them covers a figure
+const FIGURE_SPACE = '\u2007'
+
 export function desktopBar($: any, els: any, d: BarData) {
   const { Box, Button, Text } = els
   const go = (kind: MenuKind) => () => openMenu($, kind)
   const meterText = (n: number | null) => ` ${cfg.usageGauge ? `${meter(n, 4)} ` : ''}${pct(n)}`
-  // a Button for the icon, then the figures as Text, each in its color (none: the text's own)
-  const chip = (key: string, onPress: () => unknown, label: string, parts: [string, string?][]) => (
-    <Box key={`chipbox:${key}`} flexDirection="row" alignItems="center">
-      <Button key={key} plain onPress={onPress}>{label}</Button>
-      {parts.filter(([t]) => t).map(([t, color], i) => <Text key={`${key}:${i}`} color={color} bold={Boolean(color)}>{t}</Text>)}
-    </Box>
-  )
+  // A Button for the icon, then the figures as Text, each in its color (none: the text's own). A
+  // blank Button laid over the figures (Desktop honours position="absolute", as the menus' switches
+  // do) makes them a press too: one figure space a character, so it covers them.
+  const chip = (key: string, onPress: () => unknown, label: string, parts: [string, string?][]) => {
+    const shown = parts.filter(([t]) => t)
+    const width = shown.reduce((n, [t]) => n + [...t].length, 0)
+    return (
+      <Box key={`chipbox:${key}`} flexDirection="row" alignItems="center">
+        <Button key={key} plain onPress={onPress}>{label}</Button>
+        {shown.length ? (
+          <Box key={`figures:${key}`} flexDirection="row" alignItems="center">
+            {shown.map(([t, color], i) => <Text key={`${key}:${i}`} color={color} bold={Boolean(color)}>{t}</Text>)}
+            <Box position="absolute" top={0} left={0}>
+              <Button key={`${key}:figures`} plain onPress={onPress}>{FIGURE_SPACE.repeat(width)}</Button>
+            </Box>
+          </Box>
+        ) : null}
+      </Box>
+    )
+  }
 
   // The model and the effort stay off unless Settings asks for them: Desktop shows its own.
   const itemOf = (key: CfgKey) => {
