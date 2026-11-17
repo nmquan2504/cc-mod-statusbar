@@ -18,6 +18,7 @@ import { hhmm, oneLine } from '../../lib/format'
 import { rt } from '../../state/runtime'
 import type { Entry } from './entry'
 import { drawToggle } from './toggle'
+import { pressArea } from '../pressArea'
 
 // The atoms this file reads or writes (each file declares its own: the engine reads an atom only
 // where a const of the same file made it; the same plugin and key are the same value).
@@ -100,17 +101,23 @@ export async function drawGuardMenu($: any, els: any, isTerminal: boolean, _entr
   const NEXT_RULE: Record<McpRule, McpRule> = { default: 'allow', allow: 'deny', deny: 'default' }
   const ruleButton = (rule: string, label: string, detail: string, onOpen?: () => void) => {
     const now = ruleOf(rule)
+    // default in the text's own color, allow green, deny red
+    const ruleColor = now === 'deny' ? 'error' : now === 'allow' ? 'success' : undefined
+    const ruleText = now === 'deny' ? '[⊘ deny ]' : now === 'allow' ? '[✓ allow]' : '[default]'
+    const step = async () => {
+      const to = NEXT_RULE[now]
+      await setMcpRule($, rule, to).then(
+        written => $.ui.toast(`statusbar: ${rule}: ${to === 'default' ? 'no rule' : to} in ${written}${scopeNow() === 'project' ? ' (shared through git)' : ''}`),
+        () => $.ui.toast(`statusbar: could not write ${file}`))
+      await readGuard($)
+    }
     return (
       <Box key={`row:mcp:${rule}`} flexDirection="row" gap={1} paddingLeft={ENTRY_INDENT}>
-        <Button key={`mcprule:${rule}`} plain onPress={async () => {
-          const to = NEXT_RULE[now]
-          await setMcpRule($, rule, to).then(
-            written => $.ui.toast(`statusbar: ${rule}: ${to === 'default' ? 'no rule' : to} in ${written}${scopeNow() === 'project' ? ' (shared through git)' : ''}`),
-            () => $.ui.toast(`statusbar: could not write ${file}`))
-          await readGuard($)
-        }}>
-          <Text color={now === 'deny' ? 'error' : now === 'allow' ? 'success' : 'subtle'} bold>{now === 'deny' ? '[⊘ deny ]' : now === 'allow' ? '[✓ allow]' : '[default]'}</Text>
-        </Button>
+        {isTerminal ? (
+          <Button key={`mcprule:${rule}`} plain onPress={step}>
+            <Text color={ruleColor} bold>{ruleText}</Text>
+          </Button>
+        ) : pressArea(els, `mcprule:${rule}`, step, [[ruleText, ruleColor]])}
         {onOpen
           ? <Button key={`mcpopen:${rule}`} plain onPress={onOpen}><Text bold>{label}</Text><Text dimColor>{`  ${detail}`}</Text></Button>
           : <Text><Text>{label}</Text><Text dimColor>{detail ? `  ${detail}` : ''}</Text></Text>}
@@ -148,14 +155,18 @@ export async function drawGuardMenu($: any, els: any, isTerminal: boolean, _entr
       <Box flexDirection="row" gap={1}>
         <Text color={score.isAlert ? 'error' : 'success'} bold>{`◈ ${score.ok}/${score.of} on`}</Text>
         <Text dimColor>  rules go to</Text>
-        {SCOPES.map((sc: RuleScope) => (
-          <Button key={`scope:${sc}`} plain onPress={async () => {
+        {SCOPES.map((sc: RuleScope) => {
+          const pick = async () => {
             cfg.ruleScope = sc
             await saveSettings($)
-          }}>
-            <Text backgroundColor={sc === scopeNow() ? 'claude' : 'subtle'} color="inverseText" bold>{` ${sc} `}</Text>
-          </Button>
-        ))}
+          }
+          // the desktop draws no background on a Button: the scope picked is ● in Claude's color
+          return isTerminal ? (
+            <Button key={`scope:${sc}`} plain onPress={pick}>
+              <Text backgroundColor={sc === scopeNow() ? 'claude' : 'subtle'} color="inverseText" bold>{` ${sc} `}</Text>
+            </Button>
+          ) : pressArea(els, `scope:${sc}`, pick, sc === scopeNow() ? [[`● ${sc}`, 'claude']] : [[`○ ${sc}`]])
+        })}
         <Text dimColor>{file}</Text>
       </Box>
       {rt.guardSection === 'mcp' ? mcpSection : null}

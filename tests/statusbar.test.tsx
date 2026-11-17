@@ -7,7 +7,7 @@ import { keyRows, rowsOf } from '../hooks/lib/rows'
 import { gitRisk, newPackage } from '../hooks/lib/gitguard'
 import { hostsOf } from '../hooks/features/egress'
 import { redactText } from '../hooks/lib/pii'
-import { PAD, blankOf } from '../hooks/ui/desktopBar'
+import { BUTTON_PAD_EM, PAD, blankOf, textEm } from '../hooks/ui/pressArea'
 import { groupHooks, groupRules, hookEntries, hookPurpose, ruleKind } from '../hooks/lib/guardclass'
 import { SHOW_MS, WAIT_MS, clearPrompts, duePrompts, noteCheck, noteSpinner, prompts, waitingPrompts } from '../hooks/features/prompts'
 
@@ -28,7 +28,7 @@ const USAGE = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, c
 // the environment has the web timers; the engine's declarations leave them out
 declare function setTimeout(callback: (...args: never[]) => void, ms: number): unknown
 type Cmd = { name: string; description: string; source: string; plugin?: string }
-function engine(on: any, opts: { filled?: string[]; settings?: object; toasts?: string[]; run?: (argv: string[]) => Run | undefined; commands?: Cmd[]; breakdown?: (detail: string) => object } = {}) {
+function engine(on: any, opts: { filled?: string[]; settings?: object; toasts?: string[]; run?: (argv: string[]) => Run | undefined; commands?: Cmd[]; breakdown?: (detail: string) => object; limits?: object[] } = {}) {
   on('session.model', () => ({ value: 'claude-sonnet-5-5' }))
   on('session.cwd', () => ({ value: '/work/shop' }))
   on('process.run', (_: unknown, e: { argv: string[] }) => ({
@@ -39,7 +39,7 @@ function engine(on: any, opts: { filled?: string[]; settings?: object; toasts?: 
     value: {
       startedAt: 0,
       context: { window: 200000, percent: 4, ...(e?.breakdown && opts.breakdown ? { breakdown: opts.breakdown(e.breakdown) } : {}) },
-      rateLimits: [
+      rateLimits: opts.limits ?? [
         { kind: 'five_hour', percentUsed: 23 },
         { kind: 'seven_day', percentUsed: 41.4 },
       ],
@@ -77,7 +77,7 @@ function engine(on: any, opts: { filled?: string[]; settings?: object; toasts?: 
 const textOf = async (ui: any) => JSON.stringify(await ui.drawn())
 
 // A desktop chip's text: its icon and figures, without the figure spaces of the blank Button over them
-const chipText = async (ui: any, key: string) => ((await ui.find({ key: `chipbox:${key}` }))?.text ?? '').replace(/[\u2004\u2005\u2007]/g, '').trim()
+const chipText = async (ui: any, key: string) => ((await ui.find({ key: `chipbox:${key}` }))?.text ?? '').replace(/[\u2000-\u200a]/g, '').trim()
 
 // The mode as the guardrails read it: the bar has no mode chip, the shield's mode row names it.
 const modeOf = async (band: any) => {
@@ -103,14 +103,17 @@ const GIT_STATUS = [
   '',
 ].join('\n')
 
-test('a blank overlay is as wide as its text: a narrow space for a space, less one for the padding', () => {
-  // 5h 9%   wk 74%: 9 characters besides 5 spaces; one figure space fewer than those 9
-  const blank = blankOf('5h 9%   wk 74%')
-  expect([...blank].filter(c => c === '\u2007')).toHaveLength(8)
-  expect([...blank].filter(c => c === '\u2005')).toHaveLength(5)
-  // a press area's pads stay pads, so the area keeps a little room at each end
-  const padded = blankOf(`${PAD}5h 9%${PAD}`)
-  expect(padded.startsWith(PAD) && padded.endsWith(PAD)).toBe(true)
+test('a blank overlay is as wide as its text less the button padding, made of fixed-width spaces', () => {
+  const emOf = (blank: string) => [...blank].reduce((n, c) => n + ({ '\u2003': 1, '\u2002': 0.5, '\u2004': 1 / 3, '\u2005': 0.25, '\u2006': 1 / 6, '\u200a': 0.1 } as Record<string, number>)[c]!, 0)
+  for (const text of [`${PAD}5h 9%   wk 74%${PAD}`, `${PAD}☰ 0${PAD}`, `${PAD}⇄${PAD}`, `${PAD}◈ 2${PAD}`]) {
+    const blank = blankOf(text)
+    expect([...blank].every(c => /[\u2002-\u200a]/.test(c))).toBe(true)
+    // within a hair of the text's width less the padding
+    expect(Math.abs(emOf(blank) - (textEm(text) - BUTTON_PAD_EM))).toBeLessThan(0.1)
+  }
+  // a wide glyph counts wider than a digit, a space narrower
+  expect(textEm('w')).toBeGreaterThan(textEm('0'))
+  expect(textEm(' ')).toBeLessThan(textEm('0'))
 })
 
 test('the bar: ✻, model, folder and branch, two gauges and the shield', async ($, on) => {
@@ -122,7 +125,7 @@ test('the bar: ✻, model, folder and branch, two gauges and the shield', async 
     await band.press({ key: surface === 'terminal' ? 'model' : 'usage' })
     if (surface !== 'terminal') await band.press({ key: 'close-menu' })
     const bar = await textOf(band)
-    expect((await band.find({ key: 'add' }))?.text).toContain('✻')
+    expect((surface === 'terminal' ? (await band.find({ key: 'add' }))?.text : await chipText(band, 'add'))).toContain('✻')
     expect(await band.find({ key: 'commands' })).toBeUndefined()
     expect(await band.find({ key: 'mode' })).toBeUndefined()
     expect(bar).toContain('23%')
@@ -145,7 +148,7 @@ test('the bar: ✻, model, folder and branch, two gauges and the shield', async 
       expect(await band.find({ key: 'effort' })).toBeFalsy()
       // the desktop's own bar: words and native buttons, the gauges an SVG, none of the terminal's glyphs
       // plain buttons, a character for each icon: no terminal pills, no arcade
-      expect((await band.find({ key: 'git' }))?.text).toBe('▤ shop  ⎇ feat/login ✎2 ⇡2 ⇣1')
+      expect((await chipText(band, 'git'))).toBe('▤ shop  ⎇ feat/login ✎2 ⇡2 ⇣1')
       // the desktop's buttons draw one color: the icon is the Button, the figure colored Text beside it
       // the usage group: its labels and colored figures under one blank Button, one press area
       expect((await chipText(band, 'usage'))).toBe('5h ▰▱▱▱ 23%   wk ▰▰▱▱ 41%')
@@ -2369,7 +2372,7 @@ test('desktop: model and effort stay off the bar until Settings turns them on', 
   await band.press({ key: 'settings' })
   await band.press({ key: 'set:desktopSessionItems' })
   await band.press({ key: 'close-menu' })
-  expect((await band.find({ key: 'model' }))?.text).toContain('Sonnet 5.5')
+  expect((await chipText(band, 'model'))).toContain('Sonnet 5.5')
   expect(await band.find({ key: 'mode' })).toBeUndefined()
 })
 
@@ -2873,4 +2876,43 @@ test('the usage is asked of Anthropic when a session starts, and again when /res
   expect(asked).toHaveLength(2)
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, bodyColumns: 160 } } as never)
   expect((await band.find({ key: 'usage' }))?.text).toContain('61%')
+})
+
+test('the desktop usage menu draws each window as an Svg bar, a tick where its time stands', async ($, on) => {
+  const inTwoAndHalfHours = new Date(Date.now() + 2.5 * 3600_000).toISOString()
+  engine(on, { limits: [{ kind: 'five_hour', percentUsed: 15, resetsAt: inTwoAndHalfHours }, { kind: 'seven_day', percentUsed: 75 }] })
+  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'desktop', ...BAND } as never)
+  await band.press({ key: 'usage' })
+  // an Svg carries no key once drawn: each window's bar is read from the drawing, by its row
+  const drawn = JSON.stringify(await band.drawn())
+  const five = drawn.match(/5-hour[^{]*\{"type":"Svg","props":\{"source":"(.*?)","alt"/)?.[1] ?? ''
+  const week = drawn.match(/weekly[^{]*\{"type":"Svg","props":\{"source":"(.*?)","alt"/)?.[1] ?? ''
+  // 15% green; half the 5-hour window gone, the tick at 100 of 200 px
+  expect(five).toContain('fill=\\"#4ade80\\"')
+  expect(five).toMatch(/<rect x=\\"99\.\d\\" y=\\"-2\\" width=\\"2\\"/)
+  // the weekly window has no reset time here: amber, no tick
+  expect(week).toContain('fill=\\"#fbbf24\\"')
+  expect(week).not.toContain('y=\\"-2\\" width=\\"2\\"')
+  // the terminal keeps its Raster (the menu is shared: shut on the desktop first)
+  await band.press({ key: 'close-menu' })
+  const term = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
+  await term.press({ key: 'usage' })
+  const termDrawn = JSON.stringify(await term.drawn())
+  expect(termDrawn).toContain('"type":"Raster"')
+  expect(termDrawn).not.toContain('"type":"Svg"')
+})
+
+test('the desktop shield marks the scope picked with ●, and a press on another picks it', async ($, on) => {
+  engine(on)
+  settingsStore(on)
+  const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'desktop', ...BAND } as never)
+  await band.press({ key: 'guard' })
+  const picked = async () => {
+    const all = await Promise.all(['project', 'local', 'user'].map(sc => chipText(band, `scope:${sc}`)))
+    return all.filter(t => t.startsWith('●'))
+  }
+  expect(await picked()).toHaveLength(1)
+  await band.press({ key: 'scope:user' })
+  expect(await picked()).toEqual(['● user'])
+  expect(await chipText(band, 'scope:project')).toBe('○ project')
 })
