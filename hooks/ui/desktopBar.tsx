@@ -7,10 +7,6 @@ import { cfg } from '../state/config'
 import type { CfgKey } from '../state/config'
 import type { MenuKind } from '../../types'
 
-// The desktop draws a button's text in one color, so a state's color rides in an emoji dot.
-const DOTS: Record<string, string> = { success: '🟢', warning: '🟡', error: '🔴', claude: '🟠', suggestion: '🔵' }
-const dotOf = (color: string) => DOTS[color] ?? '⚪'
-
 // What the bar shows, worked out once by drawBand for every surface.
 export type BarData = {
   open: MenuKind | null
@@ -51,11 +47,19 @@ export type BarData = {
 // The bar for a surface that draws native buttons (Claude Code Desktop). Every item is a plain
 // button, drawn as text with no chrome: a character for its icon and a few words, none of the
 // terminal's filled pills; no frame of its own (the host draws one) and no arcade. The desktop
-// draws a button's text in one color, so a state shows in an emoji dot (🟢 🟡 🔴).
+// draws a button's text in one color, so a chip whose state has a color is its icon as a Button
+// with the figure beside it as colored Text: a press on the icon opens the menu.
 export function desktopBar($: any, els: any, d: BarData) {
   const { Box, Button, Text } = els
   const go = (kind: MenuKind) => () => openMenu($, kind)
-  const meterText = (label: string, n: number | null) => `${label} ${dotOf(level(n))} ${cfg.usageGauge ? `${meter(n, 4)} ` : ''}${pct(n)}`
+  const meterText = (n: number | null) => ` ${cfg.usageGauge ? `${meter(n, 4)} ` : ''}${pct(n)}`
+  // a Button for the icon, then the figures as Text, each in its color (none: the text's own)
+  const chip = (key: string, onPress: () => unknown, label: string, parts: [string, string?][]) => (
+    <Box key={`chipbox:${key}`} flexDirection="row" alignItems="center">
+      <Button key={key} plain onPress={onPress}>{label}</Button>
+      {parts.filter(([t]) => t).map(([t, color], i) => <Text key={`${key}:${i}`} color={color} bold={Boolean(color)}>{t}</Text>)}
+    </Box>
+  )
 
   // The model and the effort stay off unless Settings asks for them: Desktop shows its own.
   const itemOf = (key: CfgKey) => {
@@ -82,18 +86,19 @@ export function desktopBar($: any, els: any, d: BarData) {
         ) : null
       case 'barUsage':
         return cfg.barUsage ? (
-          <Button key="usage" plain onPress={go('usage')}>
-            {d.isCtxShown ? `ctx ${dotOf(d.ctx !== null && d.ctx >= cfg.ctxToastAt ? 'error' : 'warning')} ${pct(d.ctx)}   ` : ''}
-            {`${meterText('5h', d.five)}   ${meterText('wk', d.week)}`}
-          </Button>
+          <Box key="usagebox" flexDirection="row" alignItems="center" gap={2}>
+            {d.isCtxShown ? chip('ctx', go('usage'), 'ctx', [[` ${pct(d.ctx)}`, d.ctx !== null && d.ctx >= cfg.ctxToastAt ? 'error' : 'warning']]) : null}
+            {chip('usage', go('usage'), '5h', [[meterText(d.five), level(d.five)]])}
+            {chip('usage:wk', go('usage'), 'wk', [[meterText(d.week), level(d.week)]])}
+          </Box>
         ) : null
       case 'barRemote':
         return cfg.selfRemote && cfg.barRemote ? (
-          <Button key="remote" plain onPress={go('remote')}>{`${dotOf(d.remoteColor)} ${d.remoteText}`}</Button>
+          chip('remote', go('remote'), '⇄', [[d.remoteText.replace(/^⇄/, ''), d.remoteColor]])
         ) : null
       case 'barMcp':
         return cfg.barMcp ? (
-          <Button key="mcp" plain onPress={go('mcp')}>{`⌁ ${d.mcpLive}${d.mcpFailed ? ` 🔴 ${d.mcpFailed}` : ''}`}</Button>
+          chip('mcp', go('mcp'), '⌁', [[` ${d.mcpLive}`], [d.mcpFailed ? ` ✘ ${d.mcpFailed}` : '', 'error']])
         ) : null
       case 'barImages':
         return cfg.barImages && d.images ? (
@@ -101,35 +106,33 @@ export function desktopBar($: any, els: any, d: BarData) {
         ) : null
       case 'barGuard':
         return cfg.barGuard ? (
-          <Button key="guard" plain onPress={go('guard')}>
-            {d.isGuardAlert ? `◈ 🔴 ${d.guardCoreOff}` : '◈ 🟢'}
-            {d.dangers ? `  ⚠️ ${d.dangers}` : ''}
-          </Button>
+          chip('guard', go('guard'), '◈', [
+            d.isGuardAlert ? [` ${d.guardCoreOff}`, 'error'] : [' ✓', 'success'],
+            [d.dangers ? `  ⚠ ${d.dangers}` : '', 'warning'],
+          ])
         ) : null
       default:
         return null
     }
   }
 
-  const tasks = (
-    <Button key="claude" plain onPress={go('tasks')}>
-      {d.isBusy ? '🟠 ' : ''}{d.tasks ? `☰ ${d.tasks.done}/${d.tasks.of}` : '☰ 0'}
-      {d.running ? ` · ${d.running} running` : ''}
-      {d.turnText ? `  ◷ ${d.turnText}` : ''}
-    </Button>
-  )
+  // ☰ 2/5: Claude's tasks done of all, in Claude's color while a turn runs
+  const tasks = chip('claude', go('tasks'), '☰', [
+    [d.tasks ? ` ${d.tasks.done}/${d.tasks.of}` : ' 0', d.isBusy ? 'claude' : undefined],
+    [d.running ? ` · ${d.running} running` : '', 'suggestion'],
+    [d.turnText ? `  ◷ ${d.turnText}` : '', 'claude'],
+  ])
 
   return (
     <Box flexDirection="column" gap={1}>
-      {/* the menu, then its title and ✕ on the row above the bar: the band opens scrolled to the
-          bar, so a menu taller than the band scrolls away at its top and the head stays in view */}
+      {/* the menu's title and ✕ on top, the menu under them, then the bar */}
       {d.open !== null ? (
         <Box flexDirection="column" gap={1}>
-          {d.menuTree as any}
           <Box flexDirection="row" justifyContent="space-between" alignItems="center">
             <Text color="claude" bold>{TITLES[d.open]}</Text>
             <Button key="close-menu" plain onPress={() => closeMenu($)}>✕</Button>
           </Box>
+          {d.menuTree as any}
         </Box>
       ) : null}
       {d.open === null && d.chips.length ? (
@@ -149,7 +152,7 @@ export function desktopBar($: any, els: any, d: BarData) {
         <Box flexDirection="row" gap={2} alignItems="center" flexWrap="wrap">
           {tasks}
           {d.broken ? (
-            <Button key="bgerr" plain onPress={d.broken.press}>{`🔴 ✘ ${d.broken.count}`}</Button>
+            chip('bgerr', d.broken.press, '✘', [[` ${d.broken.count}`, 'error']])
           ) : null}
           {d.continueAt ? (
             <Button key="continue" plain onPress={go('usage')}>{`⏵ ${d.continueAt}`}</Button>

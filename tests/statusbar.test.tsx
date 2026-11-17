@@ -7,7 +7,6 @@ import { keyRows, rowsOf } from '../hooks/lib/rows'
 import { gitRisk, newPackage } from '../hooks/lib/gitguard'
 import { hostsOf } from '../hooks/features/egress'
 import { redactText } from '../hooks/lib/pii'
-import { toggleHref } from '../hooks/ui/menus/toggle'
 import { groupHooks, groupRules, hookEntries, hookPurpose, ruleKind } from '../hooks/lib/guardclass'
 import { SHOW_MS, WAIT_MS, clearPrompts, duePrompts, noteCheck, noteSpinner, prompts, waitingPrompts } from '../hooks/features/prompts'
 
@@ -85,25 +84,8 @@ const modeOf = async (band: any) => {
 }
 
 // The band, where the bar and its menus draw.
-// On the desktop a switch row is a Markdown whose switch image links to toggleHref(key): a press on
-// a set:, gr: or auto: key with no Button of that key presses that link instead.
 async function mountBand($: any, target: any) {
-  const ui = await $.ui.mount(target)
-  const press = async (t: any) => {
-    try {
-      return await ui.press(t)
-    } catch (err) {
-      if (t.link || !/^(set|gr|auto):/.test(t.key)) throw err
-      return ui.press({ ...t, link: { href: toggleHref(t.key) } })
-    }
-  }
-  // the mounted drawing is frozen: a copy of it, each method bound to it, with press wrapped
-  const out: any = {}
-  for (const k of new Set([...Object.keys(ui), ...Object.getOwnPropertyNames(Object.getPrototypeOf(ui) ?? {})])) {
-    if (k === 'constructor') continue
-    Object.defineProperty(out, k, { get: () => (k === 'press' ? press : typeof ui[k] === 'function' ? ui[k].bind(ui) : ui[k]) })
-  }
-  return out
+  return $.ui.mount(target)
 }
 
 // git status --porcelain=v2 --branch: on feat/login, 2 to push, 1 to pull, one file changed, one new
@@ -150,13 +132,17 @@ test('the bar: ✻, model, folder and branch, two gauges and the shield', async 
       // the desktop's own bar: words and native buttons, the gauges an SVG, none of the terminal's glyphs
       // plain buttons, a character for each icon: no terminal pills, no arcade
       expect((await band.find({ key: 'git' }))?.text).toBe('▤ shop  ⎇ feat/login ✎2 ⇡2 ⇣1')
-      // the desktop's one-color buttons carry a state's color in an emoji dot
-      expect((await band.find({ key: 'usage' }))?.text).toBe('5h 🟢 ▰▱▱▱ 23%   wk 🟢 ▰▰▱▱ 41%')
+      // the desktop's buttons draw one color: the icon is the Button, the figure colored Text beside it
+      expect((await band.find({ key: 'usage' }))?.text).toBe('5h')
+      expect((await band.find({ key: 'chipbox:usage' }))?.text).toBe('5h ▰▱▱▱ 23%')
+      expect((await band.find({ key: 'chipbox:usage:wk' }))?.text).toBe('wk ▰▰▱▱ 41%')
+      expect(bar).toMatch(/"color":"success"[^}]*\},"children":\[" ▰▱▱▱ 23%"\]/)
+      expect(bar).not.toMatch(/[🟢🟡🔴🟠]/u)
       expect(bar).not.toContain('backgroundColor')
       expect(bar).not.toContain('¬✻')
       expect(bar).not.toContain('‹ ')
-      expect((await band.find({ key: 'guard' }))?.text).toMatch(/^◈ /)
-      expect((await band.find({ key: 'claude' }))?.text).toContain('☰ 0')
+      expect((await band.find({ key: 'chipbox:guard' }))?.text).toMatch(/^◈ /)
+      expect((await band.find({ key: 'chipbox:claude' }))?.text).toBe('☰ 0')
     }
     await band.unmount()
   }
@@ -744,14 +730,18 @@ test('settings: usage gauges off leaves the figures alone on the bar', async ($,
   settingsStore(on)
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'desktop', ...BAND, props: { ...BAND.props, bodyColumns: 180 } } as never)
   await band.press({ key: 'usage' }) // reads the usage
-  expect((await band.find({ key: 'usage' }))?.text).toContain('▰')
+  expect((await band.find({ key: 'chipbox:usage' }))?.text).toContain('▰')
   await band.press({ key: 'add' })
   await band.press({ key: 'settings' })
   await band.press({ key: 'set:usageGauge' })
-  const usage = (await band.find({ key: 'usage' }))?.text ?? ''
-  expect(usage).toContain('5h 🟢 23%')
-  expect(usage).toContain('wk 🟢 41%')
-  expect(usage).not.toContain('▰')
+  expect((await band.find({ key: 'chipbox:usage' }))?.text).toBe('5h 23%')
+  expect((await band.find({ key: 'chipbox:usage:wk' }))?.text).toBe('wk 41%')
+  // the desktop's switch: an Svg on the label's row, itself a press through the blank Button over it
+  const row = JSON.stringify(await band.find({ key: 'toggle:set:usageGauge' }))
+  expect(row).toContain('"type":"Svg"')
+  expect(row).toContain('"key":"set:usageGauge"')
+  await band.press({ key: 'set:usageGauge:switch' })
+  expect((await band.find({ key: 'chipbox:usage' }))?.text).toContain('▰')
 })
 
 // Cells a drawn node takes on one row: Text and Buttons by their characters (every glyph on the
@@ -995,8 +985,8 @@ test('the + menu groups its entries: context, then the prompt, then the bar with
   const at = (s: string) => menu.indexOf(s)
   expect(at('Add context')).toBeGreaterThan(-1)
   // the title names the whole menu; Add context is its first group's heading alone
-  expect(at('+ Quick actions')).toBeGreaterThan(-1)
-  expect(at('+ Quick actions')).toBeLessThan(at('Add context'))
+  expect(at('✻ Quick actions')).toBeGreaterThan(-1)
+  expect(at('✻ Quick actions')).toBeLessThan(at('Add context'))
   expect(at('Upload a file')).toBeGreaterThan(at('Add context'))
   expect(at('Prompt')).toBeGreaterThan(at('Add a secret'))
   expect(at('Polish the prompt')).toBeGreaterThan(at('Prompt'))
@@ -1939,7 +1929,7 @@ test('two failed background commands: the chip counts them, ✘ 2, on the termin
   for (const id of ['bf1', 'bf2']) await t.prompt.submit({ text: `<task-notification><task-id>${id}</task-id><status>failed</status></task-notification>`, wait: false })
   for (const surface of SURFACES) {
     const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface, ...BAND, props: { ...BAND.props, bodyColumns: 160 } } as never)
-    expect((await band.find({ key: 'bgerr' }))?.text?.trim()).toBe(surface === 'terminal' ? '✘ 2' : '🔴 ✘ 2')
+    expect((await band.find({ key: surface === 'terminal' ? 'bgerr' : 'chipbox:bgerr' }))?.text?.trim()).toBe('✘ 2')
     await band.unmount()
   }
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, bodyColumns: 160 } } as never)

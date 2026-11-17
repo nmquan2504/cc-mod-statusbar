@@ -3,7 +3,7 @@ import type { MenuKind } from '../../types'
 import { shortModel } from './format'
 
 export const TITLES: Record<MenuKind, string> = {
-  add: '+ Quick actions',
+  add: '✻ Quick actions',
   files: '▸ Browse files',
   web: '◎ Add a web page',
   commands: '⁄ Slash commands & skills',
