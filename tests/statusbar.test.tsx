@@ -8,6 +8,7 @@ import { gitRisk, newPackage } from '../hooks/lib/gitguard'
 import { hostsOf } from '../hooks/features/egress'
 import { redactText } from '../hooks/lib/pii'
 import { BUTTON_PAD_EM, PAD, blankOf, layoutParts, textEm } from '../hooks/ui/pressArea'
+import { ctxGridSvg, themeHex } from '../hooks/lib/graphics'
 import { groupHooks, groupRules, hookEntries, hookPurpose, ruleKind } from '../hooks/lib/guardclass'
 import { SHOW_MS, WAIT_MS, clearPrompts, duePrompts, noteCheck, noteSpinner, prompts, waitingPrompts } from '../hooks/features/prompts'
 
@@ -2930,4 +2931,19 @@ test('a one-glyph chip is centred in the button box: the room it lacks goes to b
   expect(textEm(left![0])).toBeGreaterThan(textEm(PAD))
   // a long chip keeps the plain pad
   expect(layoutParts([['▤ scratch-2026-11-16-85a929']]).shown[0]![0]).toBe(PAD)
+})
+
+test("the desktop's context grid is one Svg: full squares solid, partial ones pale, free space a dot", () => {
+  const g = ctxGridSvg([
+    [{ name: 'System prompt', color: 'promptBorder', isFilled: true, fullness: 1 }, { name: 'Messages', color: 'purple_FOR_SUBAGENTS_ONLY', isFilled: true, fullness: 0.4 }],
+    [{ name: 'Free space', color: 'promptBorder', isFilled: false, fullness: 0 }, { name: 'Free space', color: 'promptBorder', isFilled: false, fullness: 0 }],
+  ])
+  // 2 by 2 squares of 12 px, 3 apart
+  expect([g.width, g.height]).toEqual([27, 27])
+  expect(g.svg).toContain(`fill="${themeHex('promptBorder')}" opacity="1"`)
+  expect(g.svg).toContain(`fill="${themeHex('purple_FOR_SUBAGENTS_ONLY')}" opacity="0.4"`)
+  expect(g.svg.match(/<circle/g)).toHaveLength(2)
+  // an unknown key is grey, a hex passes through
+  expect(themeHex('nope')).toBe('#9ca3af')
+  expect(themeHex('#123456')).toBe('#123456')
 })
