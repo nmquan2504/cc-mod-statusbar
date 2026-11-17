@@ -251,7 +251,7 @@ export const BAR_ITEMS: { key: CfgKey; label: string }[] = [
   { key: 'barEffort', label: '◔ effort' },
   { key: 'barFolder', label: '/folder' },
   { key: 'barGit', label: '⎇ git' },
-  { key: 'arcade', label: '¬✻ arena' },
+  { key: 'arcade', label: '━╤✻ arena' },
   { key: 'barUsage', label: '5h usage' },
   { key: 'barRemote', label: '⇄ remote' },
   { key: 'barImages', label: '▣ images' },

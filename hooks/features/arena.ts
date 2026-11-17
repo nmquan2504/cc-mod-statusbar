@@ -1,7 +1,7 @@
 import { rt } from '../state/runtime'
 
 // ---- arcade: while Claude works, monsters walk in from the left and Claude shoots them ----
-// It plays in the gap between the bar's two groups:  [✻] [● model] folder  3 ✝ ᗣ  Ѫ ✺ - -  ¬✻  5h … ◈
+// It plays in the gap between the bar's two groups:  [✻] [● model] folder  3 ✝ ᗣ  Ѫ ✺ - -  ━╤✻  5h … ◈
 // A plain simulation in module variables: a 120 ms clock steps it and asks for a redraw,
 // the band only reads it. Every glyph is one cell wide (East Asian width N or Na).
 
@@ -105,7 +105,9 @@ export function stepLinger(): boolean {
   return true
 }
 
-export const gunAt = () => arena.width - 2 // the gun's cell (¬); Claude's ✻ sits right of it
+// Claude with a long gun: the barrel ━ and the grip ╤, then ✻
+export const CLAUDE_GLYPH = '━╤✻'
+export const gunAt = () => arena.width - CLAUDE_GLYPH.length // the gun's first cell; ✻ sits at its right end
 
 // Ticks a monster is on the field before Claude fires at it: about half a second.
 export const SIGHT = 4
