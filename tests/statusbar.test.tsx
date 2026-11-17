@@ -151,7 +151,7 @@ test('the bar: ✻, model, folder and branch, two gauges and the shield', async 
       expect(await band.find({ key: 'effort' })).toBeFalsy()
       // the desktop's own bar: words and native buttons, the gauges an SVG, none of the terminal's glyphs
       // plain buttons, a character for each icon: no terminal pills, no arcade
-      expect((await chipText(band, 'git'))).toBe('▤ shop  ⎇ feat/login ✎2 ⇡2 ⇣1')
+      expect((await chipText(band, 'git'))).toBe('/shop  ⎇ feat/login ✎2 ⇡2 ⇣1')
       // the desktop's buttons draw one color: the icon is the Button, the figure colored Text beside it
       // the usage group: its labels and colored figures under one blank Button, one press area
       // each window's gauge a short Svg bar, the figure beside it

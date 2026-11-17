@@ -85,7 +85,9 @@ export function desktopBar($: any, els: any, d: BarData) {
       case 'barFolder':
         return cfg.barFolder ? (
           area(d.isGitJoined ? 'git' : 'folder', go('git'), [
-            [`▤ ${oneLine(d.folder, 32)}`],
+            // /folder, as the terminal bar draws it: the slash in the accent color
+            ['/', 'suggestion'],
+            [oneLine(d.folder, 32)],
             [d.isGitJoined && d.branch ? `  ⎇ ${oneLine(d.branch, 32)}` : '', 'suggestion'],
             [d.isGitJoined && d.branch && d.gitMarks ? ` ${d.gitMarks}` : '', 'warning'],
           ])
