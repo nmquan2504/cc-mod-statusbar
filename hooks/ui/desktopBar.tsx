@@ -135,7 +135,7 @@ export function desktopBar($: any, els: any, d: BarData) {
         ) : null
       case 'barMcp':
         return cfg.barMcp ? (
-          chip('mcp', go('mcp'), '⌁', [[` ${d.mcpLive}`], [d.mcpFailed ? ` ✘ ${d.mcpFailed}` : '', 'error']])
+          area('mcp', go('mcp'), [['⌁'], [` ${d.mcpLive}`], [d.mcpFailed ? ` ✘ ${d.mcpFailed}` : '', 'error']])
         ) : null
       case 'barImages':
         return cfg.barImages && d.images ? (
@@ -143,7 +143,8 @@ export function desktopBar($: any, els: any, d: BarData) {
         ) : null
       case 'barGuard':
         return cfg.barGuard ? (
-          chip('guard', go('guard'), '◈', [
+          area('guard', go('guard'), [
+            ['◈'],
             d.isGuardAlert ? [` ${d.guardCoreOff}`, 'error'] : [' ✓', 'success'],
             [d.dangers ? `  ⚠ ${d.dangers}` : '', 'warning'],
           ])
@@ -153,8 +154,9 @@ export function desktopBar($: any, els: any, d: BarData) {
     }
   }
 
-  // ☰ 2/5: Claude's tasks done of all, in Claude's color while a turn runs
-  const tasks = chip('claude', go('tasks'), '☰', [
+  // ☰ 2/5: Claude's tasks done of all, in Claude's color while a turn runs; one press area, as the usage
+  const tasks = area('claude', go('tasks'), [
+    ['☰'],
     [d.tasks ? ` ${d.tasks.done}/${d.tasks.of}` : ' 0', d.isBusy ? 'claude' : undefined],
     [d.running ? ` · ${d.running} running` : '', 'suggestion'],
     [d.turnText ? `  ◷ ${d.turnText}` : '', 'claude'],
