@@ -7,7 +7,7 @@ import { keyRows, rowsOf } from '../hooks/lib/rows'
 import { gitRisk, newPackage } from '../hooks/lib/gitguard'
 import { hostsOf } from '../hooks/features/egress'
 import { redactText } from '../hooks/lib/pii'
-import { BUTTON_PAD_EM, PAD, blankOf, textEm } from '../hooks/ui/pressArea'
+import { BUTTON_PAD_EM, PAD, blankOf, layoutParts, textEm } from '../hooks/ui/pressArea'
 import { groupHooks, groupRules, hookEntries, hookPurpose, ruleKind } from '../hooks/lib/guardclass'
 import { SHOW_MS, WAIT_MS, clearPrompts, duePrompts, noteCheck, noteSpinner, prompts, waitingPrompts } from '../hooks/features/prompts'
 
@@ -2915,4 +2915,13 @@ test('the desktop shield marks the scope picked with ●, and a press on another
   await band.press({ key: 'scope:user' })
   expect(await picked()).toEqual(['● user'])
   expect(await chipText(band, 'scope:project')).toBe('○ project')
+})
+
+test('a one-glyph chip is centred in the button box: the room it lacks goes to both sides alike', () => {
+  const { shown } = layoutParts([['✻', 'claude']])
+  const [left, , right] = shown
+  expect(left![0]).toBe(right![0])
+  expect(textEm(left![0])).toBeGreaterThan(textEm(PAD))
+  // a long chip keeps the plain pad
+  expect(layoutParts([['▤ scratch-2026-11-16-85a929']]).shown[0]![0]).toBe(PAD)
 })

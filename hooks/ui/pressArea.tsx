@@ -57,15 +57,30 @@ const partsEm = (parts: [string, string?][]) => parts.reduce((n, [t, color]) => 
 // One part of a press area: its text and its color (none: the text's own); bold when colored.
 export type Part = [string, string?]
 
+// A Button's box is never narrower than MIN_BOX_EM, about its own height: a one-glyph chip (✻)
+// had a box wider than its text, the glyph at its left (0.24.2). Such a text gets the difference
+// as room on both sides, so the glyph sits in the middle of the box.
+export const MIN_BOX_EM = 1.75
+
+// The parts as drawn: a pad at each end, widened to fill the minimum box; and the box's blank.
+export function layoutParts(parts: Part[]): { shown: Part[]; blank: string } {
+  const inner = parts.filter(([t]) => t)
+  const textW = partsEm(inner) + 2 / 3
+  const extra = Math.max(0, MIN_BOX_EM - textW)
+  const side = PAD + (extra > 0.05 ? spacesFor(extra / 2) : '')
+  const shown: Part[] = [[side], ...inner, [side]]
+  return { shown, blank: spacesFor(textW + extra - BUTTON_PAD_EM) }
+}
+
 // `key` is the Button's, so a press and a test find it as before; the Box holding it is `chipbox:key`.
 export function pressArea(els: any, key: string, onPress: () => unknown, parts: Part[]) {
   const { Box, Button, Text } = els
-  const shown: Part[] = [[PAD], ...parts.filter(([t]) => t), [PAD]]
+  const { shown, blank } = layoutParts(parts)
   return (
     <Box key={`chipbox:${key}`} flexDirection="row" alignItems="center">
       {shown.map(([t, color], i) => <Text key={`${key}:${i}`} color={color} bold={Boolean(color)}>{t}</Text>)}
       <Box position="absolute" top={0} left={0}>
-        <Button key={key} plain onPress={onPress}>{spacesFor(partsEm(shown) - BUTTON_PAD_EM)}</Button>
+        <Button key={key} plain onPress={onPress}>{blank}</Button>
       </Box>
     </Box>
   )
