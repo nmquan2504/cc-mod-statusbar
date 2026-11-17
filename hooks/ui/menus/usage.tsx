@@ -3,7 +3,7 @@ import { closeMenu } from '../../features/menu'
 import { readBreakdown } from '../../features/usage'
 
 import { WINDOW_NAMES, hhmm, kTok, level, meter, oneLine, pct, span, thousands } from '../../lib/format'
-import { gauge, gaugeSvg, paceOf } from '../../lib/graphics'
+import { ctxGridSvg, gauge, gaugeSvg, paceOf, themeHex } from '../../lib/graphics'
 import { cfg } from '../../state/config'
 import { rt } from '../../state/runtime'
 import { drawAutomation } from './automation'
@@ -93,7 +93,12 @@ export async function drawUsageMenu($: any, els: any, isTerminal: boolean, _entr
           {/* the heat map /context draws: a square of two cells per 1% (0.5% past a million),
               in its category's color; filled at 70% and over, ░ under it, ⋅ for free space */}
           <Box key="ctx-map" flexDirection="row" gap={3} marginLeft={2}>
-            <Box flexDirection="column">
+            {!isTerminal && Svg ? (() => {
+              // the desktop draws the squares of text as bars: one Svg there
+              const g = ctxGridSvg(ctx.grid)
+              return <Svg key="ctx-grid" source={g.svg} alt={`context window ${Math.round(ctx.percent)}% full`} width={g.width} height={g.height} />
+            })() : (
+              <Box flexDirection="column">
               {ctx.grid.map((row, y) => (
                 <Text key={`grid-${y}`}>
                   {row.map((q, x) => {
@@ -106,15 +111,32 @@ export async function drawUsageMenu($: any, els: any, isTerminal: boolean, _entr
                 </Text>
               ))}
             </Box>
+            )}
             <Box flexDirection="column">
               {ctx.categories.filter(c => c.kind !== 'deferred').map(c => {
                 const share = ctx.max ? (c.tokens / ctx.max) * 100 : 0
+                // two Texts, no fragment: a fragment inside a Text draws as a Box, which a Text refuses
+                const figures = [
+                  <Text key="tok" bold>{kTok(c.tokens).padStart(5)}</Text>,
+                  <Text key="share" dimColor>{` ${share.toFixed(1).padStart(5)}%`}</Text>,
+                ]
+                // the desktop: a square of the grid's own color (an Svg), then the name and figures
+                if (!isTerminal && Svg) {
+                  const sq = c.kind === 'free'
+                    ? `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12"><circle cx="6" cy="6" r="1.5" fill="#6b7280"/></svg>`
+                    : `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12"><rect width="12" height="12" rx="2" fill="${themeHex(c.color)}"/></svg>`
+                  return (
+                    <Box key={`cat:${c.name}`} flexDirection="row" alignItems="center" gap={1}>
+                      <Svg source={sq} alt={c.name} width={12} height={12} />
+                      <Text>{oneLine(c.name, 26)}  {figures}</Text>
+                    </Box>
+                  )
+                }
                 return (
                   <Text key={`cat:${c.name}`}>
                     {c.kind === 'free' ? <Text color="inactive">{'⋅ '}</Text> : <Text backgroundColor={c.color}>{'  '}</Text>}
                     {` ${oneLine(c.name, 22).padEnd(22)}`}
-                    <Text bold>{kTok(c.tokens).padStart(5)}</Text>
-                    <Text dimColor>{` ${share.toFixed(1).padStart(5)}%`}</Text>
+                    {figures}
                   </Text>
                 )
               })}
