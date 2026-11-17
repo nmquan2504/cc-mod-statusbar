@@ -1,7 +1,7 @@
 import { failedTasks } from '../features/work'
 import { atom, read } from 'claude-code'
 import type { MenuKind } from '../../types'
-import { ARENA_GAP, ARENA_MIN, arena, arenaRuns, endRound, resetArena } from '../features/arena'
+import { ARENA_GAP, ARENA_MIN, CLAUDE_GLYPH, arena, arenaRuns, endRound, resetArena } from '../features/arena'
 import { closeMenu, openMenu } from '../features/menu'
 import { isRemoteWaiting, pendingPairs, remote, secondsToPair, spinnerFrame } from '../features/remote'
 import { updateNow } from '../features/update'
@@ -228,7 +228,7 @@ export async function drawBand($: any, e: any, next: any) {
   // done of all this run of work (☰ 0 with none), then · 3 while agents or servers run
   const tasksNow = await taskLine($)
   const tasksLabel = ` ☰ ${tasksNow ? `${tasksNow.done}/${tasksNow.of}` : '0'}${running ? ` · ${running}` : ''} `
-  const claudeCells = cfg.arcade ? 2 + badge.length : tasksLabel.length
+  const claudeCells = cfg.arcade ? CLAUDE_GLYPH.length + badge.length : tasksLabel.length
   const full = layout(false)
   // the arena wants ARENA_MIN cells besides its margins, the kill count, the clock, the ctx chip and Claude's badge
   const extras = killsText.length + (ctxLabel ? ctxLabel.length + 1 : 0) + (turnText ? turnText.length + 1 : 0) + badge.length
@@ -270,7 +270,7 @@ export async function drawBand($: any, e: any, next: any) {
   const turnClock = turnText ? <Text key="turn" color={rt.isBusy ? 'claude' : 'inactive'}>{turnText}</Text> : null
   const claudeButton = (
     <Button key="claude" plain hover={{ scope: 'qsb-claude', bold: true }} onPress={() => openMenu($, 'tasks')}>
-      <Text color={isTasksOpen ? 'inverseText' : isHurt ? 'error' : isPlaying ? 'claude' : 'inactive'} backgroundColor={isTasksOpen ? 'claude' : undefined} bold={isPlaying || isTasksOpen}>¬✻</Text>
+      <Text color={isTasksOpen ? 'inverseText' : isHurt ? 'error' : isPlaying ? 'claude' : 'inactive'} backgroundColor={isTasksOpen ? 'claude' : undefined} bold={isPlaying || isTasksOpen}>{CLAUDE_GLYPH}</Text>
       {badge ? <Text color="suggestion" bold>{badge}</Text> : null}
     </Button>
   )
