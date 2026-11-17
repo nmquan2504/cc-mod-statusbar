@@ -166,7 +166,7 @@ test('the bar: ✻, model, folder and branch, two gauges and the shield', async 
       await band.press({ key: 'close-menu' })
       expect(bar).not.toMatch(/[🟢🟡🔴🟠]/u)
       expect(bar).not.toContain('backgroundColor')
-      expect(bar).not.toContain('━╤✻')
+      expect(bar).not.toContain('─━╦✻')
       expect(bar).not.toContain('‹ ')
       expect((await chipText(band, 'guard'))).toMatch(/^◈ /)
       expect((await chipText(band, 'claude'))).toBe('☰ 0')
@@ -327,11 +327,11 @@ test('the gauges follow session.measure, the figures the footer shows', async ($
 test('while a turn runs Claude stands in the arena, and stays a while after it ends', async ($, on) => {
   engine(on)
   const busy = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, isWorking: true } } as never)
-  expect(await textOf(busy)).toContain('━╤✻')
+  expect(await textOf(busy)).toContain('─━╦✻')
   await busy.unmount()
   // the turn just ended: Claude stays on the field, and idle it waits there as a button
   const after = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND } as never)
-  expect(await textOf(after)).toContain('━╤✻')
+  expect(await textOf(after)).toContain('─━╦✻')
   expect(await after.find({ key: 'claude' })).toBeDefined()
 })
 
@@ -375,7 +375,7 @@ test("Claude's badge counts the agents and servers running, with the tasks menu 
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, bodyColumns: 180 } } as never)
   await band.press({ key: 'claude' }) // the menu reads the agents and the servers
   await band.press({ key: 'claude' }) // and shuts again; the badge stays
-  expect((await band.find({ key: 'claude' }))?.text).toBe('━╤✻2')
+  expect((await band.find({ key: 'claude' }))?.text).toBe('─━╦✻2')
   const root = JSON.parse(await textOf(band))
   expect(cells(root.children[root.children.length - 1])).toBeLessThanOrEqual(176)
 })
@@ -647,7 +647,7 @@ test("the turn's clock and cost head the right group, right of the arena and bef
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'terminal', ...BAND, props: { ...BAND.props, isWorking: true } } as never)
   const bar = await textOf(band)
   expect(bar).toContain('◷ 0:0')
-  expect(bar.indexOf('◷')).toBeGreaterThan(bar.indexOf('━╤✻'))
+  expect(bar.indexOf('◷')).toBeGreaterThan(bar.indexOf('─━╦✻'))
   expect(bar.indexOf('◷')).toBeLessThan(bar.indexOf('5h'))
 })
 
@@ -676,7 +676,7 @@ test('settings: arcade and git marks off, from ✻ then Settings, leave the task
   expect(bar).not.toContain(' ✝ ')
   // with the arena off, Claude's place holds the tasks chip, as on the desktop
   expect((await band.find({ key: 'claude' }))?.text).toBe(' ☰ 0 ')
-  expect(bar).not.toContain('━╤✻')
+  expect(bar).not.toContain('─━╦✻')
   expect(bar).toContain(' ⎇ feat/login')
   expect(bar).not.toContain('✎2')
 })
@@ -1102,7 +1102,7 @@ test('arena: a monster that reaches Claude counts as a hit, ✗ beside the kills
       sawHit = true
       // two monsters may land in the same frame: the first ✗ seen counts one hit or more
       expect(await arenaText(band)).toMatch(/\d+ ✝ · [1-9]\d* ✗/)
-      expect(await textOf(band)).toContain('"color":"error","bold":true},"children":["━╤✻"]')
+      expect(await textOf(band)).toContain('"color":"error","bold":true},"children":["─━╦✻"]')
     }
   }
   if (!sawHit) expect(await arenaText(band)).not.toContain('✗')
@@ -1198,7 +1198,7 @@ test('while it plays, the arena sits two cells from the branch and two from the 
     // the arena's own content: kills, the spare cells, the field, Claude last
     expect(JSON.stringify(arena.children[0])).toContain('✝')
     expect(arena.children[1]).toMatchObject({ type: 'Box', props: { flexGrow: 1 } })
-    expect(JSON.stringify(arena.children[arena.children.length - 1])).toContain('━╤✻')
+    expect(JSON.stringify(arena.children[arena.children.length - 1])).toContain('─━╦✻')
     expect(JSON.stringify(rightGroup.children.find(Boolean))).toContain('◷')
     expect(cells(row)).toBeLessThanOrEqual(bodyColumns - 4)
     await band.unmount()
@@ -1266,7 +1266,7 @@ test('settings, On the bar: ‹ › move an item, past the arena to the other gr
   await band.press({ key: 'right:barRemote' })
   expect((store.get('settings') as { barOrder: string }).barOrder).toBe('barModel,barEffort,barGit,barFolder,barGuard,arcade,barUsage,barImages,barRemote,barMcp')
   const menu = await textOf(band)
-  expect(menu.indexOf('◈ guardrails')).toBeLessThan(menu.indexOf('━╤✻ arena'))
+  expect(menu.indexOf('◈ guardrails')).toBeLessThan(menu.indexOf('─━╦✻ arena'))
   await band.press({ key: 'close-menu' })
   await band.press({ key: 'model' }) // reads the figures
   await band.press({ key: 'model' })
@@ -1731,7 +1731,7 @@ test('in Claude Code for VS Code the bar draws nothing: the engine draws its own
   const band = await mountBand($, { plugin: 'cc-mod-statusbar', surface: 'vscode', ...BAND } as never)
   const drawn = await textOf(band)
   expect(drawn).toContain("the engine's own")
-  for (const gone of ['"key":"add"', '"key":"guard"', '━╤✻', 'qsb.invalid']) expect(drawn).not.toContain(gone)
+  for (const gone of ['"key":"add"', '"key":"guard"', '─━╦✻', 'qsb.invalid']) expect(drawn).not.toContain(gone)
 })
 
 test('the + menu indents its entries two cells under their group headings', async ($, on) => {
