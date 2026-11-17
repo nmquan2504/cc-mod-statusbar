@@ -52,10 +52,13 @@ export const spacesFor = (em: number) => {
   return out
 }
 export const blankOf = (text: string) => spacesFor(textEm(text) - BUTTON_PAD_EM)
-const partsEm = (parts: [string, string?][]) => parts.reduce((n, [t, color]) => n + textEm(t) * (color ? BOLD : 1), 0)
-
-// One part of a press area: its text and its color (none: the text's own); bold when colored.
-export type Part = [string, string?]
+// One part of a press area: its text and its color (none: the text's own), bold when colored; or an
+// Svg drawn `width` px wide, counted at EM_PX px to the em (the desktop bar's text size).
+export type SvgPart = { svg: string; width: number; height: number; alt: string }
+export type Part = [string, string?] | SvgPart
+export const EM_PX = 13
+const isSvg = (p: Part): p is SvgPart => !Array.isArray(p)
+const partsEm = (parts: Part[]) => parts.reduce((n, p) => n + (isSvg(p) ? p.width / EM_PX : textEm(p[0]) * (p[1] ? BOLD : 1)), 0)
 
 // A Button's box is never narrower than MIN_BOX_EM, about its own height: a one-glyph chip (✻)
 // had a box wider than its text, the glyph at its left (0.24.2). Such a text gets the difference
@@ -64,7 +67,7 @@ export const MIN_BOX_EM = 1.75
 
 // The parts as drawn: a pad at each end, widened to fill the minimum box; and the box's blank.
 export function layoutParts(parts: Part[]): { shown: Part[]; blank: string } {
-  const inner = parts.filter(([t]) => t)
+  const inner = parts.filter(p => isSvg(p) || p[0])
   const textW = partsEm(inner) + 2 / 3
   const extra = Math.max(0, MIN_BOX_EM - textW)
   const side = PAD + (extra > 0.05 ? spacesFor(extra / 2) : '')
@@ -74,11 +77,13 @@ export function layoutParts(parts: Part[]): { shown: Part[]; blank: string } {
 
 // `key` is the Button's, so a press and a test find it as before; the Box holding it is `chipbox:key`.
 export function pressArea(els: any, key: string, onPress: () => unknown, parts: Part[]) {
-  const { Box, Button, Text } = els
+  const { Box, Button, Svg, Text } = els
   const { shown, blank } = layoutParts(parts)
   return (
     <Box key={`chipbox:${key}`} flexDirection="row" alignItems="center">
-      {shown.map(([t, color], i) => <Text key={`${key}:${i}`} color={color} bold={Boolean(color)}>{t}</Text>)}
+      {shown.map((p, i) => isSvg(p)
+        ? (Svg ? <Svg key={`${key}:${i}`} source={p.svg} alt={p.alt} width={p.width} height={p.height} /> : null)
+        : <Text key={`${key}:${i}`} color={p[1]} bold={Boolean(p[1])}>{p[0]}</Text>)}
       <Box position="absolute" top={0} left={0}>
         <Button key={key} plain onPress={onPress}>{blank}</Button>
       </Box>
