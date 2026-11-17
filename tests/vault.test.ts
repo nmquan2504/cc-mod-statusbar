@@ -148,10 +148,13 @@ test('mode menu: plan runs /plan, another mode says how many shift+tab', async (
     plugin: 'cc-mod-statusbar', surface: 'terminal', component: 'AbovePrompt',
     props: { hasSurvey: false, isWorking: false, maxRows: 30, bodyColumns: 120, scroll: { offset: 0, bodyRows: 20 }, view: {} },
   } as never)
-  await band.press({ key: 'mode' })
+  // no mode chip on the bar: the shield's mode row opens the mode menu
+  await band.press({ key: 'guard' })
+  await band.press({ key: 'gr:mode' })
   await band.press({ key: 'p:plan' })
   expect(ran).toContain('plan')
-  await band.press({ key: 'mode' })
+  await band.press({ key: 'guard' })
+  await band.press({ key: 'gr:mode' })
   await band.press({ key: 'p:auto' })
   expect(JSON.stringify(toasts)).toContain('shift+tab 3×')
 })

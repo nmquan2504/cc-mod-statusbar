@@ -1,8 +1,8 @@
 
 
-// What the person set in the bar's Settings menu (+ then s), kept across sessions in this mod's store.
+// What the person set in the bar's Settings menu (✻ then s), kept across sessions in this mod's store.
 export const cfg = {
-  // what the bar shows, each its own switch (+ then Settings, On the bar); the arena is arcade
+  // what the bar shows, each its own switch (✻ then Settings, On the bar); the arena is arcade
   barModel: true,
   barEffort: true,
   barFolder: true,
@@ -19,7 +19,7 @@ export const cfg = {
   // shows them there too
   desktopSessionItems: false,
   // the items' order, left to right, as BAR_ITEMS keys; those before the arena sit left of it
-  barOrder: 'barModel,barEffort,barMode,barFolder,barGit,arcade,barUsage,barRemote,barImages,barMcp,barGuard',
+  barOrder: 'barModel,barEffort,barFolder,barGit,arcade,barUsage,barRemote,barImages,barMcp,barGuard',
   // on: the 4-cell gauge and the figure (5h ▰▱▱▱ 21%); off: the figure alone (5h 21%)
   usageGauge: true,
   gitMarks: true,
@@ -35,7 +35,7 @@ export const cfg = {
   // after a turn of summarySeconds or more, Haiku writes what was done and the result
   turnSummary: true,
   summarySeconds: 60,
-  // + then Polish writes the prompt in English as well
+  // ✻ then Polish writes the prompt in English as well
   polishEnglish: false,
   // with no suggestion of Claude Code's own after an answer, Haiku proposes the chips
   haikuChips: true,
@@ -116,7 +116,7 @@ export function readOptions(stored: Readonly<Record<string, unknown>>) {
 
 // The bar's order as an earlier version shipped it (the mode at the right end): one saved
 // unchanged was never moved by hand, so it takes the order shipped now.
-const OLD_BAR_ORDERS = ['barModel,barEffort,barFolder,barGit,arcade,barUsage,barRemote,barImages,barMcp,barMode,barGuard']
+const OLD_BAR_ORDERS = ['barModel,barEffort,barFolder,barGit,arcade,barUsage,barRemote,barImages,barMcp,barMode,barGuard', 'barModel,barEffort,barMode,barFolder,barGit,arcade,barUsage,barRemote,barImages,barMcp,barGuard']
 
 export async function loadSettings($: any) {
   const stored = await $.store.get(SETTINGS_KEY).catch(() => undefined)
@@ -228,7 +228,7 @@ export const SETTINGS: ((
   { key: 'topCommands', kind: 'number', label: 'Most used commands', note: 'how many head the commands menu', step: 1, min: 5, max: 10, unit: '' },
   { key: 'turnSummary', kind: 'switch', label: 'Turn summary', note: 'after a long turn, Haiku writes what was done and the result (tasks menu)' },
   { key: 'summarySeconds', kind: 'number', label: 'Summary after', note: 'seconds a turn runs', step: 10, min: 0, max: 600, unit: ' s' },
-  { key: 'polishEnglish', kind: 'switch', label: 'Polish in English', note: '+ then Polish also translates the prompt to English' },
+  { key: 'polishEnglish', kind: 'switch', label: 'Polish in English', note: '✻ then Polish also translates the prompt to English' },
   { key: 'haikuChips', kind: 'switch', label: 'Haiku chips', note: "when Claude Code suggests nothing after an answer, Haiku proposes what to send (one call a turn); off: Claude Code's own suggestion alone" },
   { key: 'forceSuggest', kind: 'switch', label: 'Always suggest', note: "Claude Code's next-prompt suggestion never backs off; when it suggests nothing, Haiku's goes in the prompt box (Tab) and to the phone" },
   { key: 'pinMenuHead', kind: 'switch', label: 'Pin the menu head', note: 'a tall menu keeps its title and ✕ on top and the bar below, and scrolls between them' },
@@ -249,7 +249,6 @@ export const SETTINGS: ((
 export const BAR_ITEMS: { key: CfgKey; label: string }[] = [
   { key: 'barModel', label: '● model' },
   { key: 'barEffort', label: '◔ effort' },
-  { key: 'barMode', label: '‖ mode' },
   { key: 'barFolder', label: '/folder' },
   { key: 'barGit', label: '⎇ git' },
   { key: 'arcade', label: '¬✻ arena' },

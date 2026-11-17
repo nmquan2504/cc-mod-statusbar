@@ -5,6 +5,7 @@ import { span } from '../../lib/format'
 import { CONTINUE_TEXT, DAY, HI_KEY, clockNow, hiSlotsOf, hiStart, nextHiSlot, vnClock, vnMidnight } from '../../lib/schedule'
 import { cfg, saveSettings } from '../../state/config'
 import type { CfgKey } from '../../state/config'
+import { drawToggle } from './toggle'
 
 // The atoms this file reads or writes (each file declares its own: the engine reads an atom only
 // where a const of the same file made it; the same plugin and key are the same value).
@@ -13,7 +14,7 @@ const autoContinue = atom({ plugin: 'cc-mod-statusbar', key: 'autoContinue' } as
 
 // The usage menu's Automation section: auto-continue after a limit, with what waits and a cancel;
 // the "hi" schedule, with today's slots and what came of each.
-export async function drawAutomation($: any, els: any) {
+export async function drawAutomation($: any, els: any, isTerminal = true) {
   const { Box, Button, Text } = els
   const now: number = await clockNow($)
   const pending = await read($, autoContinue)
@@ -37,10 +38,12 @@ export async function drawAutomation($: any, els: any) {
   return (
     <Box key="automation" flexDirection="column" marginTop={1}>
       <Text color="subtle" bold>◇ Automation</Text>
-      <Button key="auto:continue" plain hotkey="a" onPress={() => flip('autoContinue')}>
-        {sw(cfg.autoContinue)} <Text bold>Auto-continue</Text>
-        <Text dimColor>{`  a turn the 5-hour or weekly limit stopped gets "${CONTINUE_TEXT}" once the window resets`}</Text>
-      </Button>
+      {isTerminal ? (
+        <Button key="auto:continue" plain hotkey="a" onPress={() => flip('autoContinue')}>
+          {sw(cfg.autoContinue)} <Text bold>Auto-continue</Text>
+          <Text dimColor>{`  a turn the 5-hour or weekly limit stopped gets "${CONTINUE_TEXT}" once the window resets`}</Text>
+        </Button>
+      ) : drawToggle(els, isTerminal, { key: 'auto:continue', isOn: cfg.autoContinue, label: 'Auto-continue', note: `a turn the 5-hour or weekly limit stopped gets "${CONTINUE_TEXT}" once the window resets`, onPress: () => flip('autoContinue') })}
       {pending ? (
         <Box key="auto:pending" flexDirection="row" gap={1}>
           <Text color="claude">{`  ⏵ "${CONTINUE_TEXT}" at ${vnClock(pending.at)}, in ${span(pending.at - now)}: after the ${pending.window} window resets${pending.tries > 1 ? ` · try ${pending.tries}` : ''}`}</Text>
@@ -52,10 +55,12 @@ export async function drawAutomation($: any, els: any) {
           </Button>
         </Box>
       ) : cfg.autoContinue ? <Text dimColor>  nothing waiting</Text> : null}
-      <Button key="auto:hi" plain hotkey="h" onPress={() => flip('hiSchedule')}>
-        {sw(cfg.hiSchedule)} <Text bold>Auto-start 5h window</Text>
-        <Text dimColor>{`  every 5 hours from ${hiStart()}, Vietnam time; the start time is in + then Settings`}</Text>
-      </Button>
+      {isTerminal ? (
+        <Button key="auto:hi" plain hotkey="h" onPress={() => flip('hiSchedule')}>
+          {sw(cfg.hiSchedule)} <Text bold>Auto-start 5h window</Text>
+          <Text dimColor>{`  every 5 hours from ${hiStart()}, Vietnam time; the start time is in ✻ then Settings`}</Text>
+        </Button>
+      ) : drawToggle(els, isTerminal, { key: 'auto:hi', isOn: cfg.hiSchedule, label: 'Auto-start 5h window', note: `every 5 hours from ${hiStart()}, Vietnam time; the start time is in ✻ then Settings`, onPress: () => flip('hiSchedule') })}
       {cfg.hiSchedule ? (
         <Text>
           {'  '}

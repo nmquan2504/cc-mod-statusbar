@@ -11,6 +11,8 @@ export const ME = 'cc-mod-statusbar'
 export const rt = {
   // when the usage endpoint last answered (features/usage.ts fetchUsage), for the usage menu
   usageFetchedAt: 0,
+  // the session the usage endpoint was last asked for: a new one (a start, /resume, /clear) asks again
+  usageSessionId: undefined as string | undefined,
   // what Haiku proposes sending next after Claude's last answer (features/chips.ts), cleared when a
   // turn starts; and the round it answers, moved on by a turn, a chip sent or ✕
   answerChips: [] as string[],

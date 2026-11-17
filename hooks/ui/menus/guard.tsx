@@ -17,6 +17,7 @@ import { modeStyle } from '../../lib/catalog'
 import { hhmm, oneLine } from '../../lib/format'
 import { rt } from '../../state/runtime'
 import type { Entry } from './entry'
+import { drawToggle } from './toggle'
 
 // The atoms this file reads or writes (each file declares its own: the engine reads an atom only
 // where a const of the same file made it; the same plugin and key are the same value).
@@ -36,7 +37,7 @@ const audit = atom({ plugin: 'cc-mod-statusbar', key: 'audit' } as const, [])
 const mcpServers = atom({ plugin: 'cc-mod-statusbar', key: 'mcpServers' } as const, [])
 
 // The guard menu.
-export async function drawGuardMenu($: any, els: any, _isTerminal: boolean, _entry: Entry) {
+export async function drawGuardMenu($: any, els: any, isTerminal: boolean, _entry: Entry) {
   const { Box, Button, Text } = els
   const g = await read($, guard)
   const saved = await read($, vault)
@@ -176,15 +177,20 @@ export async function drawGuardMenu($: any, els: any, _isTerminal: boolean, _ent
           : []
         return (
           <Box key={`row:gr:${r.id}`} flexDirection="column" paddingLeft={ENTRY_INDENT}>
-            <Button key={`gr:${r.id}`} plain onPress={() => press(r, isOn)}>
-              <Text color={isOn ? 'success' : offColor} bold>{isOn ? '[on] ' : '[off]'}</Text>
-              {' '}{st.state === 'warn'
-                ? <Text color="warning">!</Text>
-                : isOn ? <Text color="success">✓</Text> : r.isCore ? <Text color="error">✗</Text> : <Text color="warning">!</Text>}
-              {' '}<Text bold>{r.title}</Text>
-              {r.isCore ? <Text dimColor> core</Text> : null}
-              <Text dimColor>{`  ${st.note}`}</Text>
-            </Button>
+            {isTerminal ? (
+              <Button key={`gr:${r.id}`} plain onPress={() => press(r, isOn)}>
+                <Text color={isOn ? 'success' : offColor} bold>{isOn ? '[on] ' : '[off]'}</Text>
+                {' '}{st.state === 'warn'
+                  ? <Text color="warning">!</Text>
+                  : isOn ? <Text color="success">✓</Text> : r.isCore ? <Text color="error">✗</Text> : <Text color="warning">!</Text>}
+                {' '}<Text bold>{r.title}</Text>
+                {r.isCore ? <Text dimColor> core</Text> : null}
+                <Text dimColor>{`  ${st.note}`}</Text>
+              </Button>
+            ) : drawToggle(els, isTerminal, {
+              key: `gr:${r.id}`, isOn, onTone: st.state === 'warn' ? 'warning' : 'success', offTone: offColor,
+              label: `${r.title}${r.isCore ? ' (core)' : ''}`, note: st.note, onPress: () => press(r, isOn),
+            })}
             {detail.map(d => (
               <Text key={`gd:${r.id}:${d.key}`}>
                 {'        '}<Text color="suggestion">{`${d.title} ${d.n}`}</Text>
@@ -226,7 +232,7 @@ export async function drawGuardMenu($: any, els: any, _isTerminal: boolean, _ent
       {row(g.sandbox || 'warn', 'Sandbox', g.sandbox ? 'on: Bash runs sandboxed' : 'off: advised')}
       {row(g.hooks.length > 0 || 'info', 'Hooks', g.hooks.length ? `on ${g.hooks.join(', ')}` : 'no settings hooks')}
       {row('info', 'Plugins', `${g.plugins} enabled`)}
-      {row('info', 'Secret vault', saved.length ? saved.join(', ') : 'nothing saved yet: + then 4, or /secret')}
+      {row('info', 'Secret vault', saved.length ? saved.join(', ') : 'nothing saved yet: ✻ then 4, or /secret')}
       {asks.length > 0 && (
         <Text>
           {'\n'}<Text color="subtle" bold>◇ Asked most</Text>

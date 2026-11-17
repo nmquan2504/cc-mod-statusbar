@@ -1,7 +1,7 @@
 import { rt } from '../state/runtime'
 
 // ---- arcade: while Claude works, monsters walk in from the left and Claude shoots them ----
-// It plays in the gap between the bar's two groups:  [+] [⁄] [● model] folder  3 ✝ ᗣ  Ѫ ✺ - -  ¬✻  5h … ◈
+// It plays in the gap between the bar's two groups:  [✻] [● model] folder  3 ✝ ᗣ  Ѫ ✺ - -  ¬✻  5h … ◈
 // A plain simulation in module variables: a 120 ms clock steps it and asks for a redraw,
 // the band only reads it. Every glyph is one cell wide (East Asian width N or Na).
 

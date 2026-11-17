@@ -5,7 +5,7 @@ import { ARENA_GAP, ARENA_MIN, arena, arenaRuns, endRound, resetArena } from '..
 import { closeMenu, openMenu } from '../features/menu'
 import { isRemoteWaiting, pendingPairs, remote, secondsToPair, spinnerFrame } from '../features/remote'
 import { updateNow } from '../features/update'
-import { TITLES, effortColor, effortIcon, modeStyle, modelStyle } from '../lib/catalog'
+import { TITLES, effortColor, effortIcon, modelStyle } from '../lib/catalog'
 import { clockOf, level, meter, oneLine, pct, shortModel } from '../lib/format'
 import { GAUGE_CELLS, TRACK, gaugeColors, hex, inGauge } from '../lib/graphics'
 import { vnClock } from '../lib/schedule'
@@ -68,7 +68,6 @@ export async function drawBand($: any, e: any, next: any) {
   const open = await read($, menu)
   const b = await read($, bar)
   rt.drawnMode = rt.probedMode ?? rt.hintMode ?? b.mode
-  const m = modeStyle(rt.drawnMode)
   const ms = modelStyle(b.model)
   const g = await read($, guard)
   // the guardrails on, of them all; red while a core one is off (features/guardrails.ts)
@@ -77,8 +76,8 @@ export async function drawBand($: any, e: any, next: any) {
 
   // A square button: the label on a full cell of `bg` (no glyph caps, so it fills the row
   // at any line height); the one whose menu is open is drawn inverted.
-  const pill = (key: MenuKind, label: string, bg: string, fg = 'inverseText') => (
-    <Text backgroundColor={open === key ? fg : bg} color={open === key ? bg : fg} bold>{label}</Text>
+  const pill = (key: MenuKind, label: string, bg: string, fg = 'inverseText', isAlsoOpen = false) => (
+    <Text backgroundColor={open === key || isAlsoOpen ? fg : bg} color={open === key || isAlsoOpen ? bg : fg} bold>{label}</Text>
   )
   // On the terminal the gauge is spaces on raw truecolor backgrounds: Text, so it fits in the
   // usage Button (a Button holds Text only, never a Raster).
@@ -184,7 +183,6 @@ export async function drawBand($: any, e: any, next: any) {
     const branchText = cfg.barGit && !dropped.has('barGit') && b.branch ? `⎇ ${oneLine(b.branch, isTight ? 8 : isCompact ? 14 : 32)}` : ''
     const marksText = cfg.barGit && !dropped.has('barGit') && !isTight && gitMarks ? ` ${gitMarks}` : ''
     const modelLabel = !cfg.barModel ? '' : isCompact ? ` ● ${name.charAt(0)}${name.split(' ')[1] ?? ''} ` : ` ● ${name} `
-    const modeLabel = !cfg.barMode ? '' : isCompact ? ` ${m.icon} ` : ` ${m.icon} ${m.label.split(' (')[0]} `
     const effortLabel = !cfg.barEffort || !b.effort ? '' : isCompact ? ` ${effortIcon(b.effort)} ${b.effort.charAt(0)} ` : ` ${effortIcon(b.effort)} ${b.effort} `
     const showGauge = cfg.usageGauge && !isCompact
     const meterWidth = (label: string, n: number | null) => label.length + (showGauge && Raster ? 1 + GAUGE_CELLS : (showGauge ? 1 + 4 : 0) + 1 + pct(n).length)
@@ -198,17 +196,16 @@ export async function drawBand($: any, e: any, next: any) {
       barRemote: remoteLabel.length,
       barImages: imagesLabel.length,
       barMcp: mcpLabel.length,
-      barMode: modeLabel.length,
       // tight: ◈ alone, its red still saying a guardrail fails
       barGuard: !cfg.barGuard ? 0 : isTight ? (' ◈ ' + guardDanger).length : guardLabel.length,
     }
-    // a gap before every item in the left group (+ and ⁄ open it), between the items in the right
+    // a gap before every item in the left group (✻ opens it), between the items in the right
     const cellsOf = (keys: string[]) => keys.filter(k => !dropped.has(k)).map(k => width[k] ?? 0).filter(Boolean).reduce((n, w) => n + 1 + w, 0)
-    const left = 3 + 1 + 3 + cellsOf(order.slice(0, split))
+    const left = 3 + cellsOf(order.slice(0, split))
     const rightCells = (brokenLabel ? 1 + brokenLabel.length : 0) + (continueLabel ? 1 + continueLabel.length : 0)
       + (updateLabel ? 1 + updateLabel.length : 0) + cellsOf(order.slice(split + 1))
     const right = Math.max(0, rightCells - 1)
-    return { folderText, branchText, marksText, modelLabel, modeLabel, effortLabel, showGauge, left, right }
+    return { folderText, branchText, marksText, modelLabel, effortLabel, showGauge, left, right }
   }
   // the turn's clock and what it has cost so far, frozen once it ends
   const u = await read($, usage)
@@ -249,7 +246,7 @@ export async function drawBand($: any, e: any, next: any) {
   }
   // the last resort, a row narrower still: the left group gives up cells at its end rather than overrun
   const isSqueezed = isCompact && !fits(chosen)
-  const { folderText, branchText, marksText, modelLabel, modeLabel, effortLabel, showGauge, left, right } = chosen
+  const { folderText, branchText, marksText, modelLabel, effortLabel, showGauge, left, right } = chosen
   arena.width = e.props.bodyColumns - 4 - left - right - 2 * ARENA_GAP - 1 - extras
 
 
@@ -335,12 +332,6 @@ export async function drawBand($: any, e: any, next: any) {
             {pill('mcp', mcpLabel, mcpFailed ? 'error' : 'subtle')}
           </Button>
         ) : null
-      case 'barMode':
-        return modeLabel ? (
-          <Button key="mode" plain hover={{ scope: 'qsb-mode', bold: true }} onPress={() => openMenu($, 'mode')}>
-            {pill('mode', modeLabel, m.color)}
-          </Button>
-        ) : null
       case 'barGuard':
         return guardLabel ? (
           <Button key="guard" plain hover={{ scope: 'qsb-guard', bold: true }} onPress={() => openMenu($, 'guard')}>
@@ -368,8 +359,6 @@ export async function drawBand($: any, e: any, next: any) {
       modelColor: ms.color,
       effort: b.effort,
       effortColor: effortColor(b.effort),
-      mode: m.label.split(' (')[0]!,
-      modeColor: m.color,
       folder: b.folder,
       branch: cfg.barGit ? b.branch : null,
       gitMarks: cfg.barGit ? gitMarks : '',
@@ -392,6 +381,7 @@ export async function drawBand($: any, e: any, next: any) {
       turnText: isTurnShown ? turnText.replace(/^◷ /, '') : '',
       isBusy: rt.isBusy,
       running,
+      tasks: (await taskLine($)) ?? null,
       order,
       split,
     })
@@ -476,11 +466,9 @@ export async function drawBand($: any, e: any, next: any) {
             side of it stay two cells (branch to kills, Claude to the clock). Neither group
             shrinks: when the row runs short, the arena gives up cells and clips, never the folder */}
         <Box flexDirection="row" gap={1} flexShrink={isSqueezed ? 1 : 0} minWidth={0} overflow="hidden">
+          {/* ✻ opens the add menu, the slash commands one entry in it */}
           <Button key="add" plain hover={{ scope: 'qsb-add', bold: true }} onPress={() => openMenu($, 'add')}>
-            {pill('add', ' + ', 'claude')}
-          </Button>
-          <Button key="commands" plain hover={{ scope: 'qsb-commands', bold: true }} onPress={() => openMenu($, 'commands')}>
-            {pill('commands', ' ⁄ ', 'claude')}
+            {pill('add', ' ✻ ', 'claude', 'inverseText', open === 'commands')}
           </Button>
           {order.slice(0, split).filter(k => !dropped.has(k)).map(itemOf)}
         </Box>

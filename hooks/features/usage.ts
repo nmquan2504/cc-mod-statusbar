@@ -135,3 +135,12 @@ export async function readBreakdown($: any, detail: 'summary' | 'full') {
     $.ui.invalidate('ui.render')
   }
 }
+
+// The usage asked of Anthropic once per session: at its start and when /resume or /clear brings
+// another under the same process, so the gauges show the windows before the first answer.
+export async function fetchUsageForSession($: any): Promise<boolean> {
+  const id = String(await $.session.id().catch(() => ''))
+  if (id === rt.usageSessionId) return false
+  rt.usageSessionId = id
+  return fetchUsage($)
+}

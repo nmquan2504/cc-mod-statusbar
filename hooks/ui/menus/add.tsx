@@ -10,7 +10,7 @@ import type { Entry } from './entry'
 // The add menu.
 export async function drawAddMenu($: any, els: any, isTerminal: boolean, entry: Entry) {
   const { Box, Text } = els
-  // three groups: what goes into the prompt as context, what rewrites the prompt, the bar itself
+  // four groups: what goes into the prompt as context, what rewrites the prompt, the slash commands, the bar itself
   const heading = (key: string, title: string, note: string, isFirst = false) => (
     <Text key={key}>
       {isFirst ? '' : '\n'}<Text color={isFirst ? 'claude' : 'subtle'} bold>{`${isFirst ? '◆' : '◇'} ${title}`}</Text>
@@ -48,6 +48,8 @@ export async function drawAddMenu($: any, els: any, isTerminal: boolean, entry: 
         await $.prompt.fill({ text: rt.lastDraft, mode: 'replace' })
         rt.lastDraft = ''
       }) : null}
+      {heading('h:commands', 'Commands', 'every slash command and skill')}
+      {entry('commands', 'c', '⁄', 'Slash commands & skills', 'the ones you type most on top; a pick goes in the prompt', () => openMenu($, 'commands'))}
       {heading('h:bar', 'Bar', 'this status bar')}
       {entry('settings', 's', '⊞', 'Settings', 'what the bar shows, and when it warns', () => openMenu($, 'settings'))}
     </Box>
