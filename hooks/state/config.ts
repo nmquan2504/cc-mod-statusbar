@@ -15,6 +15,8 @@ export const cfg = {
   barMode: true,
   barGuard: true,
   arcade: true,
+  // Claude's gun in the arena, a GUNS key (Settings, Claude's gun)
+  gun: 'sniper',
   // Claude Code Desktop shows the model, the effort and the mode by its own prompt box: on, the bar
   // shows them there too
   desktopSessionItems: false,
@@ -88,6 +90,21 @@ export const cfg = {
 
 export type CfgKey = keyof typeof cfg
 
+// The guns Claude can carry in the arena. Claude stands at the right end and fires left, so each
+// reads muzzle first, on the left, and ends at Claude's ✻ on the right; a gun drawn facing right
+// (⌐╦╾, its tip ╾ thin on the right) is mirrored here (╼╦¬). デ, ︻ and 💥 take two cells each.
+export const GUNS: { key: string; name: string; glyph: string }[] = [
+  { key: 'sniper', name: 'Sniper', glyph: '─━╦✻' },
+  { key: 'rifle', name: 'Rifle', glyph: '━╤✻' },
+  { key: 'pistol', name: 'Pistol', glyph: '╼╦¬✻' },
+  { key: 'carbine', name: 'Carbine', glyph: '━╼╦¬✻' },
+  { key: 'heavy', name: 'Heavy', glyph: '╼━╤デ╦︻▄✻' },
+  { key: 'blaster', name: 'Blaster', glyph: '💥━╼᠊ᡁデᠵᡕ✻' },
+]
+
+// Claude with the gun Settings picked; an unknown key carries the first
+export const claudeGlyph = () => (GUNS.find(g => g.key === cfg.gun) ?? GUNS[0]!).glyph
+
 export const DEFAULTS = { ...cfg }
 
 export const SETTINGS_KEY = 'settings'
@@ -110,6 +127,7 @@ export function readOptions(stored: Readonly<Record<string, unknown>>) {
     const row = SETTINGS.find(r => r.key === key)
     if (typeof v !== typeof cfg[key]) continue
     if (typeof v === 'number' && row?.kind === 'number' && (v < row.min || v > row.max)) continue
+    if (key === 'gun' && !GUNS.some(g => g.key === v)) continue
     ;(cfg as Record<string, unknown>)[key] = v
   }
 }

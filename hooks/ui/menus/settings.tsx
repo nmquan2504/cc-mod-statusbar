@@ -1,7 +1,7 @@
 import { outputStyles } from '../../features/assist'
 import { modVersionText, updateNow } from '../../features/update'
 
-import { BAR_ITEMS, BAR_PRESETS, DEFAULTS, HISTORY_KEY, SETTINGS, SETTINGS_KEY, applyBarPreset, barOrder, barPresetNow, cfg, importSettings, moveBarItem, restorePreviousSettings, saveSettings, settingsText, stepped, syncSuggestEnv } from '../../state/config'
+import { BAR_ITEMS, BAR_PRESETS, DEFAULTS, GUNS, HISTORY_KEY, SETTINGS, SETTINGS_KEY, applyBarPreset, barOrder, barPresetNow, cfg, claudeGlyph, importSettings, moveBarItem, restorePreviousSettings, saveSettings, settingsText, stepped, syncSuggestEnv } from '../../state/config'
 import { hhmm, spanText } from '../../lib/format'
 import { rt } from '../../state/runtime'
 import type { CfgKey, SettingsSnapshot } from '../../state/config'
@@ -14,7 +14,7 @@ export async function drawSettingsMenu($: any, els: any, isTerminal: boolean, _e
   const history = ((await $.store.get(HISTORY_KEY).catch(() => undefined)) ?? []) as SettingsSnapshot[]
   const styles = await outputStyles($)
   const style = String(((await $.settings.read().catch(() => ({}))) as { outputStyle?: string }).outputStyle ?? 'default')
-  const set = async (key: CfgKey, value: boolean | number) => {
+  const set = async (key: CfgKey, value: boolean | number | string) => {
     ;(cfg as Record<string, unknown>)[key] = value
     await saveSettings($)
   }
@@ -58,7 +58,7 @@ export async function drawSettingsMenu($: any, els: any, isTerminal: boolean, _e
       </Box>
       <Text>
         <Text bold>On the bar</Text>
-        <Text dimColor>  a press shows or hides the item, ‹ › move it; left of the arena, the left group; ✻ and Claude's ─━╦✻ always stay</Text>
+        <Text dimColor>{`  a press shows or hides the item, ‹ › move it; left of the arena, the left group; ✻ and Claude's ${claudeGlyph()} always stay`}</Text>
       </Text>
       <Box key="bar-items" flexDirection="row" gap={1} flexWrap="wrap" marginBottom={1}>
         {barOrder().map((key, i, order) => {
@@ -72,7 +72,7 @@ export async function drawSettingsMenu($: any, els: any, isTerminal: boolean, _e
                 </Button>
               ) : <Text> </Text>}
               <Button key={`bar:${key}`} plain onPress={() => set(key, !isOn)}>
-                <Text backgroundColor={isOn ? 'claude' : 'subtle'} color="inverseText" bold>{` ${isOn ? '✓' : '·'} ${item.label} `}</Text>
+                <Text backgroundColor={isOn ? 'claude' : 'subtle'} color="inverseText" bold>{` ${isOn ? '✓' : '·'} ${key === 'arcade' ? `${claudeGlyph()} arena` : item.label} `}</Text>
               </Button>
               {i < order.length - 1 ? (
                 <Button key={`right:${key}`} plain onPress={() => moveBarItem($, key, 1)}>
@@ -80,6 +80,21 @@ export async function drawSettingsMenu($: any, els: any, isTerminal: boolean, _e
                 </Button>
               ) : <Text> </Text>}
             </Box>
+          )
+        })}
+      </Box>
+      <Text>
+        <Text bold>Claude's gun</Text>
+        <Text dimColor>  what Claude carries in the arena; it fires left, so the muzzle is on the left</Text>
+      </Text>
+      <Box key="guns" flexDirection="row" gap={1} flexWrap="wrap" marginBottom={1}>
+        {GUNS.map(g => {
+          const isNow = g.glyph === claudeGlyph()
+          return (
+            <Button key={`gun:${g.key}`} plain onPress={() => set('gun', g.key)}>
+              <Text backgroundColor={isNow ? 'claude' : 'subtle'} color="inverseText" bold>{` ${isNow ? '● ' : ''}${g.name} `}</Text>
+              <Text color="claude">{` ${g.glyph}`}</Text>
+            </Button>
           )
         })}
       </Box>

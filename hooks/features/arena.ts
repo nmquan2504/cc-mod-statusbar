@@ -1,9 +1,10 @@
+import { claudeGlyph } from '../state/config'
 import { rt } from '../state/runtime'
 
 // ---- arcade: while Claude works, monsters walk in from the left and Claude shoots them ----
 // It plays in the gap between the bar's two groups:  [✻] [● model] folder  3 ✝ ᗣ  Ѫ ✺ - -  ─━╦✻  5h … ◈
 // A plain simulation in module variables: a 120 ms clock steps it and asks for a redraw,
-// the band only reads it. Every glyph is one cell wide (East Asian width N or Na).
+// the band only reads it. Every glyph is one cell wide (East Asian width N or Na), but for some guns.
 
 // `pos` moves `speed` cells a tick; `x` is the cell it is drawn in.
 // isError: the boss a failed tool call sends in. Bullets do not touch it; the next call that
@@ -105,9 +106,22 @@ export function stepLinger(): boolean {
   return true
 }
 
-// Claude with a sniper rifle: a thin muzzle ─, the barrel ━ and the stock ╦, then ✻
-export const CLAUDE_GLYPH = '─━╦✻'
-export const gunAt = () => arena.width - CLAUDE_GLYPH.length // the gun's first cell; ✻ sits at its right end
+// The cells a string takes: two for a wide character (CJK, fullwidth forms, an emoji), else one
+export function cellsOf(text: string) {
+  let n = 0
+  for (const ch of text) {
+    const c = ch.codePointAt(0)!
+    const isWide = (c >= 0x1100 && c <= 0x115f) || (c >= 0x2e80 && c <= 0xa4cf) || (c >= 0xac00 && c <= 0xd7a3)
+      || (c >= 0xf900 && c <= 0xfaff) || (c >= 0xfe30 && c <= 0xfe4f) || (c >= 0xff00 && c <= 0xff60) || (c >= 0xffe0 && c <= 0xffe6)
+      || (c >= 0x1f300 && c <= 0x1faff)
+    n += isWide ? 2 : 1
+  }
+  return n
+}
+
+// Claude with the gun Settings picked (config's GUNS), muzzle on the left, ✻ at the right end
+export const claudeCells = () => cellsOf(claudeGlyph())
+export const gunAt = () => arena.width - claudeCells() // the gun's first cell; ✻ sits at its right end
 
 // Ticks a monster is on the field before Claude fires at it: about half a second.
 export const SIGHT = 4
