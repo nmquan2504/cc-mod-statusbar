@@ -97,6 +97,10 @@ export async function drawSettingsMenu($: any, els: any, isTerminal: boolean, _e
             </Button>
           )
         })}
+        <Button key="gun:flash" plain onPress={() => set('muzzleFlash', !cfg.muzzleFlash)}>
+          <Text backgroundColor={cfg.muzzleFlash ? 'claude' : 'subtle'} color="inverseText" bold>{` ${cfg.muzzleFlash ? '✓' : '·'} 💥 flash `}</Text>
+          <Text dimColor> at the muzzle when Claude fires, any gun</Text>
+        </Button>
       </Box>
       {SETTINGS.filter(r => !r.group).map(rowOf)}
       <Text>

@@ -1,4 +1,4 @@
-import { claudeGlyph } from '../state/config'
+import { cfg, claudeGlyph } from '../state/config'
 import { rt } from '../state/runtime'
 
 // ---- arcade: while Claude works, monsters walk in from the left and Claude shoots them ----
@@ -81,7 +81,8 @@ export const randomWait = () => SPAWN_MIN + Math.floor(Math.random() * (SPAWN_MA
 
 export const arena = {
   // hits: monsters that reached Claude this turn; hurtUntil: the tick Claude shows red until
-  width: 60, tick: 0, kills: 0, hits: 0, hurtUntil: 0, nextSpawn: SPAWN_MIN, bossDue: BOSS_EVERY,
+  // isFiring: Claude fired this tick, so the muzzle flashes 💥 (cfg.muzzleFlash)
+  width: 60, tick: 0, kills: 0, hits: 0, hurtUntil: 0, nextSpawn: SPAWN_MIN, bossDue: BOSS_EVERY, isFiring: false,
   monsters: [] as Monster[], bullets: [] as number[], blasts: [] as Blast[],
 }
 
@@ -94,6 +95,7 @@ export function endRound() {
   for (const m of a.monsters) a.blasts.push({ x: m.x, ttl: 3 })
   a.monsters = []
   a.bullets = []
+  a.isFiring = false
   rt.lingerUntil = Date.now() + LINGER_MS
 }
 
@@ -135,6 +137,7 @@ export const ARENA_MIN = 16
 export function stepArena() {
   const a = arena
   a.tick++
+  a.isFiring = false
   // each monster walks at its own random speed; the next one comes after a random wait
   // (SPAWN_MIN to SPAWN_MAX ticks), held back while the door is still taken
   for (const m of a.monsters) {
@@ -162,6 +165,7 @@ export function stepArena() {
       a.blasts.push({ x: m.x, ttl: 4 })
     }
     a.bullets = Array.from({ length: Math.floor(gunAt() / 3) }, (_, i) => gunAt() - 1 - i * 3)
+    a.isFiring = true
   }
   // a tool call: its monster walks in as soon as the door is free
   if (ev.spawns.length && !a.monsters.some(m => m.x < 2)) {
@@ -185,7 +189,10 @@ export function stepArena() {
   for (const m of a.monsters) m.age++
   a.bullets = a.bullets.map(x => x - 2)
   const targets = a.monsters.filter(m => m.age >= SIGHT && !m.isError).reduce((hp, m) => hp + m.hp, 0)
-  if (a.tick % 3 === 0 && targets > a.bullets.length) a.bullets.push(gunAt() - 1)
+  if (a.tick % 3 === 0 && targets > a.bullets.length) {
+    a.bullets.push(gunAt() - 1)
+    a.isFiring = true
+  }
   // a bullet hits the nearest monster it has reached or passed this tick
   for (const m of [...a.monsters].sort((p, q) => q.x - p.x)) {
     if (m.isError) continue // bullets pass an error boss by: only a success bursts it
@@ -214,7 +221,7 @@ export function stepArena() {
 
 export function resetArena() {
   Object.assign(arenaEvents, { spawns: [], errors: 0, fixes: 0, volleys: 0 })
-  Object.assign(arena, { tick: 0, kills: 0, hits: 0, hurtUntil: 0, nextSpawn: randomWait(), bossDue: BOSS_EVERY, monsters: [], bullets: [], blasts: [] })
+  Object.assign(arena, { tick: 0, kills: 0, hits: 0, hurtUntil: 0, nextSpawn: randomWait(), bossDue: BOSS_EVERY, isFiring: false, monsters: [], bullets: [], blasts: [] })
 }
 
 // The row as runs of one color: [text, color].
@@ -224,6 +231,11 @@ export function arenaRuns(): [string, string][] {
   for (const x of a.bullets) if (x < a.width) cells[x] = ['-', 'claude']
   for (const m of a.monsters) if (m.x < a.width) cells[m.x] = [m.glyph, m.color]
   for (const b of a.blasts) if (b.x < a.width) cells[b.x] = [b.ttl > 1 ? '✺' : '⁕', 'warning']
+  // the flash takes the two cells before the muzzle: 💥 is two cells wide, so the second stays empty
+  if (cfg.muzzleFlash && a.isFiring && gunAt() >= 2) {
+    cells[gunAt() - 2] = ['💥', 'warning']
+    cells[gunAt() - 1] = ['', 'warning']
+  }
   cells.length = gunAt() // the band draws the gun and Claude as a Button after these cells
   const runs: [string, string][] = []
   for (const [ch, color] of cells) {
