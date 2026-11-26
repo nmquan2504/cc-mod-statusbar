@@ -178,13 +178,13 @@ The repository is its own marketplace. Type this at the prompt of a terminal ses
 /plugin install cc-mod-statusbar --marketplace nmquan2504/cc-mod-statusbar
 ```
 
-The repository is private, so the account running Claude Code needs read access to it on GitHub. A copy installed this way updates through `claude plugin update cc-mod-statusbar`, then `/reload-plugins`.
+The repository is public, so any GitHub account can install it. A copy installed this way updates through `claude plugin update cc-mod-statusbar`, then `/reload-plugins`.
 
 ## Where it lives
 
 The author's copy sits in `~/.claude/skills/cc-mod-statusbar/`, a clone of the repository, so every session loads it as `cc-mod-statusbar@skills-dir`. A minute after a session starts, and every hour after that, the mod fetches its own repository. When the upstream has commits this folder lacks, a `↑ mod` chip shows at the head of the right group. A press runs `git pull --ff-only`, so a local change is never merged over, then `/reload-plugins`, with no question first. A folder that is not a git clone, such as a marketplace install, never shows the chip. The last line of Settings names the version the session loaded, read again by each `/reload-plugins`: the manifest's version, then the commit and its date (`0.17.4 · 994a88c, 23 Oct 10:41`). After a pull it adds that a newer version waits for `/reload-plugins`, and a reload that loads another commit says so in a toast, `now on` the new version and `was` the old one. A marketplace install shows the manifest's version alone. `v` (Check for update), just above that line, does the whole round at once: it fetches the repository, says so when nothing is new, else pulls fast-forward only and runs `/reload-plugins`, with no question first.
 
-Changes are made elsewhere, in a separate clone at `~/Q/Projects/-/cc-mod-statusbar`, each on a branch of its own (`git fetch && git switch -c <branch> origin/main`). Every session watches `~/.claude/skills/cc-mod-statusbar` and reloads the mod when a file there changes. A reload resets the mod's state, and an edit saved halfway reaches every open session. To try a change live, start a session with `claude --plugin-dir ~/Q/Projects/-/cc-mod-statusbar`: a `--plugin-dir` copy takes the name, and that session skips the skills folder's copy. Other sessions get the change once its pull request is merged and the `↑ mod` chip pulls it.
+Changes are made elsewhere, in a separate clone such as `~/cc-mod-statusbar`, each on a branch of its own (`git fetch && git switch -c <branch> origin/main`). Every session watches `~/.claude/skills/cc-mod-statusbar` and reloads the mod when a file there changes. A reload resets the mod's state, and an edit saved halfway reaches every open session. To try a change live, start a session with `claude --plugin-dir ~/cc-mod-statusbar`: a `--plugin-dir` copy takes the name, and that session skips the skills folder's copy. Other sessions get the change once its pull request is merged and the `↑ mod` chip pulls it.
 
 ```bash
 claude plugin disable cc-mod-statusbar@skills-dir   # turn it off
