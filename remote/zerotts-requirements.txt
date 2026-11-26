@@ -488,4 +488,4 @@ typing-extensions==4.16.0 \
 zerotts==0.1.5 \
     --hash=sha256:1e0fcdd15100dd6b2ebbcebc06c37401277f31ea98469d1f2809a9e1a7a75b58 \
     --hash=sha256:9b4ceade901c224db33f675794c2c2f7c6d9190fd8f97b74c85efe62cef1c04b
-    # via -r /Users/quan.nguyen/.claude/jobs/98d679f6/tmp/req.in
+    # via -r requirements.in
